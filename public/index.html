@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Reservas - Pousada</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="login-container" class="container">
+    <div class="row justify-content-center">
+      <div class="col-md-6 col-lg-4">
+        <div class="card mt-5">
+          <div class="card-header text-center">
+            <h3>Sistema de Reservas</h3>
+            <p class="text-muted">Pousada</p>
+          </div>
+          <div class="card-body">
+            <form id="login-form">
+              <div class="mb-3">
+                <label for="username" class="form-label">Usuário</label>
+                <input type="text" class="form-control" id="username" required>
+              </div>
+              <div class="mb-3">
+                <label for="password" class="form-label">Senha</label>
+                <input type="password" class="form-control" id="password" required>
+              </div>
+              <div class="d-grid">
+                <button type="submit" class="btn btn-primary">Entrar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app-container" class="container-fluid d-none">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="#">Sistema de Reservas</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto">
+            <li class="nav-item">
+              <a class="nav-link active" href="#" data-page="dashboard">Dashboard</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="reservas">Reservas</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" data-page="nova-reserva">Nova Reserva</a>
+            </li>
+          </ul>
+          <div class="d-flex">
+            <span class="navbar-text me-3" id="user-info"></span>
+            <button class="btn btn-outline-light" id="logout-btn">Sair</button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container mt-4">
+      <!-- Dashboard -->
+      <div id="dashboard-page" class="page-content">
+        <h2>Dashboard</h2>
+        <div class="row">
+          <div class="col-md-4">
+            <div class="card mb-4">
+              <div class="card-body">
+                <h5 class="card-title">Reservas Ativas</h5>
+                <p class="card-text display-4" id="reservas-ativas-count">0</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card mb-4">
+              <div class="card-body">
+                <h5 class="card-title">Quartos Disponíveis</h5>
+                <p class="card-text display-4" id="quartos-disponiveis-count">0</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card mb-4">
+              <div class="card-body">
+                <h5 class="card-title">Reservas Hoje</h5>
+                <p class="card-text display-4" id="reservas-hoje-count">0</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <h5>Próximas Reservas</h5>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-striped">
+                    <thead>
+                      <tr>
+                        <th>Hóspede</th>
+                        <th>Quarto</th>
+                        <th>Entrada</th>
+                        <th>Saída</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="proximas-reservas">
+                      <!-- Preenchido via JavaScript -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lista de Reservas -->
+      <div id="reservas-page" class="page-content d-none">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h2>Reservas</h2>
+          <button class="btn btn-primary" id="btn-nova-reserva">Nova Reserva</button>
+        </div>
+        
+        <div class="card mb-4">
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <label for="filtro-status" class="form-label">Status</label>
+                <select class="form-select" id="filtro-status">
+                  <option value="">Todos</option>
+                  <option value="ativa">Ativa</option>
+                  <option value="finalizada">Finalizada</option>
+                  <option value="cancelada">Cancelada</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label for="filtro-data-inicio" class="form-label">Data Início</label>
+                <input type="text" class="form-control datepicker" id="filtro-data-inicio">
+              </div>
+              <div class="col-md-3">
+                <label for="filtro-data-fim" class="form-label">Data Fim</label>
+                <input type="text" class="form-control datepicker" id="filtro-data-fim">
+              </div>
+              <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary w-100" id="btn-filtrar">Filtrar</button>
+              </div>
+            </div>
+            <div class="row g-3 mt-2">
+              <div class="col-md-3">
+                <label for="filtro-pagamento" class="form-label">Pagamento</label>
+                <select class="form-select" id="filtro-pagamento">
+                  <option value="">Todos</option>
+                  <option value="true">Pago</option>
+                  <option value="false">Não Pago</option>
+                </select>
+              </div>
+              <div class="col-md-9"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="table-responsive">
+          <table class="table table-striped">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Hóspede</th>
+                <th>CPF</th>
+                <th>Quarto</th>
+                <th>Entrada</th>
+                <th>Saída</th>
+                <th>Valor (R$)</th>
+                <th>Pago</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="lista-reservas">
+              <!-- Preenchido via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Nova/Editar Reserva -->
+      <div id="nova-reserva-page" class="page-content d-none">
+        <h2 id="form-titulo">Nova Reserva</h2>
+        
+        <div class="card">
+          <div class="card-body">
+            <form id="reserva-form">
+              <input type="hidden" id="reserva-id">
+              
+              <div class="row mb-3">
+                <div class="col-md-6">
+                  <label for="nome" class="form-label">Nome do Hóspede</label>
+                  <input type="text" class="form-control" id="nome" required>
+                </div>
+                <div class="col-md-6">
+                  <label for="cpf" class="form-label">CPF</label>
+                  <input type="text" class="form-control" id="cpf" required>
+                </div>
+              </div>
+              
+              <div class="row mb-3">
+                <div class="col-md-4">
+                  <label for="quarto" class="form-label">Quarto</label>
+                  <select class="form-select" id="quarto" required>
+                    <!-- Preenchido via JavaScript -->
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label for="data-entrada" class="form-label">Data de Entrada</label>
+                  <input type="text" class="form-control datepicker" id="data-entrada" required>
+                </div>
+                <div class="col-md-4">
+                  <label for="data-saida" class="form-label">Data de Saída</label>
+                  <input type="text" class="form-control datepicker" id="data-saida" required>
+                </div>
+              </div>
+              
+              <div class="row mb-3">
+                <div class="col-md-4">
+                  <label for="valor" class="form-label">Valor da Reserva (R$)</label>
+                  <input type="number" class="form-control" id="valor" min="0" step="0.01">
+                </div>
+                <div class="col-md-2">
+                  <label for="pago" class="form-label">Pagamento</label>
+                  <select class="form-select" id="pago">
+                    <option value="false">Não Pago</option>
+                    <option value="true">Pago</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label for="status" class="form-label">Status</label>
+                  <select class="form-select" id="status" required>
+                    <option value="ativa">Ativa</option>
+                    <option value="finalizada">Finalizada</option>
+                    <option value="cancelada">Cancelada</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div class="row mb-3">
+                <div class="col-md-12">
+                  <label for="observacoes" class="form-label">Observações</label>
+                  <textarea class="form-control" id="observacoes" rows="3"></textarea>
+                </div>
+              </div>
+              
+              <div class="d-flex justify-content-between">
+                <button type="button" class="btn btn-secondary" id="btn-cancelar">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Salvar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Confirmação -->
+  <div class="modal fade" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Confirmação</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body">
+          <p id="confirm-message"></p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="confirm-btn">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html> 
