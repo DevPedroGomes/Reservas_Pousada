@@ -1,5 +1,6 @@
 const express = require('express');
 const Reserva = require('../models/Reserva');
+const { validarReserva, sanitizarReserva } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -41,7 +42,16 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const reserva = await Reserva.buscarPorId(id);
+    
+    // Validar ID
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'ID da reserva inválido'
+      });
+    }
+    
+    const reserva = await Reserva.buscarPorId(parseInt(id));
     
     if (!reserva) {
       return res.status(404).json({
@@ -69,6 +79,16 @@ router.get('/disponibilidade/:quarto', async (req, res) => {
     const { quarto } = req.params;
     const { data_entrada, data_saida, reserva_id } = req.query;
     
+    // Validar quarto
+    const { validarQuarto, validarData, validarPeriodo } = require('../utils/validation');
+    if (!validarQuarto(quarto)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Número do quarto deve estar entre 1 e 25'
+      });
+    }
+    
+    // Validar datas
     if (!data_entrada || !data_saida) {
       return res.status(400).json({
         sucesso: false,
@@ -76,8 +96,30 @@ router.get('/disponibilidade/:quarto', async (req, res) => {
       });
     }
     
+    if (!validarData(data_entrada) || !validarData(data_saida)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Formato de data inválido. Use YYYY-MM-DD'
+      });
+    }
+    
+    if (!validarPeriodo(data_entrada, data_saida)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Data de entrada deve ser anterior à data de saída'
+      });
+    }
+    
+    // Validar reserva_id se fornecido
+    if (reserva_id && isNaN(parseInt(reserva_id))) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'ID da reserva inválido'
+      });
+    }
+    
     const disponibilidade = await Reserva.verificarDisponibilidade(
-      quarto, data_entrada, data_saida, reserva_id
+      parseInt(quarto), data_entrada, data_saida, reserva_id ? parseInt(reserva_id) : null
     );
     
     res.json({
@@ -97,26 +139,22 @@ router.get('/disponibilidade/:quarto', async (req, res) => {
 // Criar nova reserva
 router.post('/', async (req, res) => {
   try {
-    const { nome, cpf, quarto, data_entrada, data_saida, status, valor, pago, observacoes } = req.body;
+    // Sanitizar dados de entrada
+    const dadosSanitizados = sanitizarReserva(req.body);
     
-    // Validações básicas
-    if (!nome || !cpf || !quarto || !data_entrada || !data_saida) {
+    // Validar dados
+    const validacao = validarReserva(dadosSanitizados);
+    if (!validacao.valido) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: 'Dados incompletos para criar reserva'
+        mensagem: 'Dados inválidos',
+        erros: validacao.erros
       });
     }
     
     const novaReserva = {
-      nome,
-      cpf,
-      quarto,
-      data_entrada,
-      data_saida,
-      status: status || 'ativa',
-      valor: valor || null,
-      pago: pago || false,
-      observacoes,
+      ...dadosSanitizados,
+      status: dadosSanitizados.status || 'ativa',
       criado_por: req.user.id
     };
     
@@ -140,29 +178,29 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { nome, cpf, quarto, data_entrada, data_saida, status, valor, pago, observacoes } = req.body;
     
-    // Validações básicas
-    if (!nome || !cpf || !quarto || !data_entrada || !data_saida || !status) {
+    // Validar ID
+    if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: 'Dados incompletos para atualizar reserva'
+        mensagem: 'ID da reserva inválido'
       });
     }
     
-    const reservaAtualizada = {
-      nome,
-      cpf,
-      quarto,
-      data_entrada,
-      data_saida,
-      status,
-      valor: valor || null,
-      pago: pago || false,
-      observacoes
-    };
+    // Sanitizar dados de entrada
+    const dadosSanitizados = sanitizarReserva(req.body);
     
-    const resultado = await Reserva.atualizar(id, reservaAtualizada);
+    // Validar dados (incluindo status obrigatório para atualização)
+    const validacao = validarReserva({...dadosSanitizados, status: dadosSanitizados.status || 'ativa'});
+    if (!validacao.valido) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Dados inválidos',
+        erros: validacao.erros
+      });
+    }
+    
+    const resultado = await Reserva.atualizar(parseInt(id), dadosSanitizados);
     
     if (resultado.changes === 0) {
       return res.status(404).json({
@@ -191,14 +229,24 @@ router.patch('/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     
-    if (!status) {
+    // Validar ID
+    if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: 'Status da reserva é obrigatório'
+        mensagem: 'ID da reserva inválido'
       });
     }
     
-    const resultado = await Reserva.atualizarStatus(id, status);
+    // Validar status
+    const { validarStatus } = require('../utils/validation');
+    if (!status || !validarStatus(status)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Status inválido. Use: ativa, finalizada ou cancelada'
+      });
+    }
+    
+    const resultado = await Reserva.atualizarStatus(parseInt(id), status);
     
     if (resultado.changes === 0) {
       return res.status(404).json({
@@ -226,7 +274,16 @@ router.patch('/:id/status', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const resultado = await Reserva.excluir(id);
+    
+    // Validar ID
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'ID da reserva inválido'
+      });
+    }
+    
+    const resultado = await Reserva.excluir(parseInt(id));
     
     if (resultado.changes === 0) {
       return res.status(404).json({

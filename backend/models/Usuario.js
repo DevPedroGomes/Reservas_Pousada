@@ -25,12 +25,22 @@ class Usuario {
   }
 
   static async verificarSenha(username, senha) {
-    const usuario = await this.buscarPorUsername(username);
-    if (!usuario) {
+    try {
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('password')
+        .eq('username', username)
+        .single();
+      
+      if (error || !data) {
+        return false;
+      }
+      
+      return bcrypt.compareSync(senha, data.password);
+    } catch (error) {
+      console.error('Erro ao verificar senha:', error);
       return false;
     }
-    
-    return bcrypt.compareSync(senha, usuario.password);
   }
 
   static async listarTodos() {

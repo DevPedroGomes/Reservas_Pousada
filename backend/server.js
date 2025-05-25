@@ -12,7 +12,12 @@ const { activityLogger, verificarConfiguracaoSupabase } = require('./config/secu
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'pousada-reserva-secure-jwt-token';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.error('ERRO CRÍTICO: JWT_SECRET não definido nas variáveis de ambiente');
+  process.exit(1);
+}
 
 // Rate limiting para proteção contra ataques
 const limiter = rateLimit({
@@ -28,6 +33,22 @@ app.use('/api/', limiter);
 
 // Configurações de segurança básicas
 app.disable('x-powered-by'); // Remove o header X-Powered-By para ocultar informações do servidor
+
+// Headers de segurança adicionais
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
+  
+  next();
+});
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -35,9 +56,27 @@ app.use(cors({
   credentials: true
 }));
 
-// Middleware para parsear o corpo das requisições
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+// Middleware para parsear o corpo das requisições com limites de segurança
+app.use(bodyParser.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    // Verificar se o JSON é válido
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      res.status(400).json({
+        sucesso: false,
+        mensagem: 'JSON inválido'
+      });
+      throw new Error('JSON inválido');
+    }
+  }
+}));
+app.use(bodyParser.urlencoded({ 
+  extended: true,
+  limit: '10mb',
+  parameterLimit: 100
+}));
 
 // Logger de atividades
 app.use(activityLogger);
@@ -49,19 +88,52 @@ app.use(express.static(path.join(__dirname, '../public')));
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
   
-  if (authHeader) {
-    const token = authHeader.split(' ')[1];
-    
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-      if (err) {
-        return res.sendStatus(403);
-      }
-      
-      req.user = user;
-      next();
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      sucesso: false,
+      mensagem: 'Token de acesso requerido'
     });
-  } else {
-    res.sendStatus(401);
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({
+      sucesso: false,
+      mensagem: 'Token inválido'
+    });
+  }
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Verificar se o token tem os campos necessários
+    if (!decoded.id || !decoded.username) {
+      return res.status(403).json({
+        sucesso: false,
+        mensagem: 'Token malformado'
+      });
+    }
+    
+    req.user = decoded;
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        sucesso: false,
+        mensagem: 'Token expirado'
+      });
+    } else if (err.name === 'JsonWebTokenError') {
+      return res.status(403).json({
+        sucesso: false,
+        mensagem: 'Token inválido'
+      });
+    } else {
+      return res.status(500).json({
+        sucesso: false,
+        mensagem: 'Erro interno do servidor'
+      });
+    }
   }
 };
 
