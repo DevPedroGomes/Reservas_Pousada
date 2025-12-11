@@ -72,6 +72,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Tabela de refresh tokens para autenticação
+CREATE OR REPLACE FUNCTION criar_tabela_refresh_tokens()
+RETURNS void AS $$
+BEGIN
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked BOOLEAN DEFAULT FALSE,
+    user_agent TEXT,
+    ip_address TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked ON refresh_tokens(revoked);
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Função para registrar log de atividade
 CREATE OR REPLACE FUNCTION log_activity(
   p_user_id INTEGER,
@@ -101,6 +122,7 @@ $$ language 'plpgsql';
 SELECT criar_tabela_usuarios();
 SELECT criar_tabela_reservas();
 SELECT criar_tabela_logs();
+SELECT criar_tabela_refresh_tokens();
 
 -- Configurar triggers
 CREATE TRIGGER set_reservas_updated_at
@@ -112,6 +134,7 @@ EXECUTE PROCEDURE update_updated_at_column();
 ALTER TABLE IF EXISTS usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS reservas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS refresh_tokens ENABLE ROW LEVEL SECURITY;
 
 -- Criar políticas de acesso (com autenticação JWT do Supabase)
 CREATE POLICY "Acesso total para usuários autenticados" 
@@ -129,10 +152,16 @@ ON logs FOR ALL
 TO authenticated 
 USING (true);
 
+CREATE POLICY "Acesso total para usuários autenticados" 
+ON refresh_tokens FOR ALL 
+TO authenticated 
+USING (true);
+
 -- Conceder acesso a funções
 GRANT EXECUTE ON FUNCTION criar_tabela_usuarios TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION criar_tabela_reservas TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION criar_tabela_logs TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION criar_tabela_refresh_tokens TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION executar_sql TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION log_activity TO anon, authenticated;
 

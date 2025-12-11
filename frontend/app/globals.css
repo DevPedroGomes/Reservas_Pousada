@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 213 44% 97%;
+  --foreground: 224 71.4% 4.1%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 224 71.4% 4.1%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 244 75% 57%;
+  --radius: 0.85rem;
+  --primary: 244 75% 57%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 224 71.4% 4.1%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 71.4% 4.1%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.1), transparent 25%),
+    radial-gradient(circle at 90% 10%, rgba(56, 189, 248, 0.08), transparent 20%),
+    radial-gradient(circle at 50% 80%, rgba(16, 185, 129, 0.08), transparent 25%),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
+}
+
+.scroll-area::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 999px;
+}
+
+.card-shadow {
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(16px);
+}
+
+.status-pill {
+  @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold capitalize;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .ambient {
+    @apply fixed inset-0 -z-10 blur-3xl;
+    background: radial-gradient(800px circle at 20% 20%, rgba(79, 70, 229, 0.08), transparent 35%),
+      radial-gradient(700px circle at 80% 10%, rgba(14, 165, 233, 0.08), transparent 25%),
+      radial-gradient(900px circle at 60% 80%, rgba(16, 185, 129, 0.08), transparent 30%);
+  }
+
+  .section-title {
+    @apply text-3xl font-semibold text-slate-900;
+  }
+
+  .section-kicker {
+    @apply text-xs uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .data-table th {
+    @apply bg-slate-50/80 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+  }
+
+  .data-table td,
+  .data-table th {
+    @apply border-b border-slate-200/70 px-4 py-3 text-sm text-slate-900;
+  }
+
+  .data-table tr:hover {
+    @apply bg-indigo-50/30 transition-colors;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold;
+  }
+
+  .pill-ghost {
+    @apply border-slate-200/70 bg-slate-100/60 text-slate-700;
+  }
+
+  .pill-success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .pill-danger {
+    @apply border-rose-200 bg-rose-50 text-rose-700;
+  }
+
+  .pill-warning {
+    @apply border-amber-200 bg-amber-50 text-amber-700;
+  }
+
+  .metric {
+    @apply text-4xl font-bold text-slate-900;
+  }
+
+  .glass-card {
+    @apply glass card-shadow rounded-2xl p-6;
+  }
+}

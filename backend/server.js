@@ -11,7 +11,7 @@ const { initDatabase } = require('./database/db');
 const { activityLogger, verificarConfiguracaoSupabase } = require('./config/security');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000; // Padrão 4000 para não colidir com o Next.js (3000)
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
@@ -81,9 +81,6 @@ app.use(bodyParser.urlencoded({
 // Logger de atividades
 app.use(activityLogger);
 
-// Servir arquivos estáticos
-app.use(express.static(path.join(__dirname, '../public')));
-
 // Middleware de autenticação
 const authenticateJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -141,9 +138,9 @@ const authenticateJWT = (req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/reservas', authenticateJWT, reservaRoutes);
 
-// Rota principal
+// Rota principal (API only)
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  res.json({ status: 'ok', mensagem: 'API de Reservas online' });
 });
 
 // Rota para verificar status do servidor

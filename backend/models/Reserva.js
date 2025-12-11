@@ -1,17 +1,44 @@
 const { supabase } = require('../database/db');
 
 class Reserva {
-  static async listarTodas() {
-    const { data, error } = await supabase
+  static async listarTodas({ page = 1, limit = 50, search = '', status, pago, data_inicio, data_fim } = {}) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let query = supabase
       .from('reservas')
       .select(`
         *,
         criado_por_nome:usuarios(nome)
-      `)
-      .order('data_entrada');
-      
+      `, { count: 'exact' })
+      .order('data_entrada', { ascending: true });
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    if (pago !== undefined && pago !== null) {
+      query = query.eq('pago', pago);
+    }
+
+    if (data_inicio && data_fim) {
+      query = query.or(`
+        and(data_entrada.gte.${data_inicio},data_entrada.lte.${data_fim}),
+        and(data_saida.gte.${data_inicio},data_saida.lte.${data_fim}),
+        and(data_entrada.lte.${data_inicio},data_saida.gte.${data_fim})
+      `);
+    }
+
+    if (search) {
+      const like = `%${search}%`;
+      query = query.or(`nome.ilike.${like},cpf.ilike.${like},quarto.eq.${search}`);
+    }
+
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    return data || [];
+    return { data: data || [], count: count || 0 };
   }
 
   static async buscarPorId(id) {
@@ -107,7 +134,9 @@ class Reserva {
     // Verificar disponibilidade
     const disponibilidade = await this.verificarDisponibilidade(quarto, data_entrada, data_saida);
     if (!disponibilidade.disponivel) {
-      throw new Error('Quarto não disponível para o período selecionado');
+      const error = new Error('Quarto não disponível para o período selecionado');
+      error.conflitos = disponibilidade.conflitos;
+      throw error;
     }
     
     const { data, error } = await supabase
@@ -140,7 +169,9 @@ class Reserva {
     );
     
     if (!disponibilidade.disponivel) {
-      throw new Error('Quarto não disponível para o período selecionado');
+      const error = new Error('Quarto não disponível para o período selecionado');
+      error.conflitos = disponibilidade.conflitos;
+      throw error;
     }
     
     const { data, error } = await supabase
