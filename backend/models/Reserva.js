@@ -1,7 +1,7 @@
 const { supabase } = require('../database/db');
 
 class Reserva {
-  static async listarTodas({ page = 1, limit = 50, search = '', status, pago, data_inicio, data_fim } = {}) {
+  static async listarTodas({ page = 1, limit = 50, search = '', status, pago, data_inicio, data_fim, pousada_id } = {}) {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
@@ -12,6 +12,11 @@ class Reserva {
         criado_por_nome:usuarios(nome)
       `, { count: 'exact' })
       .order('data_entrada', { ascending: true });
+
+    // Filtrar por pousada_id (obrigatório para multi-tenant)
+    if (pousada_id) {
+      query = query.eq('pousada_id', pousada_id);
+    }
 
     if (status) {
       query = query.eq('status', status);
@@ -101,7 +106,7 @@ class Reserva {
     return data || [];
   }
 
-  static async verificarDisponibilidade(quarto, dataEntrada, dataSaida, reservaIdExcluir = null) {
+  static async verificarDisponibilidade(quarto, dataEntrada, dataSaida, reservaIdExcluir = null, pousadaId = null) {
     let query = supabase
       .from('reservas')
       .select('*')
@@ -112,16 +117,21 @@ class Reserva {
         and(data_entrada.gte.${dataEntrada},data_entrada.lte.${dataSaida}),
         and(data_saida.gte.${dataEntrada},data_saida.lte.${dataSaida})
       `);
-    
+
+    // Filtrar por pousada_id (obrigatório para multi-tenant)
+    if (pousadaId) {
+      query = query.eq('pousada_id', pousadaId);
+    }
+
     // Excluir a própria reserva da verificação quando for uma atualização
     if (reservaIdExcluir) {
       query = query.neq('id', reservaIdExcluir);
     }
-    
+
     const { data, error } = await query;
-    
+
     if (error) throw error;
-    
+
     return {
       disponivel: !data || data.length === 0,
       conflitos: data || []
@@ -129,16 +139,16 @@ class Reserva {
   }
 
   static async criar(reserva) {
-    const { nome, cpf, quarto, data_entrada, data_saida, status, valor, pago, observacoes, criado_por } = reserva;
-    
-    // Verificar disponibilidade
-    const disponibilidade = await this.verificarDisponibilidade(quarto, data_entrada, data_saida);
+    const { nome, cpf, quarto, data_entrada, data_saida, status, valor, pago, observacoes, criado_por, pousada_id } = reserva;
+
+    // Verificar disponibilidade (incluindo pousada_id)
+    const disponibilidade = await this.verificarDisponibilidade(quarto, data_entrada, data_saida, null, pousada_id);
     if (!disponibilidade.disponivel) {
       const error = new Error('Quarto não disponível para o período selecionado');
       error.conflitos = disponibilidade.conflitos;
       throw error;
     }
-    
+
     const { data, error } = await supabase
       .from('reservas')
       .insert([{
@@ -151,30 +161,31 @@ class Reserva {
         valor,
         pago,
         observacoes,
-        criado_por
+        criado_por,
+        pousada_id
       }])
       .select()
       .single();
-      
+
     if (error) throw error;
     return data;
   }
 
-  static async atualizar(id, reserva) {
+  static async atualizar(id, reserva, pousadaId = null) {
     const { nome, cpf, quarto, data_entrada, data_saida, status, valor, pago, observacoes } = reserva;
-    
-    // Verificar disponibilidade
+
+    // Verificar disponibilidade (incluindo pousada_id)
     const disponibilidade = await this.verificarDisponibilidade(
-      quarto, data_entrada, data_saida, id
+      quarto, data_entrada, data_saida, id, pousadaId
     );
-    
+
     if (!disponibilidade.disponivel) {
       const error = new Error('Quarto não disponível para o período selecionado');
       error.conflitos = disponibilidade.conflitos;
       throw error;
     }
-    
-    const { data, error } = await supabase
+
+    let query = supabase
       .from('reservas')
       .update({
         nome,
@@ -189,42 +200,81 @@ class Reserva {
         updated_at: new Date()
       })
       .eq('id', id);
-      
+
+    // Filtrar por pousada_id para garantir isolamento multi-tenant
+    if (pousadaId) {
+      query = query.eq('pousada_id', pousadaId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
-    
-    return { 
+
+    return {
       changes: data ? 1 : 0,
       id
     };
   }
 
-  static async atualizarStatus(id, status) {
-    const { data, error } = await supabase
+  static async atualizarStatus(id, status, pousadaId = null) {
+    let query = supabase
       .from('reservas')
       .update({
         status,
         updated_at: new Date()
       })
       .eq('id', id);
-      
+
+    // Filtrar por pousada_id para garantir isolamento multi-tenant
+    if (pousadaId) {
+      query = query.eq('pousada_id', pousadaId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
-    
-    return { 
+
+    return {
       changes: data ? 1 : 0,
       id,
       status
     };
   }
 
-  static async excluir(id) {
-    const { data, error } = await supabase
+  static async excluir(id, pousadaId = null) {
+    let query = supabase
       .from('reservas')
       .delete()
       .eq('id', id);
-      
+
+    // Filtrar por pousada_id para garantir isolamento multi-tenant
+    if (pousadaId) {
+      query = query.eq('pousada_id', pousadaId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
-    
+
     return { changes: data ? 1 : 0 };
+  }
+
+  /**
+   * Busca reserva por ID verificando pousada_id
+   */
+  static async buscarPorIdEPousada(id, pousadaId) {
+    const { data, error } = await supabase
+      .from('reservas')
+      .select(`
+        *,
+        criado_por_nome:usuarios(nome)
+      `)
+      .eq('id', id)
+      .eq('pousada_id', pousadaId)
+      .single();
+
+    if (error) throw error;
+    return data;
   }
 }
 

@@ -46,25 +46,13 @@ async function initDatabase() {
  */
 async function criarTabelaUsuarios() {
   console.log('Criando tabela de usuários...');
-  
+
   const { error } = await supabase.rpc('criar_tabela_usuarios');
-  
+
   if (error) {
     console.error('Erro ao criar tabela de usuários:', error);
-    
-    // Aqui executamos o SQL diretamente pelo cliente (pode precisar de permissões extras)
-    await supabase.rpc('executar_sql', { 
-      sql_query: `
-        CREATE TABLE IF NOT EXISTS usuarios (
-          id SERIAL PRIMARY KEY,
-          username TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          nome TEXT NOT NULL,
-          role TEXT NOT NULL,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `
-    });
+    console.error('Execute o script supabase_setup.sql no Supabase SQL Editor para criar as tabelas.');
+    throw new Error('Falha ao criar tabela de usuários. Execute o setup SQL manualmente.');
   }
 }
 
@@ -73,36 +61,13 @@ async function criarTabelaUsuarios() {
  */
 async function criarTabelaReservas() {
   console.log('Criando tabela de reservas...');
-  
+
   const { error } = await supabase.rpc('criar_tabela_reservas');
-  
+
   if (error) {
     console.error('Erro ao criar tabela de reservas:', error);
-    
-    // Aqui executamos o SQL diretamente pelo cliente
-    await supabase.rpc('executar_sql', { 
-      sql_query: `
-        CREATE TABLE IF NOT EXISTS reservas (
-          id SERIAL PRIMARY KEY,
-          nome TEXT NOT NULL,
-          cpf TEXT NOT NULL,
-          quarto INTEGER NOT NULL,
-          data_entrada DATE NOT NULL,
-          data_saida DATE NOT NULL,
-          status TEXT NOT NULL,
-          valor NUMERIC,
-          pago BOOLEAN DEFAULT FALSE,
-          observacoes TEXT,
-          criado_por INTEGER,
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW(),
-          FOREIGN KEY(criado_por) REFERENCES usuarios(id)
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_reservas_status ON reservas(status);
-        CREATE INDEX IF NOT EXISTS idx_reservas_pago ON reservas(pago);
-      `
-    });
+    console.error('Execute o script supabase_setup.sql no Supabase SQL Editor para criar as tabelas.');
+    throw new Error('Falha ao criar tabela de reservas. Execute o setup SQL manualmente.');
   }
 }
 

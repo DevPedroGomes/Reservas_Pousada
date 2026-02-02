@@ -1,6 +1,6 @@
 {
   "name": "reservas-pousada-frontend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,8 +11,10 @@
   "dependencies": {
     "@radix-ui/react-slot": "^1.0.2",
     "autoprefixer": "^10.4.19",
+    "better-auth": "^1.2.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "gsap": "^3.14.2",
     "lucide-react": "^0.378.0",
     "next": "^14.2.3",
     "postcss": "^8.4.38",
@@ -31,6 +33,8 @@
     "typescript": "^5.4.5"
   },
   "eslintConfig": {
-    "extends": ["next/core-web-vitals"]
+    "extends": [
+      "next/core-web-vitals"
+    ]
   }
 }

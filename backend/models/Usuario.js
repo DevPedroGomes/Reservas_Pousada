@@ -16,10 +16,10 @@ class Usuario {
   static async buscarPorId(id) {
     const { data, error } = await supabase
       .from('usuarios')
-      .select('id, username, nome, role, created_at')
+      .select('id, username, nome, role, email, avatar_url, pousada_id, is_owner, created_at')
       .eq('id', id)
       .single();
-    
+
     if (error) throw error;
     return data;
   }
@@ -43,13 +43,31 @@ class Usuario {
     }
   }
 
-  static async listarTodos() {
+  /**
+   * Lista todos os usuarios de uma pousada especifica
+   * @param {number} pousadaId - ID da pousada (obrigatorio para isolamento multi-tenant)
+   * @throws {Error} Se pousadaId nao for fornecido
+   */
+  static async listarTodos(pousadaId) {
+    if (!pousadaId) {
+      throw new Error('pousada_id e obrigatorio para listar usuarios');
+    }
+
     const { data, error } = await supabase
       .from('usuarios')
-      .select('id, username, nome, role, created_at');
-    
+      .select('id, username, nome, role, email, avatar_url, pousada_id, is_owner, created_at')
+      .eq('pousada_id', pousadaId);
+
     if (error) throw error;
     return data || [];
+  }
+
+  /**
+   * Alias para listarTodos - mantido para retrocompatibilidade
+   * @deprecated Use listarTodos(pousadaId) diretamente
+   */
+  static async listarPorPousada(pousadaId) {
+    return this.listarTodos(pousadaId);
   }
 
   static async criar(usuario) {

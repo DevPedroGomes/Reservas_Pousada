@@ -90,11 +90,12 @@ function validarDataFuturaOuHoje(data) {
 /**
  * Valida número do quarto
  * @param {number} quarto - Número do quarto
+ * @param {number} maxQuartos - Máximo de quartos da pousada (default 100)
  * @returns {boolean} - True se válido
  */
-function validarQuarto(quarto) {
+function validarQuarto(quarto, maxQuartos = 100) {
   const num = parseInt(quarto);
-  return Number.isInteger(num) && num >= 1 && num <= 25;
+  return Number.isInteger(num) && num >= 1 && num <= maxQuartos;
 }
 
 /**
@@ -321,6 +322,177 @@ function validarRegistro(dados) {
   };
 }
 
+// ============================================
+// VALIDAÇÕES DE POUSADA
+// ============================================
+
+/**
+ * Valida email
+ * @param {string} email - Email a ser validado
+ * @returns {boolean} - True se válido
+ */
+function validarEmail(email) {
+  if (!email || typeof email !== 'string') return false;
+  const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return regex.test(email.trim()) && email.length <= 255;
+}
+
+/**
+ * Valida telefone brasileiro
+ * @param {string} telefone - Telefone a ser validado
+ * @returns {boolean} - True se válido
+ */
+function validarTelefone(telefone) {
+  if (!telefone || typeof telefone !== 'string') return false;
+  // Remove caracteres não numéricos
+  const numeros = telefone.replace(/[^\d]/g, '');
+  // Aceita telefones com 10 ou 11 dígitos (com DDD)
+  return numeros.length >= 10 && numeros.length <= 11;
+}
+
+/**
+ * Valida número de quartos da pousada
+ * @param {number} numQuartos - Número de quartos
+ * @returns {boolean} - True se válido
+ */
+function validarNumQuartos(numQuartos) {
+  const num = parseInt(numQuartos);
+  return Number.isInteger(num) && num >= 1 && num <= 100;
+}
+
+/**
+ * Valida dados completos de uma pousada
+ * @param {object} pousada - Dados da pousada
+ * @param {boolean} parcial - Se true, valida apenas campos presentes
+ * @returns {object} - {valido: boolean, erros: string[]}
+ */
+function validarPousada(pousada, parcial = false) {
+  const erros = [];
+
+  // Nome da pousada
+  if (!parcial || pousada.nome !== undefined) {
+    if (!pousada.nome || pousada.nome.trim().length < 2) {
+      erros.push('Nome da pousada deve ter pelo menos 2 caracteres');
+    } else if (pousada.nome.length > 100) {
+      erros.push('Nome da pousada deve ter no máximo 100 caracteres');
+    }
+  }
+
+  // Número de quartos
+  if (!parcial || pousada.num_quartos !== undefined) {
+    if (!validarNumQuartos(pousada.num_quartos)) {
+      erros.push('Número de quartos deve estar entre 1 e 100');
+    }
+  }
+
+  // Endereço
+  if (!parcial || pousada.endereco !== undefined) {
+    if (!pousada.endereco || pousada.endereco.trim().length < 5) {
+      erros.push('Endereço deve ter pelo menos 5 caracteres');
+    } else if (pousada.endereco.length > 255) {
+      erros.push('Endereço deve ter no máximo 255 caracteres');
+    }
+  }
+
+  // Telefone
+  if (!parcial || pousada.telefone !== undefined) {
+    if (!validarTelefone(pousada.telefone)) {
+      erros.push('Telefone inválido. Use formato com DDD (10 ou 11 dígitos)');
+    }
+  }
+
+  // Email
+  if (!parcial || pousada.email !== undefined) {
+    if (!validarEmail(pousada.email)) {
+      erros.push('Email inválido');
+    }
+  }
+
+  // Campos opcionais com validação de tamanho
+  if (pousada.cidade && pousada.cidade.length > 100) {
+    erros.push('Cidade deve ter no máximo 100 caracteres');
+  }
+
+  if (pousada.estado && pousada.estado.length > 2) {
+    erros.push('Estado deve ter no máximo 2 caracteres (sigla)');
+  }
+
+  if (pousada.cep) {
+    const cepNumeros = pousada.cep.replace(/[^\d]/g, '');
+    if (cepNumeros.length !== 8) {
+      erros.push('CEP deve ter 8 dígitos');
+    }
+  }
+
+  if (pousada.descricao && pousada.descricao.length > 1000) {
+    erros.push('Descrição deve ter no máximo 1000 caracteres');
+  }
+
+  if (pousada.logo_url && pousada.logo_url.length > 500) {
+    erros.push('URL do logo deve ter no máximo 500 caracteres');
+  }
+
+  return {
+    valido: erros.length === 0,
+    erros
+  };
+}
+
+/**
+ * Sanitiza dados de uma pousada
+ * @param {object} pousada - Dados da pousada
+ * @returns {object} - Dados sanitizados
+ */
+function sanitizarPousada(pousada) {
+  const sanitizado = {};
+
+  if (pousada.nome !== undefined) {
+    sanitizado.nome = sanitizarString(pousada.nome);
+  }
+
+  if (pousada.num_quartos !== undefined) {
+    sanitizado.num_quartos = parseInt(pousada.num_quartos);
+  }
+
+  if (pousada.endereco !== undefined) {
+    sanitizado.endereco = sanitizarString(pousada.endereco);
+  }
+
+  if (pousada.cidade !== undefined) {
+    sanitizado.cidade = sanitizarString(pousada.cidade);
+  }
+
+  if (pousada.estado !== undefined) {
+    sanitizado.estado = pousada.estado ? pousada.estado.toUpperCase().substring(0, 2) : null;
+  }
+
+  if (pousada.cep !== undefined) {
+    sanitizado.cep = pousada.cep ? pousada.cep.replace(/[^\d]/g, '').substring(0, 8) : null;
+  }
+
+  if (pousada.telefone !== undefined) {
+    sanitizado.telefone = pousada.telefone ? pousada.telefone.replace(/[^\d]/g, '') : null;
+  }
+
+  if (pousada.email !== undefined) {
+    sanitizado.email = pousada.email ? pousada.email.trim().toLowerCase() : null;
+  }
+
+  if (pousada.logo_url !== undefined) {
+    sanitizado.logo_url = pousada.logo_url ? pousada.logo_url.trim() : null;
+  }
+
+  if (pousada.descricao !== undefined) {
+    sanitizado.descricao = pousada.descricao ? sanitizarString(pousada.descricao).substring(0, 1000) : null;
+  }
+
+  if (pousada.configuracoes !== undefined) {
+    sanitizado.configuracoes = pousada.configuracoes || {};
+  }
+
+  return sanitizado;
+}
+
 module.exports = {
   validarCPF,
   validarData,
@@ -336,5 +508,11 @@ module.exports = {
   validarUsername,
   validarNomeCompleto,
   validarSenha,
-  validarRegistro
+  validarRegistro,
+  // Validações de pousada
+  validarEmail,
+  validarTelefone,
+  validarNumQuartos,
+  validarPousada,
+  sanitizarPousada
 }; 

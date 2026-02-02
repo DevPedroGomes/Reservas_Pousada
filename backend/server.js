@@ -7,8 +7,11 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/auth');
 const reservaRoutes = require('./routes/reservas');
+const pousadaRoutes = require('./routes/pousadas');
 const { initDatabase } = require('./database/db');
 const { activityLogger, verificarConfiguracaoSupabase } = require('./config/security');
+const { setRlsContext } = require('./middleware/setRlsContext');
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 const app = express();
 const PORT = process.env.PORT || 4000; // Padrão 4000 para não colidir com o Next.js (3000)
@@ -136,7 +139,8 @@ const authenticateJWT = (req, res, next) => {
 
 // Rotas
 app.use('/api/auth', authRoutes);
-app.use('/api/reservas', authenticateJWT, reservaRoutes);
+app.use('/api/reservas', authenticateJWT, setRlsContext, reservaRoutes);
+app.use('/api/pousadas', authenticateJWT, setRlsContext, pousadaRoutes);
 
 // Rota principal (API only)
 app.get('/', (req, res) => {
@@ -152,14 +156,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Tratamento de erros global
-app.use((err, req, res, next) => {
-  console.error('Erro não tratado:', err);
-  res.status(500).json({ 
-    sucesso: false, 
-    mensagem: 'Erro interno do servidor' 
-  });
-});
+// Handler para rotas nao encontradas (404)
+app.use(notFoundHandler);
+
+// Tratamento de erros global (deve ser o ultimo middleware)
+app.use(errorHandler);
 
 // Inicializar o banco de dados e iniciar o servidor
 async function iniciarServidor() {
