@@ -36,4 +36,19 @@ coverage/
 
 # Arquivos temporários
 tmp/
-temp/ 
+temp/
+
+# Docker
+docker-compose.override.yml
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# Compiled output (use TypeScript source)
+backend/dist/
+backend/**/*.js
+!backend/drizzle.config.js
+
+# Volumes data
+postgres_data/

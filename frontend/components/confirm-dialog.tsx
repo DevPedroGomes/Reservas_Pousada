@@ -17,8 +17,8 @@ export function ConfirmDialog({ open, message, onCancel, onConfirm }: ConfirmDia
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 backdrop-blur-sm px-4">
       <div className="w-full max-w-lg">
-        <Card className="glass-card">
-          <CardHeader className="flex items-start justify-between">
+        <Card className="glass-card border-0">
+          <CardHeader>
             <div>
               <Badge variant="outline" className="uppercase tracking-[0.14em] text-[10px]">Confirmação</Badge>
               <CardTitle className="mt-2">Deseja continuar?</CardTitle>

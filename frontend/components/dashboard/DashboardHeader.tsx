@@ -58,7 +58,7 @@ export function DashboardHeader({
         </div>
       </div>
       <div className="border-t border-border/40">
-        <div className="mx-auto flex max-w-7xl items-center gap-2 px-6 py-3">
+        <div className="mx-auto flex max-w-7xl items-center gap-2 px-6 py-3 overflow-x-auto">
           {navItems.map((item) => (
             <Button
               key={item.id}

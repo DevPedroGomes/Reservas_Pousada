@@ -1,0 +1,42 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Development
+*.log
+coverage
+.nyc_output
+
+# Build artifacts (we build in Docker)
+dist
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Drizzle generated (regenerated in container)
+drizzle
+
+# Tests
+*.test.ts
+*.spec.ts
+__tests__
+
+# Misc
+.DS_Store
+Thumbs.db

@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import ReservaModel from '../models/Reserva';
-import AuditoriaModel from '../models/Auditoria';
-import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation';
-import { authorize } from '../middleware/auth';
-import { AppError } from '../middleware/errorHandler';
+import ReservaModel from '../models/Reserva.js';
+import AuditoriaModel from '../models/Auditoria.js';
+import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
+import { authorize } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
 
 const router = Router();
 

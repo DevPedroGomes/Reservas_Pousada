@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import PousadaModel from '../models/Pousada';
-import { validarPousada, sanitizarPousada } from '../utils/validation';
-import { authorize, requireOwner } from '../middleware/auth';
+import PousadaModel from '../models/Pousada.js';
+import { validarPousada, sanitizarPousada } from '../utils/validation.js';
+import { authorize, requireOwner } from '../middleware/auth.js';
 
 const router = Router();
 

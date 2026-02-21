@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
-import * as schema from './schema';
+import * as schema from './schema.js';
 
 // Database connection URL from environment
 const databaseUrl = process.env.DATABASE_URL;
@@ -30,7 +30,7 @@ export const db = drizzle(pool, { schema });
 export { pool };
 
 // Export schema for use in other modules
-export * from './schema';
+export * from './schema.js';
 
 /**
  * Test database connection

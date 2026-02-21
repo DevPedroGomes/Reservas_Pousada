@@ -26,8 +26,8 @@ export function ReservationTable({
   loading = false,
 }: ReservationTableProps) {
   return (
-    <Card className="border-2 shadow-xl">
-      <div className="overflow-hidden rounded-xl border-2 border-border m-4">
+    <Card className="shadow-xl">
+      <div className="overflow-x-auto rounded-xl border-2 border-border m-4">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
@@ -68,7 +68,7 @@ export function ReservationTable({
                   <TableCell>Quarto {reserva.quarto}</TableCell>
                   <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>
-                  <TableCell>{reserva.valor ? formatarValor(reserva.valor) : "-"}</TableCell>
+                  <TableCell>{reserva.valor ? formatarValor(Number(reserva.valor)) : "-"}</TableCell>
                   <TableCell>
                     <Badge variant={reserva.pago ? "default" : "destructive"} className="font-semibold">
                       {reserva.pago ? "Sim" : "Nao"}
@@ -126,7 +126,7 @@ interface ProximasReservasTableProps {
 
 export function ProximasReservasTable({ reservas, onViewAll }: ProximasReservasTableProps) {
   return (
-    <Card className="dashboard-table border-2 shadow-xl">
+    <Card className="dashboard-table shadow-xl">
       <div className="flex items-center justify-between p-6 pb-4">
         <div>
           <Badge
@@ -143,7 +143,7 @@ export function ProximasReservasTable({ reservas, onViewAll }: ProximasReservasT
         </Button>
       </div>
       <div className="px-6 pb-6">
-        <div className="overflow-hidden rounded-xl border-2 border-border">
+        <div className="overflow-x-auto rounded-xl border-2 border-border">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">

@@ -76,7 +76,7 @@ export function AuthCard({
         <Button
           type="button"
           variant="outline"
-          className="w-full h-12 text-base font-semibold border-2 hover:bg-muted/50 transition-colors"
+          className="w-full h-11 font-semibold border-2 hover:bg-muted/50 transition-colors"
           onClick={onGoogleLogin}
           disabled={loading.google}
         >
@@ -146,11 +146,13 @@ export function AuthCard({
               <Input
                 id="username"
                 type="text"
+                name="username"
+                autoComplete="username"
                 placeholder="Digite seu usuario"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
                 required
-                className="h-12 text-base border-2 focus:ring-2 focus:ring-primary/20"
+                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <div className="space-y-2">
@@ -160,16 +162,18 @@ export function AuthCard({
               <Input
                 id="password"
                 type="password"
+                name="password"
+                autoComplete="current-password"
                 placeholder="Digite sua senha"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 required
-                className="h-12 text-base border-2 focus:ring-2 focus:ring-primary/20"
+                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold"
+              className="w-full h-11 font-semibold"
               disabled={loading.login}
             >
               {loading.login ? "Entrando..." : "Entrar"}
@@ -187,11 +191,13 @@ export function AuthCard({
               <Input
                 id="signup-nome"
                 type="text"
+                name="name"
+                autoComplete="name"
                 placeholder="Seu nome"
                 value={signupNome}
                 onChange={(e) => setSignupNome(e.target.value)}
                 required
-                className="h-12 text-base border-2 focus:ring-2 focus:ring-primary/20"
+                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <div className="space-y-2">
@@ -201,11 +207,13 @@ export function AuthCard({
               <Input
                 id="signup-username"
                 type="text"
+                name="username"
+                autoComplete="username"
                 placeholder="Escolha um usuario"
                 value={signupUsername}
                 onChange={(e) => setSignupUsername(e.target.value)}
                 required
-                className="h-12 text-base border-2 focus:ring-2 focus:ring-primary/20"
+                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <div className="space-y-2">
@@ -215,17 +223,19 @@ export function AuthCard({
               <Input
                 id="signup-password"
                 type="password"
+                name="new-password"
+                autoComplete="new-password"
                 placeholder="Crie uma senha"
                 value={signupPassword}
                 onChange={(e) => setSignupPassword(e.target.value)}
                 required
                 minLength={6}
-                className="h-12 text-base border-2 focus:ring-2 focus:ring-primary/20"
+                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <Button
               type="submit"
-              className="w-full h-12 text-base font-semibold"
+              className="w-full h-11 font-semibold"
               disabled={loading.signup}
             >
               {loading.signup ? "Criando conta..." : "Criar Conta"}

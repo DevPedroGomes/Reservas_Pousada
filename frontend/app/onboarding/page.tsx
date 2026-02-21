@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Select } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
 import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
@@ -193,7 +194,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50/50 px-4 py-16">
+    <main className="min-h-screen bg-background px-4 py-16">
       <div className="mx-auto max-w-2xl space-y-8">
         {/* Header */}
         <div className="text-center space-y-4">
@@ -216,38 +217,45 @@ export default function OnboardingPage() {
         </div>
 
         {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-2">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center">
-              <div
-                className={cn(
-                  'flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-colors',
-                  step === s
-                    ? 'bg-indigo-600 text-white'
-                    : step > s
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-slate-200 text-slate-500'
-                )}
-              >
-                {step > s ? '✓' : s}
-              </div>
-              {s < 3 && (
+        <div className="flex items-center justify-center">
+          {[
+            { num: 1, label: 'Dados Basicos' },
+            { num: 2, label: 'Contato' },
+            { num: 3, label: 'Finalizar' },
+          ].map((s, idx) => (
+            <div key={s.num} className="flex items-center">
+              <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={cn(
-                    'h-1 w-16 mx-2 rounded-full transition-colors',
-                    step > s ? 'bg-emerald-500' : 'bg-slate-200'
+                    'flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-colors',
+                    step === s.num
+                      ? 'bg-indigo-600 text-white'
+                      : step > s.num
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-slate-200 text-slate-500'
+                  )}
+                >
+                  {step > s.num ? '✓' : s.num}
+                </div>
+                <span
+                  className={cn(
+                    'text-sm',
+                    step >= s.num ? 'text-indigo-600 font-medium' : 'text-slate-500'
+                  )}
+                >
+                  {s.label}
+                </span>
+              </div>
+              {idx < 2 && (
+                <div
+                  className={cn(
+                    'h-1 w-16 mx-3 mb-6 rounded-full transition-colors',
+                    step > s.num ? 'bg-emerald-500' : 'bg-slate-200'
                   )}
                 />
               )}
             </div>
           ))}
-        </div>
-
-        {/* Step Labels */}
-        <div className="flex justify-between px-4 text-sm text-slate-600">
-          <span className={step >= 1 ? 'text-indigo-600 font-medium' : ''}>Dados Basicos</span>
-          <span className={step >= 2 ? 'text-indigo-600 font-medium' : ''}>Contato</span>
-          <span className={step >= 3 ? 'text-indigo-600 font-medium' : ''}>Finalizar</span>
         </div>
 
         {/* Form Card */}
@@ -334,9 +342,8 @@ export default function OnboardingPage() {
 
                   <div className="space-y-2">
                     <Label htmlFor="estado">Estado *</Label>
-                    <select
+                    <Select
                       id="estado"
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
                       value={form.estado}
                       onChange={(e) => setForm((prev) => ({ ...prev, estado: e.target.value }))}
                       required
@@ -345,7 +352,7 @@ export default function OnboardingPage() {
                       {estados.map((uf) => (
                         <option key={uf} value={uf}>{uf}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                 </div>
 

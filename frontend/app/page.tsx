@@ -33,7 +33,7 @@ type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoes"
 export default function Home() {
   // Auth hook
   const {
-    token,
+    isAuthenticated,
     user,
     pousada,
     loading: loginLoading,
@@ -69,7 +69,7 @@ export default function Home() {
     excluirReserva,
     carregarAuditoria,
     setPage: setReservasPage,
-  } = useReservations(token)
+  } = useReservations(isAuthenticated)
 
   // Local state
   const [page, setPage] = useState<PageType>("dashboard")
@@ -100,15 +100,15 @@ export default function Home() {
 
   // Load data when authenticated
   useEffect(() => {
-    if (token) {
+    if (isAuthenticated) {
       carregarDashboard()
       carregarReservas()
     }
-  }, [token, carregarDashboard, carregarReservas])
+  }, [isAuthenticated, carregarDashboard, carregarReservas])
 
   // GSAP Animations for Landing Page
   useEffect(() => {
-    if (!token && heroRef.current) {
+    if (!isAuthenticated && heroRef.current) {
       const ctx = gsap.context(() => {
         gsap.from(".hero-badge", { opacity: 0, y: -20, duration: 0.6, ease: "power3.out" })
         gsap.from(".hero-title", { opacity: 0, y: 30, duration: 0.8, delay: 0.2, ease: "power3.out" })
@@ -118,29 +118,29 @@ export default function Home() {
       }, heroRef)
       return () => ctx.revert()
     }
-  }, [token])
+  }, [isAuthenticated])
 
   // Animation for auth form toggle
   useEffect(() => {
-    if (!token && authFormRef.current) {
+    if (!isAuthenticated && authFormRef.current) {
       gsap.fromTo(
         authFormRef.current,
         { opacity: 0, scale: 0.95, y: 20 },
         { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "power3.out" }
       )
     }
-  }, [isSignup, token])
+  }, [isSignup, isAuthenticated])
 
   // GSAP Animations for Dashboard
   useEffect(() => {
-    if (token && page === "dashboard" && statsRef.current) {
+    if (isAuthenticated && page === "dashboard" && statsRef.current) {
       const ctx = gsap.context(() => {
         gsap.from(".stat-card", { opacity: 0, y: 30, duration: 0.6, stagger: 0.1, ease: "power3.out" })
         gsap.from(".dashboard-table", { opacity: 0, y: 30, duration: 0.8, delay: 0.3, ease: "power3.out" })
       }, statsRef)
       return () => ctx.revert()
     }
-  }, [token, page, reservasAtivas])
+  }, [isAuthenticated, page, reservasAtivas])
 
   // Page change handlers
   const handlePageChange = useCallback((newPage: PageType) => {
@@ -212,7 +212,7 @@ export default function Home() {
   }, [signup])
 
   const handleLogout = useCallback(() => {
-    logout(false)
+    logout()
   }, [logout])
 
   // Loading state
@@ -228,7 +228,7 @@ export default function Home() {
   }
 
   // Landing Page (not logged in)
-  if (!token) {
+  if (!isAuthenticated) {
     return (
       <main ref={heroRef} className="min-h-screen bg-background">
         {/* Header */}
@@ -255,7 +255,7 @@ export default function Home() {
         </header>
 
         {/* Hero Section */}
-        <section className="pt-32 pb-20 px-6">
+        <section className="pt-24 pb-20 px-6">
           <div className="mx-auto max-w-7xl">
             <div className="grid gap-16 lg:grid-cols-2 lg:gap-20 items-center">
               <div className="space-y-10">
@@ -285,7 +285,7 @@ export default function Home() {
               </div>
 
               {/* Auth Card */}
-              <div ref={authFormRef} className="lg:pl-12">
+              <div ref={authFormRef} className="flex justify-center lg:justify-start lg:pl-12">
                 <AuthCard
                   isSignup={isSignup}
                   onToggleMode={() => setIsSignup(!isSignup)}
@@ -320,7 +320,7 @@ export default function Home() {
               ].map((feature) => (
                 <Card key={feature.title} className="feature-card border-2 hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
                   <CardHeader>
-                    <div className={cn("h-14 w-14 rounded-2xl flex items-center justify-center mb-4", feature.color === "primary" ? "bg-primary/10" : feature.color === "teal" ? "bg-teal-500/10" : "bg-amber-500/10")}>
+                    <div className={cn("h-14 w-14 rounded-2xl flex items-center justify-center mb-3", feature.color === "primary" ? "bg-primary/10" : feature.color === "teal" ? "bg-teal-500/10" : "bg-amber-500/10")}>
                       <svg className={cn("h-7 w-7", feature.color === "primary" ? "text-primary" : feature.color === "teal" ? "text-teal-600" : "text-amber-600")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d={feature.icon} />
                       </svg>
@@ -462,13 +462,13 @@ export default function Home() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <span className="text-muted-foreground font-medium">Nome:</span>
-                    <span className="text-foreground font-bold">{pousada.nome}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.nome}</span>
                     <span className="text-muted-foreground font-medium">Quartos:</span>
-                    <span className="text-foreground font-bold">{pousada.num_quartos}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.num_quartos}</span>
                     <span className="text-muted-foreground font-medium">Email:</span>
-                    <span className="text-foreground font-bold">{pousada.email || "-"}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.email || "-"}</span>
                     <span className="text-muted-foreground font-medium">Telefone:</span>
-                    <span className="text-foreground font-bold">{pousada.telefone || "-"}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.telefone || "-"}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -481,11 +481,11 @@ export default function Home() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <span className="text-muted-foreground font-medium">Endereco:</span>
-                    <span className="text-foreground font-bold">{pousada.endereco || "-"}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.endereco || "-"}</span>
                     <span className="text-muted-foreground font-medium">Cidade:</span>
-                    <span className="text-foreground font-bold">{pousada.cidade || "-"}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.cidade || "-"}</span>
                     <span className="text-muted-foreground font-medium">Estado:</span>
-                    <span className="text-foreground font-bold">{pousada.estado || "-"}</span>
+                    <span className="text-foreground font-bold truncate">{pousada.estado || "-"}</span>
                   </div>
                 </CardContent>
               </Card>

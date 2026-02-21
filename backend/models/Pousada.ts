@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { db, pousadas, user, reservas } from '../db';
-import type { Pousada, NewPousada, User } from '../db/schema';
+import { db, pousadas, user, reservas } from '../db/index.js';
+import type { Pousada, NewPousada, User } from '../db/schema.js';
 
 export class PousadaModel {
   /**
@@ -272,7 +272,7 @@ export class PousadaModel {
   /**
    * Check if user has access to pousada
    */
-  static async verificarAcesso(pousadaId: number, userId: string): Promise<{ id: string; role: string; isOwner: boolean } | null> {
+  static async verificarAcesso(pousadaId: number, userId: string): Promise<{ id: string; role: string | null; isOwner: boolean | null } | null> {
     const [result] = await db
       .select({
         id: user.id,

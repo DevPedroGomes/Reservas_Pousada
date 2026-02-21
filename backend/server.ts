@@ -3,16 +3,19 @@ import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
-import { auth } from './lib/auth';
-import { testConnection } from './db';
-import reservaRoutes from './routes/reservas';
-import pousadaRoutes from './routes/pousadas';
-import { authMiddleware, requirePousada } from './middleware/auth';
-import { activityLogger } from './middleware/activity';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { auth } from './lib/auth.js';
+import { testConnection } from './db/index.js';
+import reservaRoutes from './routes/reservas.js';
+import pousadaRoutes from './routes/pousadas.js';
+import { authMiddleware, requirePousada } from './middleware/auth.js';
+import { activityLogger } from './middleware/activity.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Trust proxy (Traefik reverse proxy)
+app.set('trust proxy', 1);
 
 // ==========================================
 // Rate Limiting
@@ -86,12 +89,22 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', mensagem: 'API de Reservas online' });
 });
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+app.get('/health', async (req, res) => {
+  try {
+    const dbOk = await testConnection();
+    res.json({
+      status: dbOk ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      database: dbOk ? 'connected' : 'disconnected'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      database: 'error'
+    });
+  }
 });
 
 // ==========================================

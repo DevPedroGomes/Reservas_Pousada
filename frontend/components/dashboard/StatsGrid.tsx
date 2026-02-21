@@ -29,7 +29,7 @@ function StatCard({ title, value, description, icon, variant = "default", classN
 
   return (
     <Card className={cn("stat-card border-2 shadow-xl transition-all hover:shadow-2xl", variantStyles[variant], className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
         <CardTitle className="text-sm font-bold tracking-tight text-muted-foreground uppercase">
           {title}
         </CardTitle>

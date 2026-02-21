@@ -1,6 +1,6 @@
 import { eq, and, or, gte, lte, ne, ilike, sql, count } from 'drizzle-orm';
-import { db, reservas, user } from '../db';
-import type { Reserva, NewReserva } from '../db/schema';
+import { db, reservas, user } from '../db/index.js';
+import type { Reserva, NewReserva } from '../db/schema.js';
 
 interface ListarOptions {
   page?: number;

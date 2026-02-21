@@ -1,6 +1,6 @@
 import { eq, and } from 'drizzle-orm';
-import { db, user, pousadas } from '../db';
-import type { User, NewUser } from '../db/schema';
+import { db, user, pousadas } from '../db/index.js';
+import type { User, NewUser } from '../db/schema.js';
 
 /**
  * Usuario model - handles user profile operations
@@ -116,7 +116,7 @@ export class Usuario {
   /**
    * Check if user has access to pousada
    */
-  static async verificarAcesso(userId: string, pousadaId: number): Promise<{ id: string; role: string; isOwner: boolean } | null> {
+  static async verificarAcesso(userId: string, pousadaId: number): Promise<{ id: string; role: string | null; isOwner: boolean | null } | null> {
     const [result] = await db
       .select({
         id: user.id,

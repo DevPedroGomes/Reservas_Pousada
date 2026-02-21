@@ -47,7 +47,7 @@ interface UseReservationsReturn {
   setPage: (page: number) => void
 }
 
-export function useReservations(token: string | null): UseReservationsReturn {
+export function useReservations(isAuthenticated: boolean = false): UseReservationsReturn {
   const [reservas, setReservas] = useState<Reserva[]>([])
   const [dashReservas, setDashReservas] = useState<Reserva[]>([])
   const [filters, setFilters] = useState<FiltersState>(initialFilters)
@@ -79,9 +79,9 @@ export function useReservations(token: string | null): UseReservationsReturn {
 
   // Carregar dashboard
   const carregarDashboard = useCallback(async () => {
-    if (!token) return
+    if (!isAuthenticated) return
     try {
-      const response = await authenticatedFetch(`${API_URL}/reservas`, {}, token)
+      const response = await authenticatedFetch(`${API_URL}/reservas`)
       const data = await response.json()
       if (data.sucesso) {
         setDashReservas(data.reservas || [])
@@ -89,11 +89,11 @@ export function useReservations(token: string | null): UseReservationsReturn {
     } catch (error) {
       console.error("Erro ao carregar dashboard", error)
     }
-  }, [token])
+  }, [isAuthenticated])
 
   // Carregar reservas com filtros
   const carregarReservas = useCallback(async (pageNum?: number) => {
-    if (!token) return
+    if (!isAuthenticated) return
     setLoading(true)
 
     try {
@@ -109,7 +109,7 @@ export function useReservations(token: string | null): UseReservationsReturn {
       params.append("limit", String(meta.limite || 50))
 
       const url = `${API_URL}/reservas${params.toString() ? `?${params.toString()}` : ""}`
-      const response = await authenticatedFetch(url, {}, token)
+      const response = await authenticatedFetch(url)
       const data = await response.json()
 
       if (data.sucesso) {
@@ -121,11 +121,11 @@ export function useReservations(token: string | null): UseReservationsReturn {
     } finally {
       setLoading(false)
     }
-  }, [token, filters, meta.pagina, meta.limite])
+  }, [isAuthenticated, filters, meta.pagina, meta.limite])
 
   // Exportar CSV
   const exportarCsv = useCallback(async () => {
-    if (!token) return
+    if (!isAuthenticated) return
     setExporting(true)
 
     try {
@@ -139,7 +139,7 @@ export function useReservations(token: string | null): UseReservationsReturn {
       if (filters.search) params.append("search", filters.search)
 
       const url = `${API_URL}/reservas/export${params.toString() ? `?${params.toString()}` : ""}`
-      const response = await authenticatedFetch(url, {}, token)
+      const response = await authenticatedFetch(url)
       const text = await response.text()
       const blob = new Blob([text], { type: "text/csv;charset=utf-8;" })
       const link = document.createElement("a")
@@ -152,14 +152,14 @@ export function useReservations(token: string | null): UseReservationsReturn {
     } finally {
       setExporting(false)
     }
-  }, [token, filters])
+  }, [isAuthenticated, filters])
 
   // Editar reserva (carregar dados)
   const editarReserva = useCallback(async (id: number): Promise<Reserva | null> => {
-    if (!token) return null
+    if (!isAuthenticated) return null
 
     try {
-      const response = await authenticatedFetch(`${API_URL}/reservas/${id}`, {}, token)
+      const response = await authenticatedFetch(`${API_URL}/reservas/${id}`)
       const data = await response.json()
 
       if (data.sucesso) {
@@ -170,14 +170,14 @@ export function useReservations(token: string | null): UseReservationsReturn {
       console.error("Erro ao carregar reserva", error)
       return null
     }
-  }, [token])
+  }, [isAuthenticated])
 
   // Salvar reserva (criar ou atualizar)
   const salvarReserva = useCallback(async (
     form: Reserva,
     formId: number | null
   ): Promise<{ sucesso: boolean; mensagem: string }> => {
-    if (!token) return { sucesso: false, mensagem: "Nao autenticado" }
+    if (!isAuthenticated) return { sucesso: false, mensagem: "Nao autenticado" }
 
     const erros: string[] = []
     const cpfNormalizado = normalizarCpf(form.cpf)
@@ -217,9 +217,8 @@ export function useReservations(token: string | null): UseReservationsReturn {
       const url = formId ? `${API_URL}/reservas/${formId}` : `${API_URL}/reservas`
       const response = await authenticatedFetch(url, {
         method: formId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      }, token)
+      })
 
       const data = await response.json()
 
@@ -245,16 +244,16 @@ export function useReservations(token: string | null): UseReservationsReturn {
       console.error("Erro ao salvar reserva", error)
       return { sucesso: false, mensagem: "Erro ao salvar reserva." }
     }
-  }, [token])
+  }, [isAuthenticated])
 
   // Excluir reserva
   const excluirReserva = useCallback(async (id: number): Promise<boolean> => {
-    if (!token) return false
+    if (!isAuthenticated) return false
 
     try {
       const response = await authenticatedFetch(`${API_URL}/reservas/${id}`, {
         method: "DELETE",
-      }, token)
+      })
 
       const data = await response.json()
       return data.sucesso
@@ -262,17 +261,15 @@ export function useReservations(token: string | null): UseReservationsReturn {
       console.error("Erro ao excluir reserva", error)
       return false
     }
-  }, [token])
+  }, [isAuthenticated])
 
   // Carregar auditoria
   const carregarAuditoria = useCallback(async (reservaId: number) => {
-    if (!token) return
+    if (!isAuthenticated) return
 
     try {
       const response = await authenticatedFetch(
-        `${API_URL}/reservas/${reservaId}/auditoria`,
-        {},
-        token
+        `${API_URL}/reservas/${reservaId}/auditoria`
       )
       const data = await response.json()
 
@@ -282,7 +279,7 @@ export function useReservations(token: string | null): UseReservationsReturn {
     } catch (error) {
       console.error("Erro ao carregar auditoria", error)
     }
-  }, [token])
+  }, [isAuthenticated])
 
   return {
     reservas,

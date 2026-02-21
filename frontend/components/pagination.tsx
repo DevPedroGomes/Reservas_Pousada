@@ -17,7 +17,7 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
 
   return (
     <div className="flex items-center justify-between gap-4">
-      <div className="text-sm text-slate-600">
+      <div className="text-sm text-muted-foreground">
         Página {page} de {totalPages || 1}
       </div>
       <div className="flex gap-2">

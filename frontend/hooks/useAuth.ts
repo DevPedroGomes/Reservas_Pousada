@@ -177,10 +177,7 @@ export function useAuth(): UseAuthReturn {
       setGoogleLoading(true);
       setMessage(null);
 
-      await signInWithGoogle({
-        callbackURL: "/",
-        newUserCallbackURL: "/onboarding",
-      });
+      await signInWithGoogle();
     } catch (error: any) {
       console.error("Erro ao iniciar login com Google:", error);
       setMessage({ type: "error", text: "Erro ao iniciar login com Google." });

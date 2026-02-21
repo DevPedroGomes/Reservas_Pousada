@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { auth } from '../lib/auth';
-import { db, user } from '../db';
+import { auth } from '../lib/auth.js';
+import { db, user } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 
 // Extend Express Request to include user and session
@@ -34,7 +34,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   try {
     // Get session from Better Auth
     const session = await auth.api.getSession({
-      headers: req.headers as Headers,
+      headers: req.headers as unknown as Headers,
     });
 
     if (!session || !session.user) {

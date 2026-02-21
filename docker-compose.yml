@@ -1,0 +1,104 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: reservas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reservas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-reservas_pousada}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reservas} -d ${POSTGRES_DB:-reservas_pousada}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (Express + TypeScript)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reservas-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-reservas_pousada}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: https://api-pousada.pgdev.com.br
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      CORS_ORIGIN: https://minhapousada.pgdev.com.br
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reservas-api.entrypoints=https"
+      - "traefik.http.routers.reservas-api.rule=Host(`api-pousada.pgdev.com.br`)"
+      - "traefik.http.routers.reservas-api.tls=true"
+      - "traefik.http.routers.reservas-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.reservas-api.loadbalancer.server.port=4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api-pousada.pgdev.com.br
+        NEXT_PUBLIC_APP_URL: https://minhapousada.pgdev.com.br
+    container_name: reservas-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - backend
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pousada-frontend.entrypoints=https"
+      - "traefik.http.routers.pousada-frontend.rule=Host(`minhapousada.pgdev.com.br`)"
+      - "traefik.http.routers.pousada-frontend.tls=true"
+      - "traefik.http.routers.pousada-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pousada-frontend.middlewares=security-headers@docker"
+      - "traefik.http.services.pousada-frontend.loadbalancer.server.port=3000"
+      # Security Headers Middleware
+      - "traefik.http.middlewares.security-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.security-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.security-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.security-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.security-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.security-headers.headers.frameDeny=true"
+    healthcheck:
+      test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  proxy:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

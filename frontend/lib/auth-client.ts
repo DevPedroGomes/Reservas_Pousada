@@ -1,6 +1,7 @@
 import { createAuthClient } from "better-auth/react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 /**
  * Better Auth client for React/Next.js
@@ -51,8 +52,8 @@ export async function signUpWithEmail(email: string, password: string, name: str
 export async function signInWithGoogle(options?: { callbackURL?: string; newUserCallbackURL?: string }) {
   return authClient.signIn.social({
     provider: "google",
-    callbackURL: options?.callbackURL || "/",
-    newUserCallbackURL: options?.newUserCallbackURL || "/onboarding",
+    callbackURL: options?.callbackURL || `${APP_URL}/`,
+    newUserCallbackURL: options?.newUserCallbackURL || `${APP_URL}/onboarding`,
   });
 }
 

@@ -1,6 +1,6 @@
 import { eq, and, desc } from 'drizzle-orm';
-import { db, auditoria, user } from '../db';
-import type { Auditoria, NewAuditoria } from '../db/schema';
+import { db, auditoria, user } from '../db/index.js';
+import type { Auditoria, NewAuditoria } from '../db/schema.js';
 
 interface AuditoriaComUsuario extends Auditoria {
   userName?: string | null;

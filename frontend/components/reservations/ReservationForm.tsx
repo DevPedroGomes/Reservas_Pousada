@@ -211,7 +211,10 @@ export function ReservationForm({
                 <Label htmlFor="pago" className="text-sm font-semibold">
                   Pago
                 </Label>
-                <div className="flex items-center h-11">
+                <label
+                  htmlFor="pago"
+                  className="flex cursor-pointer items-center gap-3 h-11 rounded-xl border-2 border-border bg-white px-4"
+                >
                   <input
                     id="pago"
                     type="checkbox"
@@ -219,10 +222,8 @@ export function ReservationForm({
                     onChange={(e) => setForm((prev) => ({ ...prev, pago: e.target.checked }))}
                     className="h-5 w-5 rounded border-2 border-border"
                   />
-                  <label htmlFor="pago" className="ml-3 text-sm font-medium">
-                    Pagamento recebido
-                  </label>
-                </div>
+                  <span className="text-sm font-medium">Pagamento recebido</span>
+                </label>
               </div>
             </div>
 
@@ -291,7 +292,7 @@ export function AuditHistory({ logs }: AuditHistoryProps) {
                   <p className="font-semibold text-foreground">{renderResumoAuditoria(log)}</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     Por:{" "}
-                    <span className="font-medium">{log.user?.nome || log.user?.username || "Sistema"}</span>
+                    <span className="font-medium">{log.user?.nome || log.user?.email || "Sistema"}</span>
                   </p>
                 </div>
                 <Badge variant="outline" className="text-xs">

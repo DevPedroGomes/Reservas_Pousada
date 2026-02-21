@@ -48,10 +48,10 @@ export function ReservationFilters({
   }
 
   return (
-    <Card className="border-2 shadow-xl mb-6">
+    <Card className="border-2 shadow-xl">
       <CardContent className="pt-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {/* Busca */}
             <div className="space-y-2 lg:col-span-2">
               <Label htmlFor="search" className="text-sm font-semibold">
