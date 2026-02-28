@@ -165,7 +165,7 @@ export function useAuth(): UseAuthReturn {
       await handleSignOut();
       setUser(null);
       setPousada(null);
-      router.push("/auth/login");
+      router.push("/");
     } catch (error) {
       console.error("Erro ao fazer logout", error);
     }

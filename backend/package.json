@@ -13,7 +13,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "auth:generate": "npx @better-auth/cli@latest generate",
-    "backup": "tsx backup.ts",
+    "backup": "node --import dotenv/config backup.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

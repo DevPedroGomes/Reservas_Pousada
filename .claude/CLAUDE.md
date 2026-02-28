@@ -4,60 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sistema de Gerenciamento de Reservas para Pousada - Single-tenant application for managing room reservations in a 25-room inn. Security-hardened production-ready system (90% security level) with comprehensive validation, sanitization, and audit logging.
+Sistema de Gerenciamento de Reservas para Pousadas - Multi-tenant SaaS for managing room reservations in Brazilian inns. Each pousada owner registers, creates their pousada, and manages rooms, reservations, and staff from a single platform.
 
 **Tech Stack:**
-- Backend: Node.js + Express.js + Supabase (PostgreSQL)
-- Frontend: Vanilla JavaScript + Bootstrap 5
-- Authentication: JWT with bcrypt
-- Security: Rate limiting, RLS policies, XSS protection, CPF validation
+- Backend: Node.js + Express.js + TypeScript + Drizzle ORM + PostgreSQL 16
+- Frontend: Next.js 14 + React + Tailwind CSS + shadcn/ui
+- Authentication: Better Auth (sessions via HTTPOnly cookies, Google OAuth)
+- Infrastructure: Docker multi-stage + Traefik v3 (HTTPS/Let's Encrypt)
+- Security: Rate limiting, RBAC, input validation/sanitization, audit logging, CSP headers
+
+**Production URLs:**
+- Frontend: https://minhapousada.pgdev.com.br
+- Backend API: https://api-pousada.pgdev.com.br
 
 ## Development Commands
 
-### Backend
-
 ```bash
-# Install dependencies (run once from backend/)
-cd backend
-npm install
+# Backend
+cd backend && npm install
+npm run dev          # Dev server with auto-reload (tsx watch)
+npm run build        # Compile TypeScript
+npm start            # Production (node dist/server.js)
+npm run backup       # Manual database backup to JSON
 
-# Development server with auto-reload
-npm run dev
+# Database (Drizzle)
+npm run db:generate  # Generate migration from schema changes
+npm run db:migrate   # Run pending migrations
+npm run db:push      # Push schema directly (dev only)
+npm run db:studio    # Open Drizzle Studio GUI
 
-# Production server
-npm start
-
-# Manual database backup
-npm run backup
+# Deploy
+cd /opt/showcase/Reservas_Pousada
+docker compose up -d --build
+docker compose logs -f
 ```
 
-### Environment Setup
-
-Required `.env` variables in `backend/` directory:
+## Environment Variables (backend/.env)
 
 ```env
 NODE_ENV=development|production
-PORT=3000
-JWT_SECRET=<REQUIRED: minimum 32 chars, never use fallback>
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=<your anon key>
+PORT=4000
+DATABASE_URL=postgresql://user:pass@localhost:5432/reservas_pousada
+BETTER_AUTH_SECRET=<REQUIRED: 32+ random chars - server exits if missing>
+BETTER_AUTH_URL=http://localhost:4000
+GOOGLE_CLIENT_ID=<optional: Google OAuth>
+GOOGLE_CLIENT_SECRET=<optional: Google OAuth>
 CORS_ORIGIN=http://localhost:3000
 ```
-
-**CRITICAL:** `JWT_SECRET` is mandatory - application will exit if not defined. Never commit `.env` to git.
-
-### Database Setup
-
-1. Create Supabase project at [supabase.com](https://supabase.com)
-2. Execute SQL script in Supabase SQL Editor:
-   ```bash
-   # Copy contents of supabase_setup.sql to Supabase SQL Editor
-   ```
-3. The script creates:
-   - `usuarios` and `reservas` tables with proper indexes
-   - Helper functions with `SECURITY DEFINER`
-   - Optional `logs` table for audit trail
-   - RLS policies for row-level security
 
 ## Architecture
 
@@ -65,207 +58,146 @@ CORS_ORIGIN=http://localhost:3000
 
 ```
 backend/
-├── server.js              # Main Express server with security middleware
-├── database/
-│   └── db.js             # Supabase client initialization
-├── models/
-│   ├── Usuario.js        # User authentication and management
-│   └── Reserva.js        # Reservation CRUD operations
+├── server.ts              # Express app, middleware stack, routes
+├── lib/
+│   └── auth.ts            # Better Auth config (sessions, OAuth, RBAC)
+├── db/
+│   ├── schema.ts          # Drizzle ORM schema (all tables + relations)
+│   └── index.ts           # PostgreSQL pool + Drizzle instance
+├── middleware/
+│   ├── auth.ts            # authMiddleware, requirePousada, requireOwner, authorize()
+│   ├── activity.ts        # Request logging (persists all requests in production)
+│   └── errorHandler.ts    # AppError class + global error handler
 ├── routes/
-│   ├── auth.js           # /api/auth endpoints (login, verify)
-│   └── reservas.js       # /api/reservas endpoints (protected)
+│   ├── reservas.ts        # /api/reservas CRUD + export CSV + audit history
+│   └── pousadas.ts        # /api/pousadas management + dashboard + users
+├── models/
+│   ├── Reserva.ts         # Reservation queries (tenant-isolated)
+│   ├── Pousada.ts         # Pousada queries + SQL-optimized statistics
+│   ├── Usuario.ts         # User profile operations
+│   └── Auditoria.ts       # Audit trail (jsonb details)
 ├── utils/
-│   └── validation.js     # Data validation and sanitization
-├── config/
-│   └── security.js       # Security configs, cache, activity logger
-└── backup.js             # Database backup script
+│   └── validation.ts      # CPF, dates, phone, CEP, sanitization
+├── migrations/             # SQL migration files
+├── backup.js              # PostgreSQL backup to JSON (pg pool)
+├── Dockerfile             # Multi-stage, non-root user (nodejs:1001)
+└── drizzle.config.ts      # ORM configuration
 ```
 
 ### Frontend Structure
 
 ```
-public/
-├── index.html            # Single-page application entry
-├── css/                  # Styling
-└── js/
-    └── app.js            # Client-side logic with XSS protection
+frontend/
+├── app/
+│   ├── layout.tsx         # Root layout
+│   └── auth/callback/     # OAuth callback
+├── components/ui/         # shadcn/ui components
+├── lib/
+│   ├── api.ts             # Authenticated fetch (cookies, no manual tokens)
+│   ├── types.ts           # TypeScript interfaces
+│   ├── formatters.ts      # Date/currency formatting (pt-BR)
+│   └── utils.ts           # Utility functions
+└── Dockerfile             # Multi-stage Next.js standalone build
 ```
 
-### Key Architectural Patterns
+### Authentication Flow (Better Auth)
 
-**Authentication Flow:**
-1. Client sends credentials to `/api/auth/login`
-2. Server validates via `Usuario.verificarSenha()` (bcrypt comparison)
-3. JWT token generated with 24h expiration
-4. All `/api/reservas/*` routes protected by `authenticateJWT` middleware
-5. Token verified on each request, decoded user attached to `req.user`
+1. Client submits credentials or clicks Google OAuth
+2. Better Auth validates and creates session in `session` table
+3. HTTPOnly secure cookie set (no JWT in headers)
+4. All `/api/*` routes protected by `authMiddleware` which calls `auth.api.getSession()`
+5. User data (role, pousadaId, isOwner) fetched from DB and attached to `req.user`
 
-**Database Access Pattern:**
-- All database operations go through Supabase client
-- Models (`Usuario.js`, `Reserva.js`) encapsulate all queries
-- Row Level Security (RLS) policies enforce access control at database level
-- Prepared statements prevent SQL injection
+### Multi-Tenant Isolation
 
-**Security Layers:**
-1. **Input validation** - `utils/validation.js` validates all user input
-2. **Sanitization** - Removes dangerous characters before processing
-3. **Rate limiting** - 100 requests per 15 minutes per IP
-4. **Security headers** - X-Frame-Options, XSS-Protection, CSP, etc.
-5. **RLS policies** - Database-level access control
-6. **Activity logging** - All requests logged via `activityLogger` middleware
+Every data query includes `pousadaId` as a mandatory filter:
+- `ReservaModel.buscarPorIdEPousada(id, pousadaId)` - never returns cross-tenant data
+- `ReservaModel.listarTodas()` throws if `pousada_id` is missing
+- Owner creates pousada during onboarding, staff is invited by owner
 
-**Cache System:**
-- In-memory cache in `config/security.js`
-- TTL-based expiration (default 60 seconds)
-- Used for frequent queries to reduce database load
-- Cache invalidation on data mutations
+### RBAC Roles
+
+| Role | Reservas | Pousada Config | Delete | Manage Users |
+|---|---|---|---|---|
+| **owner** | Full | Full | Yes | Yes |
+| **admin** | CRUD | Config | Yes | Yes |
+| **recepcao** | CRUD | Read | No | No |
+| **auditoria** | Read | Read | No | No |
 
 ## Critical Security Rules
 
-### Validation Module (`utils/validation.js`)
+### Validation (utils/validation.ts)
 
-**ALWAYS use validation functions before database operations:**
-- `validarCPF(cpf)` - Complete Brazilian CPF validation with check digits
-- `validarReserva(reserva)` - Validates entire reservation object
-- `sanitizarReserva(reserva)` - Sanitizes all fields
-- `sanitizarString(str)` - Removes HTML/script tags (XSS protection)
-
-**Never skip validation** - Both client-side AND server-side validation are required.
-
-### JWT Handling
-
-- `JWT_SECRET` must be set - server exits if missing
-- Never expose JWT_SECRET in logs or responses
-- Token format: `Bearer <token>` in Authorization header
-- Always verify token structure and required fields (`id`, `username`)
-
-### CPF Validation
-
-Uses full algorithm validation (not just format check):
-- Must be 11 digits
-- Cannot be all same digits
-- Validates both check digits using modulo 11 algorithm
+**ALWAYS validate + sanitize before database writes:**
+- `validarCPF()` - Full modulo 11 algorithm (both check digits)
+- `validarReserva()` + `sanitizarReserva()` - Complete reservation validation
+- `validarPousada()` + `sanitizarPousada()` - Pousada data validation
+- `sanitizarString()` - Removes `< > " ' &`, limits to 255 chars
+- `sanitizarNome()` - Only letters + spaces + accents, max 100 chars
 
 ### Database Queries
 
-**NEVER construct raw SQL with user input.** Use Supabase query builder:
+**NEVER construct raw SQL with user input.** Use Drizzle ORM:
 
-```javascript
-// ✅ CORRECT - Parameterized query
-const { data } = await supabase
-  .from('reservas')
-  .select('*')
-  .eq('id', reservaId);
+```typescript
+// CORRECT - Drizzle parameterized query
+const result = await db.select().from(reservas).where(eq(reservas.id, id));
 
-// ❌ WRONG - SQL injection vulnerable
-const query = `SELECT * FROM reservas WHERE id = ${reservaId}`;
+// WRONG - SQL injection vulnerable
+const query = `SELECT * FROM reservas WHERE id = ${id}`;
 ```
 
 ### Error Messages
 
-**Never expose internal details in error responses:**
-- Generic messages: "Erro no servidor" instead of stack traces
-- No database error details to client
-- Log detailed errors server-side only
+**Never expose internals in production responses:**
+- `errorHandler.ts` returns "Erro interno do servidor" for 500s in production
+- Stack traces only shown in development
+- Audit details logged server-side only
 
-## Common Development Tasks
+## Database Schema (Drizzle - db/schema.ts)
 
-### Adding a New Reservation Field
+### Tables
+- **user** - Better Auth + custom fields (role, pousadaId, isOwner)
+- **session** - Better Auth sessions (HTTPOnly cookies)
+- **account** - OAuth providers (Google)
+- **verification** - Email verification tokens
+- **pousadas** - Inn data (nome, slug, numQuartos, endereco, etc.)
+- **reservas** - Reservations (nome, cpf, quarto, datas, valor, status)
+- **auditoria** - Audit trail (action, entity, jsonb details, IP)
 
-1. Update `supabase_setup.sql` with new column
-2. Run migration in Supabase SQL Editor
-3. Add validation in `utils/validation.js`:
-   - Create `validar<FieldName>()` function
-   - Update `validarReserva()` to include field
-   - Update `sanitizarReserva()` if needed
-4. Update `models/Reserva.js` methods to include field
-5. Update frontend `public/js/app.js` form handling
-6. Test validation on both client and server
+### Key Indexes
+- `idx_reservas_status`, `idx_reservas_pago`, `idx_reservas_datas`, `idx_reservas_pousada`
+- `idx_auditoria_user`, `idx_auditoria_entity`
+- `idx_pousadas_slug`
 
-### Adding a New API Endpoint
+## API Endpoints
 
-1. Add route in `backend/routes/reservas.js` or `auth.js`
-2. Use `authenticateJWT` middleware for protected routes
-3. Validate all inputs using `utils/validation.js`
-4. Log activity if needed via `activityLogger`
-5. Return consistent JSON format: `{ sucesso: boolean, mensagem: string, data?: any }`
+### Auth (Better Auth - automatic)
+- `POST /api/auth/sign-up` - Register
+- `POST /api/auth/sign-in` - Login
+- `POST /api/auth/sign-out` - Logout
+- `GET /api/auth/session` - Current session
 
-### Testing Authentication
+### Reservas (requires auth + pousada)
+- `GET /api/reservas` - List (paginated, filterable)
+- `GET /api/reservas/export` - CSV export
+- `GET /api/reservas/:id` - Get by ID
+- `GET /api/reservas/:id/auditoria` - Audit history
+- `GET /api/reservas/disponibilidade/:quarto` - Room availability
+- `POST /api/reservas` - Create
+- `PUT /api/reservas/:id` - Update
+- `PATCH /api/reservas/:id/status` - Change status
+- `DELETE /api/reservas/:id` - Delete (admin only)
 
-```bash
-# Login and get token
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
+### Pousadas (requires auth)
+- `GET /api/pousadas/minha` - Current user's pousada
+- `POST /api/pousadas` - Create (onboarding)
+- `GET /api/pousadas/:id` - Details
+- `PUT /api/pousadas/:id` - Update
+- `GET /api/pousadas/:id/dashboard` - Statistics (SQL-optimized)
+- `GET /api/pousadas/:id/quartos` - List rooms
+- `GET/POST/DELETE /api/pousadas/:id/usuarios` - Manage staff
 
-# Use token for protected route
-curl http://localhost:3000/api/reservas \
-  -H "Authorization: Bearer <token>"
-```
-
-### Running Backups
-
-Backups export all data to JSON files:
-
-```bash
-cd backend
-npm run backup
-```
-
-- Backups stored in `backend/backup/`
-- Keeps 10 most recent backups automatically
-- Includes `usuarios` and `reservas` tables
-- Recommended: Schedule daily backups in production
-
-## Environment-Specific Behavior
-
-**Development (`NODE_ENV=development`):**
-- Detailed console logging
-- CORS allows all origins (if `CORS_ORIGIN` not set)
-- No HSTS header
-- Activity logger prints to console
-
-**Production (`NODE_ENV=production`):**
-- Minimal logging
-- CORS restricted to `CORS_ORIGIN` value
-- HSTS header enabled (requires HTTPS)
-- Activity logger can write to database (optional)
-
-## Database Schema
-
-### usuarios
-- `id` (SERIAL PK) - Auto-increment
-- `username` (TEXT UNIQUE) - Login identifier
-- `password` (TEXT) - bcrypt hash (salt 10)
-- `nome` (TEXT) - Full name
-- `role` (TEXT) - User role (admin, funcionario)
-- `created_at` (TIMESTAMPTZ) - Creation timestamp
-
-### reservas
-- `id` (SERIAL PK)
-- `nome` (TEXT) - Guest name
-- `cpf` (TEXT) - Brazilian CPF (validated)
-- `quarto` (INTEGER) - Room number (1-25)
-- `data_entrada`, `data_saida` (DATE) - Check-in/out dates
-- `status` (TEXT) - ativa | finalizada | cancelada
-- `valor` (NUMERIC) - Reservation amount
-- `pago` (BOOLEAN) - Payment status
-- `observacoes` (TEXT) - Notes
-- `criado_por` (INTEGER FK) - User who created
-- `created_at`, `updated_at` (TIMESTAMPTZ)
-
-**Indexes:**
-- `idx_reservas_status` on `status`
-- `idx_reservas_pago` on `pago`
-- `idx_reservas_datas` on `(data_entrada, data_saida)`
-
-## Supabase Integration
-
-When using Supabase MCP tools, prefer them for all Supabase operations:
-
-- **Use `mcp__supabase__search_docs`** for documentation queries
-- **Use `mcp__supabase__execute_sql`** for SELECT queries
-- **Use `mcp__supabase__apply_migration`** for DDL changes (CREATE, ALTER, DROP)
-- **Use `mcp__supabase__get_advisors`** to check for security/performance issues
-
-Always verify RLS policies are working correctly after schema changes.
+### Health
+- `GET /` - API status
+- `GET /health` - DB connection check

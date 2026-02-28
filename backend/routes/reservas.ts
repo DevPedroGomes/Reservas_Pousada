@@ -93,7 +93,7 @@ router.get('/:id/auditoria', authorize(['admin', 'recepcao', 'auditoria']), asyn
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
-    const auditoria = await AuditoriaModel.listar({ entity: 'reserva', entityId: parseInt(id) });
+    const auditoria = await AuditoriaModel.listar({ entity: 'reserva', entityId: parseInt(id), pousadaId: req.user!.pousadaId! });
     res.json({ sucesso: true, auditoria });
   } catch (error) {
     next(new AppError('Erro ao buscar auditoria', 500, 'SRV_001'));

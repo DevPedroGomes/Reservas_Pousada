@@ -143,7 +143,7 @@ export class PousadaModel {
   }
 
   /**
-   * Get pousada statistics
+   * Get pousada statistics (SQL-optimized - no full table scan)
    */
   static async obterEstatisticas(pousadaId: number) {
     const pousada = await this.buscarPorId(pousadaId);
@@ -151,42 +151,30 @@ export class PousadaModel {
 
     const hoje = new Date().toISOString().split('T')[0];
 
-    // Get all reservations for this pousada
-    const reservasData = await db
-      .select()
-      .from(reservas)
-      .where(eq(reservas.pousadaId, pousadaId));
+    // Single query: all stats via SQL aggregation
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS total_reservas,
+        COUNT(*) FILTER (WHERE status = 'ativa')::int AS reservas_ativas,
+        COUNT(*) FILTER (WHERE status = 'ativa' AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
+        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND data_entrada <= ${hoje} AND data_saida >= ${hoje})::int AS quartos_ocupados,
+        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true), 0)::numeric AS receita_total,
+        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status = 'ativa'), 0)::numeric AS receita_pendente
+      FROM reservas
+      WHERE pousada_id = ${pousadaId}
+    `);
 
-    // Calculate statistics
-    const totalReservas = reservasData.length;
-    const reservasAtivas = reservasData.filter(r => r.status === 'ativa').length;
-    const reservasHoje = reservasData.filter(r =>
-      r.status === 'ativa' && (r.dataEntrada === hoje || r.dataSaida === hoje)
-    ).length;
-
-    // Occupied rooms today
-    const quartosOcupadosSet = new Set<number>();
-    reservasData
-      .filter(r => r.status === 'ativa' && r.dataEntrada <= hoje && r.dataSaida >= hoje)
-      .forEach(r => quartosOcupadosSet.add(r.quarto));
-    const quartosOcupados = quartosOcupadosSet.size;
-
-    // Occupancy rate
+    const stats = result.rows[0] as Record<string, unknown>;
+    const totalReservas = Number(stats.total_reservas) || 0;
+    const reservasAtivas = Number(stats.reservas_ativas) || 0;
+    const reservasHoje = Number(stats.reservas_hoje) || 0;
+    const quartosOcupados = Number(stats.quartos_ocupados) || 0;
+    const receitaTotal = Number(stats.receita_total) || 0;
+    const receitaPendente = Number(stats.receita_pendente) || 0;
+    const quartosDisponiveis = pousada.numQuartos - quartosOcupados;
     const taxaOcupacao = pousada.numQuartos > 0
       ? Math.round((quartosOcupados / pousada.numQuartos) * 100)
       : 0;
-
-    // Revenue
-    const receitaTotal = reservasData
-      .filter(r => r.pago === true)
-      .reduce((sum, r) => sum + (parseFloat(r.valor || '0') || 0), 0);
-
-    const receitaPendente = reservasData
-      .filter(r => r.pago === false && r.status === 'ativa')
-      .reduce((sum, r) => sum + (parseFloat(r.valor || '0') || 0), 0);
-
-    // Available rooms
-    const quartosDisponiveis = pousada.numQuartos - quartosOcupados;
 
     return {
       pousada: {

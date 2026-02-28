@@ -30,20 +30,20 @@ export function AuthCard({
   loading,
   message,
 }: AuthCardProps) {
-  const [loginUsername, setLoginUsername] = useState("")
+  const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
   const [signupNome, setSignupNome] = useState("")
-  const [signupUsername, setSignupUsername] = useState("")
+  const [signupEmail, setSignupEmail] = useState("")
   const [signupPassword, setSignupPassword] = useState("")
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await onLogin(loginUsername, loginPassword)
+    await onLogin(loginEmail, loginPassword)
   }
 
   const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    await onSignup(signupNome, signupUsername, signupPassword)
+    await onSignup(signupNome, signupEmail, signupPassword)
   }
 
   return (
@@ -140,17 +140,17 @@ export function AuthCard({
         {!isSignup && (
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-sm font-semibold">
-                Usuario
+              <Label htmlFor="login-email" className="text-sm font-semibold">
+                Email
               </Label>
               <Input
-                id="username"
-                type="text"
+                id="login-email"
+                type="email"
                 name="username"
                 autoComplete="username"
-                placeholder="Digite seu usuario"
-                value={loginUsername}
-                onChange={(e) => setLoginUsername(e.target.value)}
+                placeholder="Digite seu email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
                 required
                 className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
@@ -201,17 +201,17 @@ export function AuthCard({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="signup-username" className="text-sm font-semibold">
-                Usuario
+              <Label htmlFor="signup-email" className="text-sm font-semibold">
+                Email
               </Label>
               <Input
-                id="signup-username"
-                type="text"
+                id="signup-email"
+                type="email"
                 name="username"
                 autoComplete="username"
-                placeholder="Escolha um usuario"
-                value={signupUsername}
-                onChange={(e) => setSignupUsername(e.target.value)}
+                placeholder="Digite seu email"
+                value={signupEmail}
+                onChange={(e) => setSignupEmail(e.target.value)}
                 required
                 className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />

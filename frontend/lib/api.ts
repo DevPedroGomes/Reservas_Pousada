@@ -55,11 +55,41 @@ export async function authenticatedFetch(
 }
 
 /**
+ * Handle API response - checks status and parses JSON
+ */
+async function handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  if (!response.ok) {
+    // Try to parse error body from the API
+    try {
+      const errorData = await response.json()
+      return {
+        sucesso: false,
+        mensagem: errorData.mensagem || `Erro ${response.status}`,
+        codigo: errorData.codigo,
+        ...errorData,
+      }
+    } catch {
+      // Response body is not JSON
+      return {
+        sucesso: false,
+        mensagem: response.status === 401
+          ? "Sessão expirada. Faça login novamente."
+          : response.status === 403
+          ? "Sem permissão para esta ação."
+          : `Erro do servidor (${response.status})`,
+      }
+    }
+  }
+
+  return response.json()
+}
+
+/**
  * Wrapper tipado para chamadas GET
  */
 export async function apiGet<T>(endpoint: string): Promise<ApiResponse<T>> {
   const response = await authenticatedFetch(`${API_URL}${endpoint}`)
-  return response.json()
+  return handleResponse<T>(response)
 }
 
 /**
@@ -73,7 +103,7 @@ export async function apiPost<T>(
     method: "POST",
     body: JSON.stringify(body),
   })
-  return response.json()
+  return handleResponse<T>(response)
 }
 
 /**
@@ -87,7 +117,7 @@ export async function apiPut<T>(
     method: "PUT",
     body: JSON.stringify(body),
   })
-  return response.json()
+  return handleResponse<T>(response)
 }
 
 /**
@@ -97,7 +127,7 @@ export async function apiDelete<T>(endpoint: string): Promise<ApiResponse<T>> {
   const response = await authenticatedFetch(`${API_URL}${endpoint}`, {
     method: "DELETE",
   })
-  return response.json()
+  return handleResponse<T>(response)
 }
 
 /**
@@ -111,7 +141,7 @@ export async function apiPatch<T>(
     method: "PATCH",
     body: JSON.stringify(body),
   })
-  return response.json()
+  return handleResponse<T>(response)
 }
 
 // Legacy exports for backwards compatibility (deprecated)

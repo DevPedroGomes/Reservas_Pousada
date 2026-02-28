@@ -47,9 +47,20 @@ services:
       - "traefik.http.routers.reservas-api.rule=Host(`api-pousada.pgdev.com.br`)"
       - "traefik.http.routers.reservas-api.tls=true"
       - "traefik.http.routers.reservas-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.reservas-api.middlewares=reservas-api-security@docker"
       - "traefik.http.services.reservas-api.loadbalancer.server.port=4000"
+      # Security Headers (OBRIGATORIO)
+      - "traefik.http.middlewares.reservas-api-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.reservas-api-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.stsPreload=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.reservas-api-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.reservas-api-security.headers.contentSecurityPolicy=default-src 'none'; frame-ancestors 'none'"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -76,17 +87,18 @@ services:
       - "traefik.http.routers.pousada-frontend.rule=Host(`minhapousada.pgdev.com.br`)"
       - "traefik.http.routers.pousada-frontend.tls=true"
       - "traefik.http.routers.pousada-frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.pousada-frontend.middlewares=security-headers@docker"
+      - "traefik.http.routers.pousada-frontend.middlewares=pousada-frontend-security@docker"
       - "traefik.http.services.pousada-frontend.loadbalancer.server.port=3000"
-      # Security Headers Middleware
-      - "traefik.http.middlewares.security-headers.headers.stsSeconds=31536000"
-      - "traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.security-headers.headers.stsPreload=true"
-      - "traefik.http.middlewares.security-headers.headers.forceSTSHeader=true"
-      - "traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.security-headers.headers.browserXssFilter=true"
-      - "traefik.http.middlewares.security-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
-      - "traefik.http.middlewares.security-headers.headers.frameDeny=true"
+      # Security Headers (OBRIGATORIO)
+      - "traefik.http.middlewares.pousada-frontend-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.stsPreload=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api-pousada.pgdev.com.br https://accounts.google.com; frame-ancestors 'none'"
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
       interval: 30s

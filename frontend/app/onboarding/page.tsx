@@ -10,8 +10,9 @@ import { Select } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
 import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
+import { useSession } from '../../lib/auth-client';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 interface PousadaForm {
   nome: string;
@@ -45,48 +46,45 @@ const estados = [
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { data: session, isPending: sessionLoading } = useSession();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<PousadaForm>(initialForm);
   const [loading, setLoading] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [checkingPousada, setCheckingPousada] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [token, setToken] = useState<string | null>(null);
 
+  // Redirect if not authenticated
   useEffect(() => {
-    const savedToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-    if (!savedToken) {
+    if (!sessionLoading && !session?.user) {
       router.push('/');
-      return;
     }
-    setToken(savedToken);
-    verificarOnboarding(savedToken);
-  }, [router]);
+  }, [session, sessionLoading, router]);
 
-  async function verificarOnboarding(existingToken: string) {
-    try {
-      const response = await fetch(`${API_URL}/auth/verificar`, {
-        headers: { Authorization: `Bearer ${existingToken}` }
-      });
-      const data = await response.json();
+  // Check if user already has a pousada
+  useEffect(() => {
+    if (!session?.user) return;
 
-      if (!data.sucesso) {
-        localStorage.removeItem('token');
-        router.push('/');
-        return;
+    async function checkPousada() {
+      try {
+        const response = await fetch(`${API_URL}/api/pousadas/minha`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+
+        if (data.sucesso && data.pousada) {
+          // User already has a pousada, redirect to dashboard
+          router.push('/');
+          return;
+        }
+      } catch (error) {
+        console.error('Erro ao verificar pousada:', error);
+      } finally {
+        setCheckingPousada(false);
       }
-
-      // Se usuário já tem pousada, redirecionar para dashboard
-      if (!data.needsOnboarding) {
-        router.push('/');
-        return;
-      }
-    } catch (error) {
-      console.error('Erro ao verificar onboarding:', error);
-      router.push('/');
-    } finally {
-      setAuthLoading(false);
     }
-  }
+
+    checkPousada();
+  }, [session, router]);
 
   function validateStep1(): boolean {
     if (!form.nome.trim()) {
@@ -147,27 +145,23 @@ export default function OnboardingPage() {
   }
 
   async function handleSubmit() {
-    if (!token) return;
+    if (!session?.user) return;
     setLoading(true);
     setMessage(null);
 
     try {
-      const response = await fetch(`${API_URL}/pousadas`, {
+      const response = await fetch(`${API_URL}/api/pousadas`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
         },
+        credentials: 'include',
         body: JSON.stringify(form)
       });
 
       const data = await response.json();
 
       if (data.sucesso) {
-        // Atualizar token se um novo foi retornado
-        if (data.token) {
-          localStorage.setItem('token', data.token);
-        }
         setMessage({ type: 'success', text: 'Pousada configurada com sucesso!' });
 
         // Aguardar um pouco para mostrar a mensagem e redirecionar
@@ -185,7 +179,7 @@ export default function OnboardingPage() {
     }
   }
 
-  if (authLoading) {
+  if (sessionLoading || checkingPousada) {
     return (
       <div className="flex min-h-screen items-center justify-center text-slate-600">
         Carregando...

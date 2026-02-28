@@ -14,7 +14,7 @@ export const user = pgTable('user', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   // Custom fields for our app
-  role: text('role').default('recepcao'),
+  role: text('role').notNull().default('recepcao'),
   pousadaId: integer('pousada_id'),
   isOwner: boolean('is_owner').default(false),
 });
@@ -62,7 +62,7 @@ export const verification = pgTable('verification', {
 export const pousadas = pgTable('pousadas', {
   id: serial('id').primaryKey(),
   nome: text('nome').notNull(),
-  slug: text('slug').unique(),
+  slug: text('slug').notNull().unique(),
   numQuartos: integer('num_quartos').notNull().default(10),
   endereco: text('endereco'),
   cidade: text('cidade'),
@@ -88,7 +88,7 @@ export const reservas = pgTable('reservas', {
   quarto: integer('quarto').notNull(),
   dataEntrada: date('data_entrada').notNull(),
   dataSaida: date('data_saida').notNull(),
-  status: text('status').default('ativa'),
+  status: text('status').notNull().default('ativa'),
   valor: numeric('valor'),
   pago: boolean('pago').default(false),
   observacoes: text('observacoes'),
@@ -108,7 +108,7 @@ export const auditoria = pgTable('auditoria', {
   action: text('action').notNull(),
   entity: text('entity').notNull(),
   entityId: integer('entity_id'),
-  details: text('details'), // JSON stringified
+  details: jsonb('details'),
   ip: text('ip'),
   createdAt: timestamp('created_at').defaultNow(),
 }, (table) => ({

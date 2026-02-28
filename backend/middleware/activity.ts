@@ -20,15 +20,26 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
   // Log response after it's sent
   res.on('finish', () => {
     const duration = Date.now() - startTime;
-    const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${logEntry.userId}`;
 
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'production') {
+      // Structured JSON log - captured by Docker and queryable via `docker compose logs`
+      const logData = {
+        t: logEntry.timestamp,
+        method: logEntry.method,
+        path: logEntry.path,
+        status: res.statusCode,
+        ms: duration,
+        user: logEntry.userId,
+        ip: logEntry.ip,
+      };
+      if (res.statusCode >= 400) {
+        console.error(JSON.stringify(logData));
+      } else {
+        console.log(JSON.stringify(logData));
+      }
+    } else {
+      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${logEntry.userId}`;
       console.log(logMessage);
-    }
-
-    // In production, you could send this to a logging service
-    if (process.env.NODE_ENV === 'production' && res.statusCode >= 400) {
-      console.error(logMessage);
     }
   });
 

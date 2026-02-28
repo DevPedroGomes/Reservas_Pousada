@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, auditoria, user } from '../db/index.js';
 import type { Auditoria, NewAuditoria } from '../db/schema.js';
 
@@ -21,15 +21,18 @@ export class AuditoriaModel {
 
   /**
    * List audit logs with filters
+   * When entity is 'reserva' and pousadaId is provided, ensures tenant isolation
+   * by verifying the referenced reservation belongs to the given pousada.
    */
   static async listar(options: {
     userId?: string;
     entity?: string;
     entityId?: number;
+    pousadaId?: number;
     limit?: number;
     offset?: number;
   }): Promise<AuditoriaComUsuario[]> {
-    const { userId, entity, entityId, limit = 100, offset = 0 } = options;
+    const { userId, entity, entityId, pousadaId, limit = 100, offset = 0 } = options;
 
     const conditions = [];
 
@@ -43,6 +46,14 @@ export class AuditoriaModel {
 
     if (entityId) {
       conditions.push(eq(auditoria.entityId, entityId));
+    }
+
+    // Tenant isolation: if entity is 'reserva' and pousadaId is provided,
+    // only return audit logs for reservations belonging to this pousada
+    if (pousadaId && entity === 'reserva') {
+      conditions.push(
+        sql`${auditoria.entityId} IN (SELECT id FROM reservas WHERE pousada_id = ${pousadaId})`
+      );
     }
 
     const results = await db
@@ -107,7 +118,7 @@ export class AuditoriaModel {
       action,
       entity,
       entityId,
-      details: details ? JSON.stringify(details) : null,
+      details: details ?? null,
       ip,
     });
   }
