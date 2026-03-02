@@ -58,6 +58,7 @@ export function useAuth(): UseAuthReturn {
         role: (session.user as any).role || 'recepcao',
         pousada_id: (session.user as any).pousadaId || null,
         is_owner: (session.user as any).isOwner || false,
+        email_verified: session.user.emailVerified || false,
       });
     } else {
       setUser(null);

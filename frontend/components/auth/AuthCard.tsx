@@ -171,6 +171,14 @@ export function AuthCard({
                 className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
+            <div className="text-right">
+              <a
+                href="/forgot-password"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium"
+              >
+                Esqueceu a senha?
+              </a>
+            </div>
             <Button
               type="submit"
               className="w-full h-11 font-semibold"

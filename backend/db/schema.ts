@@ -116,6 +116,24 @@ export const auditoria = pgTable('auditoria', {
   entityIdx: index('idx_auditoria_entity').on(table.entity, table.entityId),
 }));
 
+export const staffInvites = pgTable('staff_invites', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  email: text('email').notNull(),
+  role: text('role').notNull().default('recepcao'),
+  token: text('token').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  invitedBy: text('invited_by').references(() => user.id).notNull(),
+  acceptedBy: text('accepted_by').references(() => user.id),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => ({
+  tokenIdx: index('idx_staff_invites_token').on(table.token),
+  pousadaIdx: index('idx_staff_invites_pousada').on(table.pousadaId),
+  emailIdx: index('idx_staff_invites_email').on(table.email),
+}));
+
 // ==========================================
 // Relations
 // ==========================================
@@ -148,6 +166,7 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const pousadasRelations = relations(pousadas, ({ many }) => ({
   usuarios: many(user),
   reservas: many(reservas),
+  staffInvites: many(staffInvites),
 }));
 
 export const reservasRelations = relations(reservas, ({ one }) => ({
@@ -168,6 +187,17 @@ export const auditoriaRelations = relations(auditoria, ({ one }) => ({
   }),
 }));
 
+export const staffInvitesRelations = relations(staffInvites, ({ one }) => ({
+  pousada: one(pousadas, {
+    fields: [staffInvites.pousadaId],
+    references: [pousadas.id],
+  }),
+  inviter: one(user, {
+    fields: [staffInvites.invitedBy],
+    references: [user.id],
+  }),
+}));
+
 // ==========================================
 // Types
 // ==========================================
@@ -182,3 +212,5 @@ export type Reserva = typeof reservas.$inferSelect;
 export type NewReserva = typeof reservas.$inferInsert;
 export type Auditoria = typeof auditoria.$inferSelect;
 export type NewAuditoria = typeof auditoria.$inferInsert;
+export type StaffInvite = typeof staffInvites.$inferSelect;
+export type NewStaffInvite = typeof staffInvites.$inferInsert;

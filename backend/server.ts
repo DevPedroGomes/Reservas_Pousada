@@ -7,6 +7,7 @@ import { auth } from './lib/auth.js';
 import { testConnection } from './db/index.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
+import conviteRoutes from './routes/convites.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
@@ -79,6 +80,7 @@ app.use(activityLogger);
 // ==========================================
 // API Routes
 // ==========================================
+app.use('/api/convites', conviteRoutes);
 app.use('/api/reservas', authMiddleware, requirePousada, reservaRoutes);
 app.use('/api/pousadas', authMiddleware, pousadaRoutes);
 

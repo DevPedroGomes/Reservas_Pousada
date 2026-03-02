@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react"
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { Badge } from "../components/ui/badge"
@@ -12,6 +12,8 @@ import { cn } from "../lib/utils"
 // Auth and Reservations
 import { useAuth } from "../hooks/useAuth"
 import { useReservations } from "../hooks/useReservations"
+import { useStaffInvites } from "../hooks/useStaffInvites"
+import { sendEmailVerification } from "../lib/auth-client"
 
 // Components
 import { AuthCard } from "../components/auth/AuthCard"
@@ -71,6 +73,17 @@ export default function Home() {
     setPage: setReservasPage,
   } = useReservations(isAuthenticated)
 
+  // Staff invites hook
+  const {
+    convites,
+    loading: convitesLoading,
+    message: convitesMessage,
+    carregarConvites,
+    enviarConvite,
+    revogarConvite,
+    setMessage: setConvitesMessage,
+  } = useStaffInvites()
+
   // Local state
   const [page, setPage] = useState<PageType>("dashboard")
   const [isSignup, setIsSignup] = useState(false)
@@ -78,6 +91,9 @@ export default function Home() {
   const [reservaToDelete, setReservaToDelete] = useState<number | null>(null)
   const [formData, setFormData] = useState<Reserva | null>(null)
   const [formId, setFormId] = useState<number | null>(null)
+  const [inviteEmail, setInviteEmail] = useState("")
+  const [inviteRole, setInviteRole] = useState("recepcao")
+  const [verificationSent, setVerificationSent] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
 
   // Refs for GSAP animations
@@ -151,7 +167,10 @@ export default function Home() {
       setFormData(null)
       setFormId(null)
     }
-  }, [carregarDashboard, carregarReservas])
+    if (newPage === "configuracoes" && pousada) {
+      carregarConvites(pousada.id)
+    }
+  }, [carregarDashboard, carregarReservas, carregarConvites, pousada])
 
   // Edit reservation
   const handleEditReserva = useCallback(async (id: number) => {
@@ -364,6 +383,30 @@ export default function Home() {
           </div>
         )}
 
+        {/* Email Verification Banner */}
+        {user && user.email_verified === false && (
+          <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-5 py-4 flex items-center justify-between gap-4">
+            <p className="text-sm font-medium text-amber-900">
+              Seu email ainda nao foi verificado. Verifique sua caixa de entrada.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={verificationSent}
+              className="border-amber-300 text-amber-900 hover:bg-amber-100 shrink-0"
+              onClick={async () => {
+                if (user.email) {
+                  await sendEmailVerification(user.email)
+                  setVerificationSent(true)
+                  setMessage({ type: "success", text: "Email de verificacao reenviado!" })
+                }
+              }}
+            >
+              {verificationSent ? "Enviado!" : "Reenviar email"}
+            </Button>
+          </div>
+        )}
+
         {/* Dashboard Page */}
         {page === "dashboard" && (
           <div className="space-y-8">
@@ -493,10 +536,10 @@ export default function Home() {
 
             <Card className="border-2 shadow-xl">
               <CardHeader>
-                <CardTitle className="text-xl font-bold">Usuarios</CardTitle>
-                <CardDescription className="text-base">Equipe com acesso ao sistema</CardDescription>
+                <CardTitle className="text-xl font-bold">Equipe</CardTitle>
+                <CardDescription className="text-base">Membros com acesso ao sistema</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/50 border-2 border-border">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg">
                     {user?.nome?.charAt(0).toUpperCase() || "U"}
@@ -506,11 +549,96 @@ export default function Home() {
                     <p className="text-sm text-muted-foreground font-medium">Owner (voce)</p>
                   </div>
                 </div>
-                <p className="mt-4 text-sm text-muted-foreground">
-                  Em breve: Adicione membros da equipe para gerenciar reservas.
-                </p>
               </CardContent>
             </Card>
+
+            {(user?.is_owner || user?.role === "admin") && (
+              <Card className="border-2 shadow-xl">
+                <CardHeader>
+                  <CardTitle className="text-xl font-bold">Convidar Equipe</CardTitle>
+                  <CardDescription className="text-base">Envie convites por email para novos membros</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {convitesMessage && (
+                    <div className={cn(
+                      "rounded-xl border-2 px-4 py-3 text-sm font-medium",
+                      convitesMessage.type === "success" ? "border-teal-200 bg-teal-50 text-teal-900" : "border-rose-200 bg-rose-50 text-rose-900"
+                    )}>
+                      {convitesMessage.text}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={async (e: React.FormEvent) => {
+                      e.preventDefault()
+                      if (!pousada) return
+                      const success = await enviarConvite(pousada.id, inviteEmail, inviteRole)
+                      if (success) {
+                        setInviteEmail("")
+                        setInviteRole("recepcao")
+                      }
+                    }}
+                    className="flex flex-col sm:flex-row gap-3"
+                  >
+                    <input
+                      type="email"
+                      placeholder="email@exemplo.com"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="flex-1 rounded-xl border-2 border-border bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
+                    />
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="rounded-xl border-2 border-border bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
+                    >
+                      <option value="recepcao">Recepcionista</option>
+                      <option value="admin">Administrador</option>
+                      <option value="auditoria">Auditor</option>
+                      <option value="operacao">Operacional</option>
+                    </select>
+                    <Button type="submit" disabled={convitesLoading} className="font-semibold shadow-lg">
+                      {convitesLoading ? "Enviando..." : "Enviar Convite"}
+                    </Button>
+                  </form>
+
+                  {convites.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <p className="text-sm font-bold text-foreground">Convites enviados</p>
+                      {convites.map((c) => (
+                        <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{c.email}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : c.role === "auditoria" ? "Auditor" : "Operacional"}
+                              {" - "}
+                              <span className={cn(
+                                "font-medium",
+                                c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-teal-600" : "text-rose-600"
+                              )}>
+                                {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
+                              </span>
+                            </p>
+                          </div>
+                          {c.status === "pending" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => pousada && revogarConvite(pousada.id, c.id)}
+                              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 text-xs"
+                            >
+                              Revogar
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
       </div>

@@ -72,5 +72,35 @@ export async function getCurrentSession() {
   return session;
 }
 
+/**
+ * Request password reset email
+ */
+export async function requestPasswordReset(email: string) {
+  return (authClient as any).forgetPassword({
+    email,
+    redirectTo: `${APP_URL}/reset-password`,
+  });
+}
+
+/**
+ * Reset password with token
+ */
+export async function resetPassword(newPassword: string, token: string) {
+  return authClient.resetPassword({
+    newPassword,
+    token,
+  });
+}
+
+/**
+ * Send email verification
+ */
+export async function sendEmailVerification(email: string) {
+  return authClient.sendVerificationEmail({
+    email,
+    callbackURL: `${APP_URL}/verify-email`,
+  });
+}
+
 // Export types
 export type AuthSession = Awaited<ReturnType<typeof authClient.getSession>>;

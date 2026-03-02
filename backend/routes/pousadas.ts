@@ -1,7 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel from '../models/Pousada.js';
+import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada } from '../utils/validation.js';
 import { authorize, requireOwner } from '../middleware/auth.js';
+import { sendStaffInviteEmail } from '../lib/email.js';
 
 const router = Router();
 
@@ -487,6 +489,144 @@ router.post('/:id/reativar', requirePousadaOwner, async (req: Request, res: Resp
     res.status(500).json({
       sucesso: false,
       mensagem: 'Erro ao reativar pousada'
+    });
+  }
+});
+
+// ============================================
+// STAFF INVITE ROUTES
+// ============================================
+
+const FRONTEND_URL = process.env.CORS_ORIGIN || 'http://localhost:3000';
+
+/**
+ * POST /api/pousadas/:id/convites
+ * Create invite and send email (owner/admin only)
+ */
+router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const pousadaId = parseInt(req.params.id);
+    const { email, role } = req.body;
+
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Email inválido',
+      });
+    }
+
+    const rolesValidos = ['admin', 'recepcao', 'auditoria', 'operacao'];
+    if (role && !rolesValidos.includes(role)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: `Role inválido. Use: ${rolesValidos.join(', ')}`,
+      });
+    }
+
+    // Check for existing pending invite
+    const exists = await StaffInviteModel.existeConvitePendente(email, pousadaId);
+    if (exists) {
+      return res.status(409).json({
+        sucesso: false,
+        mensagem: 'Já existe um convite pendente para este email',
+      });
+    }
+
+    // Get pousada name for email
+    const pousada = await PousadaModel.buscarPorId(pousadaId);
+    if (!pousada) {
+      return res.status(404).json({
+        sucesso: false,
+        mensagem: 'Pousada não encontrada',
+      });
+    }
+
+    const invite = await StaffInviteModel.criar({
+      pousadaId,
+      email,
+      role: role || 'recepcao',
+      invitedBy: req.user!.id,
+    });
+
+    // Send invite email (fire-and-forget)
+    const inviteUrl = `${FRONTEND_URL}/convite/${invite.token}`;
+    sendStaffInviteEmail(
+      email,
+      pousada.nome,
+      role || 'recepcao',
+      req.user!.name || 'Administrador',
+      inviteUrl,
+    ).catch(console.error);
+
+    res.status(201).json({
+      sucesso: true,
+      mensagem: 'Convite enviado com sucesso',
+      convite: {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+        expiresAt: invite.expiresAt,
+      },
+    });
+  } catch (error: any) {
+    console.error('Erro ao criar convite:', error);
+    res.status(500).json({
+      sucesso: false,
+      mensagem: error.message || 'Erro ao criar convite',
+    });
+  }
+});
+
+/**
+ * GET /api/pousadas/:id/convites
+ * List invites (owner/admin only)
+ */
+router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const pousadaId = parseInt(req.params.id);
+    const convites = await StaffInviteModel.listarPorPousada(pousadaId);
+
+    res.json({
+      sucesso: true,
+      convites,
+    });
+  } catch (error) {
+    console.error('Erro ao listar convites:', error);
+    res.status(500).json({
+      sucesso: false,
+      mensagem: 'Erro ao listar convites',
+    });
+  }
+});
+
+/**
+ * DELETE /api/pousadas/:id/convites/:inviteId
+ * Revoke invite (owner/admin only)
+ */
+router.delete('/:id/convites/:inviteId', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const pousadaId = parseInt(req.params.id);
+    const inviteId = parseInt(req.params.inviteId);
+
+    if (isNaN(inviteId)) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'ID do convite inválido',
+      });
+    }
+
+    await StaffInviteModel.revogar(inviteId, pousadaId);
+
+    res.json({
+      sucesso: true,
+      mensagem: 'Convite revogado com sucesso',
+    });
+  } catch (error: any) {
+    console.error('Erro ao revogar convite:', error);
+    res.status(400).json({
+      sucesso: false,
+      mensagem: error.message || 'Erro ao revogar convite',
     });
   }
 });

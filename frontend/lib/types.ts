@@ -11,6 +11,24 @@ export interface Usuario {
   pousada_id?: number | null
   is_owner?: boolean
   avatar_url?: string | null
+  email_verified?: boolean
+}
+
+export interface StaffInvite {
+  id: number
+  email: string
+  role: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  createdAt: string
+  expiresAt: string
+  inviterName?: string
+}
+
+export interface InviteInfo {
+  pousadaNome: string
+  role: string
+  email: string
+  expiresAt: string
 }
 
 export interface Pousada {

@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db/index.js';
 import * as schema from '../db/schema.js';
+import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
 
 // Better Auth Secret (required)
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -37,6 +38,18 @@ export const auth = betterAuth({
     minPasswordLength: 8,
     maxPasswordLength: 100,
     autoSignIn: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, user.name, url);
+    },
+  },
+
+  // Email verification
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      await sendVerifEmail(user.email, user.name, url);
+    },
   },
 
   // Social providers
