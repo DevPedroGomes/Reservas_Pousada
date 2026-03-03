@@ -50,7 +50,7 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), async (req:
 
     const { data } = await ReservaModel.listarTodas({
       page: 1,
-      limit: 1000,
+      limit: 10000,
       search: search as string,
       status: status as string | undefined,
       pago: pagoBool,

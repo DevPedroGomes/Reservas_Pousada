@@ -6,6 +6,15 @@ const FROM_EMAIL = process.env.NODE_ENV === 'production' && resendApiKey
   ? 'Reservas Pousada <noreply@pgdev.com.br>'
   : 'Reservas Pousada <onboarding@resend.dev>';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 let resend: Resend | null = null;
 
 if (resendApiKey) {
@@ -83,9 +92,10 @@ export async function sendPasswordResetEmail(
   name: string,
   resetUrl: string
 ): Promise<void> {
+  const safeName = escapeHtml(name);
   const html = baseTemplate(`
     <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Redefinir sua senha</h2>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${name}</strong>!</p>
+    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${safeName}</strong>!</p>
     <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">Recebemos uma solicitacao para redefinir a senha da sua conta. Clique no botao abaixo para criar uma nova senha:</p>
     ${ctaButton(resetUrl, 'Redefinir Senha')}
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0 0 8px;">Este link expira em <strong>1 hora</strong>.</p>
@@ -100,9 +110,10 @@ export async function sendVerificationEmail(
   name: string,
   verificationUrl: string
 ): Promise<void> {
+  const safeName = escapeHtml(name);
   const html = baseTemplate(`
     <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Verificar seu email</h2>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${name}</strong>!</p>
+    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${safeName}</strong>!</p>
     <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">Obrigado por criar sua conta. Para garantir a seguranca da sua conta, verifique seu email clicando no botao abaixo:</p>
     ${ctaButton(verificationUrl, 'Verificar Email')}
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao criou uma conta, ignore este email.</p>
@@ -125,15 +136,17 @@ export async function sendStaffInviteEmail(
     operacao: 'Operacional',
   };
   const roleLabel = roleLabels[role] || role;
+  const safeInviter = escapeHtml(inviterName);
+  const safePousada = escapeHtml(pousadaNome);
 
   const html = baseTemplate(`
     <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Voce foi convidado!</h2>
     <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
-      <strong>${inviterName}</strong> convidou voce para fazer parte da equipe da pousada <strong>${pousadaNome}</strong> como <strong>${roleLabel}</strong>.
+      <strong>${safeInviter}</strong> convidou voce para fazer parte da equipe da pousada <strong>${safePousada}</strong> como <strong>${roleLabel}</strong>.
     </p>
     ${ctaButton(inviteUrl, 'Aceitar Convite')}
     <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0 0;">
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${pousadaNome}</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${safePousada}</p>
       <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Funcao:</strong> ${roleLabel}</p>
       <p style="color:#64748b;font-size:13px;margin:0;"><strong>Validade:</strong> 7 dias</p>
     </div>

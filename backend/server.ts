@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
-import { testConnection } from './db/index.js';
+import { testConnection, pool } from './db/index.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
 import conviteRoutes from './routes/convites.js';
@@ -126,6 +126,23 @@ async function iniciarServidor() {
       console.error('Não foi possível conectar ao banco de dados');
       process.exit(1);
     }
+
+    // Validate critical config
+    if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY) {
+      console.warn('⚠ RESEND_API_KEY não definida — emails (convites, reset senha, verificação) NÃO serão enviados');
+    }
+
+    // Cleanup expired sessions every 6 hours
+    setInterval(async () => {
+      try {
+        const result = await pool.query('DELETE FROM session WHERE expires_at < NOW()');
+        if (result.rowCount && result.rowCount > 0) {
+          console.log(`[Cleanup] ${result.rowCount} sessões expiradas removidas`);
+        }
+      } catch (err) {
+        console.error('[Cleanup] Erro ao limpar sessões:', err);
+      }
+    }, 6 * 60 * 60 * 1000);
 
     // Start server
     app.listen(PORT, () => {

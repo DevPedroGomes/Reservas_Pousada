@@ -1,4 +1,4 @@
-import { eq, and, or, gte, lte, ne, ilike, sql, count } from 'drizzle-orm';
+import { eq, and, or, gte, lte, ne, ilike, sql, count, isNull } from 'drizzle-orm';
 import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
 
@@ -30,8 +30,8 @@ export class ReservaModel {
 
     const offset = (page - 1) * limit;
 
-    // Build where conditions
-    const conditions = [eq(reservas.pousadaId, pousada_id)];
+    // Build where conditions (always exclude soft-deleted)
+    const conditions = [eq(reservas.pousadaId, pousada_id), isNull(reservas.deletedAt)];
 
     if (status) {
       conditions.push(eq(reservas.status, status));
@@ -83,6 +83,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
         criadoPorNome: user.name,
@@ -118,13 +119,14 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
         criadoPorNome: user.name,
       })
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(eq(reservas.id, id))
+      .where(and(eq(reservas.id, id), isNull(reservas.deletedAt)))
       .limit(1);
 
     return result || null;
@@ -148,13 +150,14 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
         criadoPorNome: user.name,
       })
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)))
+      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)))
       .limit(1);
 
     return result || null;
@@ -174,6 +177,7 @@ export class ReservaModel {
       eq(reservas.quarto, quarto),
       eq(reservas.status, 'ativa'),
       eq(reservas.pousadaId, pousadaId),
+      isNull(reservas.deletedAt),
       or(
         and(lte(reservas.dataEntrada, dataSaida), gte(reservas.dataSaida, dataEntrada)),
         and(gte(reservas.dataEntrada, dataEntrada), lte(reservas.dataEntrada, dataSaida)),
@@ -197,9 +201,29 @@ export class ReservaModel {
   }
 
   /**
-   * Create a new reservation
+   * Create a new reservation (with idempotency guard)
    */
   static async criar(reserva: NewReserva): Promise<Reserva> {
+    // Idempotency guard: prevent duplicate from double-clicks (same cpf+quarto+dates within 30s)
+    const [duplicate] = await db
+      .select({ id: reservas.id })
+      .from(reservas)
+      .where(and(
+        eq(reservas.cpf, reserva.cpf),
+        eq(reservas.quarto, reserva.quarto),
+        eq(reservas.dataEntrada, reserva.dataEntrada),
+        eq(reservas.dataSaida, reserva.dataSaida),
+        eq(reservas.pousadaId, reserva.pousadaId),
+        isNull(reservas.deletedAt),
+        gte(reservas.createdAt, new Date(Date.now() - 30_000)),
+      ))
+      .limit(1);
+
+    if (duplicate) {
+      // Return existing instead of creating duplicate
+      return (await this.buscarPorId(duplicate.id))!;
+    }
+
     // Check availability
     const disponibilidade = await this.verificarDisponibilidade(
       reserva.quarto,
@@ -283,12 +307,13 @@ export class ReservaModel {
   }
 
   /**
-   * Delete a reservation
+   * Soft delete a reservation (sets deletedAt instead of removing)
    */
   static async excluir(id: number, pousadaId: number): Promise<{ changes: number }> {
     const result = await db
-      .delete(reservas)
-      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)));
+      .update(reservas)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)));
 
     return { changes: result.rowCount || 0 };
   }
@@ -311,6 +336,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
         criadoPorNome: user.name,
@@ -320,6 +346,7 @@ export class ReservaModel {
       .where(
         and(
           eq(reservas.pousadaId, pousadaId),
+          isNull(reservas.deletedAt),
           or(
             and(gte(reservas.dataEntrada, dataInicio), lte(reservas.dataEntrada, dataFim)),
             and(gte(reservas.dataSaida, dataInicio), lte(reservas.dataSaida, dataFim)),
@@ -350,13 +377,14 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
         criadoPorNome: user.name,
       })
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, status)))
+      .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, status), isNull(reservas.deletedAt)))
       .orderBy(reservas.dataEntrada);
 
     return data;

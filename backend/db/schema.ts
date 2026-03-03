@@ -93,6 +93,7 @@ export const reservas = pgTable('reservas', {
   pago: boolean('pago').default(false),
   observacoes: text('observacoes'),
   criadoPor: text('criado_por').references(() => user.id),
+  deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({
