@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from './ui/button';
-import { cn } from '../lib/utils';
 
 interface PaginationProps {
   page: number;
@@ -17,15 +16,15 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
 
   return (
     <div className="flex items-center justify-between gap-4">
-      <div className="text-sm text-muted-foreground">
-        Página {page} de {totalPages || 1}
-      </div>
-      <div className="flex gap-2">
-        <Button variant="ghost" onClick={() => canPrev && onPageChange(page - 1)} disabled={!canPrev}>
+      <span className="text-xs text-muted-foreground">
+        Pagina {page} de {totalPages || 1}
+      </span>
+      <div className="flex gap-1">
+        <Button variant="ghost" size="sm" onClick={() => canPrev && onPageChange(page - 1)} disabled={!canPrev}>
           Anterior
         </Button>
-        <Button variant="ghost" onClick={() => canNext && onPageChange(page + 1)} disabled={!canNext}>
-          Próxima
+        <Button variant="ghost" size="sm" onClick={() => canNext && onPageChange(page + 1)} disabled={!canNext}>
+          Proxima
         </Button>
       </div>
     </div>

@@ -1,13 +1,13 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Space_Grotesk } from 'next/font/google';
+import { DM_Sans } from 'next/font/google';
 import { cn } from '../lib/utils';
 
-const font = Space_Grotesk({ subsets: ['latin'], variable: '--font-sans' });
+const font = DM_Sans({ subsets: ['latin'], variable: '--font-sans' });
 
 export const metadata: Metadata = {
-  title: 'Sistema de Reservas - Pousada',
-  description: 'Frontend Next.js para o sistema de reservas da pousada.'
+  title: 'Minha Pousada - Gestao de Reservas',
+  description: 'Sistema de gestao de reservas para pousadas.'
 };
 
 export default function RootLayout({

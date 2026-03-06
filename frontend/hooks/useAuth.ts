@@ -9,7 +9,7 @@ import {
   signInWithGoogle,
   handleSignOut
 } from "../lib/auth-client";
-import type { Usuario, Pousada, Message } from "../lib/types";
+import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -17,6 +17,7 @@ interface UseAuthReturn {
   // State
   user: Usuario | null;
   pousada: Pousada | null;
+  pousadas: UserPousada[];
   loading: boolean;
   authLoading: boolean;
   signupLoading: boolean;
@@ -32,6 +33,7 @@ interface UseAuthReturn {
   setMessage: (message: Message | null) => void;
   clearMessage: () => void;
   refreshSession: () => Promise<void>;
+  trocarPousada: (pousadaId: number) => Promise<boolean>;
 }
 
 export function useAuth(): UseAuthReturn {
@@ -40,6 +42,7 @@ export function useAuth(): UseAuthReturn {
 
   const [user, setUser] = useState<Usuario | null>(null);
   const [pousada, setPousada] = useState<Pousada | null>(null);
+  const [pousadas, setPousadas] = useState<UserPousada[]>([]);
   const [loading, setLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -65,43 +68,82 @@ export function useAuth(): UseAuthReturn {
     }
   }, [session]);
 
-  // Load pousada data when user is authenticated
-  const carregarPousada = useCallback(async () => {
+  // Load active pousada + list of all pousadas
+  const carregarPousadas = useCallback(async () => {
     if (!session?.user) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/pousadas/minha`, {
-        credentials: 'include',
-      });
-      const data = await response.json();
+      // Fetch both in parallel
+      const [minhaRes, minhasRes] = await Promise.all([
+        fetch(`${API_URL}/api/pousadas/minha`, { credentials: 'include' }),
+        fetch(`${API_URL}/api/pousadas/minhas`, { credentials: 'include' }),
+      ]);
 
-      if (data.sucesso && data.pousada) {
-        setPousada(data.pousada);
-      } else if (data.needsOnboarding) {
-        // User needs to complete onboarding
+      const minhaData = await minhaRes.json();
+      const minhasData = await minhasRes.json();
+
+      if (minhaData.sucesso && minhaData.pousada) {
+        setPousada(minhaData.pousada);
+      } else if (minhaData.needsOnboarding) {
         setPousada(null);
       }
+
+      if (minhasData.sucesso && minhasData.pousadas) {
+        setPousadas(minhasData.pousadas);
+      }
     } catch (error) {
-      console.error("Erro ao carregar pousada:", error);
+      console.error("Erro ao carregar pousadas:", error);
     }
   }, [session]);
 
   useEffect(() => {
     if (session?.user) {
-      carregarPousada();
+      carregarPousadas();
     }
-  }, [session, carregarPousada]);
+  }, [session, carregarPousadas]);
 
-  // Check if user needs onboarding
+  // Check if user needs onboarding (no pousadas at all)
   useEffect(() => {
     if (session?.user && !(session.user as any).pousadaId) {
-      // User is authenticated but has no pousada - redirect to onboarding
       const currentPath = window.location.pathname;
-      if (!currentPath.startsWith('/onboarding') && !currentPath.startsWith('/auth')) {
+      if (!currentPath.startsWith('/onboarding') && !currentPath.startsWith('/auth') && !currentPath.startsWith('/convite')) {
         router.push('/onboarding');
       }
     }
   }, [session, router]);
+
+  // Switch active pousada
+  const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
+    try {
+      const response = await fetch(`${API_URL}/api/pousadas/trocar`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pousadaId }),
+      });
+
+      const data = await response.json();
+
+      if (data.sucesso) {
+        setPousada(data.pousada);
+        // Update user's role/owner for new pousada
+        setUser(prev => prev ? {
+          ...prev,
+          pousada_id: data.pousada.id,
+          role: data.role,
+          is_owner: data.isOwner,
+        } : null);
+        return true;
+      } else {
+        setMessage({ type: "error", text: data.mensagem || "Erro ao trocar pousada" });
+        return false;
+      }
+    } catch (error) {
+      console.error("Erro ao trocar pousada:", error);
+      setMessage({ type: "error", text: "Erro ao trocar pousada" });
+      return false;
+    }
+  }, []);
 
   // Login with email/password
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
@@ -166,6 +208,7 @@ export function useAuth(): UseAuthReturn {
       await handleSignOut();
       setUser(null);
       setPousada(null);
+      setPousadas([]);
       router.push("/");
     } catch (error) {
       console.error("Erro ao fazer logout", error);
@@ -189,14 +232,13 @@ export function useAuth(): UseAuthReturn {
 
   // Refresh session
   const refreshSession = useCallback(async () => {
-    // Better Auth handles session refresh automatically via cookies
-    // This is a placeholder for manual refresh if needed
     window.location.reload();
   }, []);
 
   return {
     user,
     pousada,
+    pousadas,
     loading,
     authLoading: sessionLoading,
     signupLoading,
@@ -210,5 +252,6 @@ export function useAuth(): UseAuthReturn {
     setMessage,
     clearMessage,
     refreshSession,
+    trocarPousada,
   };
 }

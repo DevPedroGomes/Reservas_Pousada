@@ -108,12 +108,16 @@ frontend/
 4. All `/api/*` routes protected by `authMiddleware` which calls `auth.api.getSession()`
 5. User data (role, pousadaId, isOwner) fetched from DB and attached to `req.user`
 
-### Multi-Tenant Isolation
+### Multi-Tenant Isolation (Multi-Pousada)
 
-Every data query includes `pousadaId` as a mandatory filter:
+Users can belong to multiple pousadas via the `user_pousadas` junction table:
+- `user_pousadas` stores (userId, pousadaId, role, isOwner) for each membership
+- `user.pousadaId` on the user table stores the **active** pousada (convenience field)
+- When switching pousada, `user.pousadaId`, `user.role`, `user.isOwner` are updated from junction table
+- Every data query uses `req.user.pousadaId` (active pousada) as mandatory filter
 - `ReservaModel.buscarPorIdEPousada(id, pousadaId)` - never returns cross-tenant data
-- `ReservaModel.listarTodas()` throws if `pousada_id` is missing
 - Owner creates pousada during onboarding, staff is invited by owner
+- Staff invite accept flow: adds to junction table + sets as active pousada
 
 ### RBAC Roles
 
@@ -157,12 +161,14 @@ const query = `SELECT * FROM reservas WHERE id = ${id}`;
 ## Database Schema (Drizzle - db/schema.ts)
 
 ### Tables
-- **user** - Better Auth + custom fields (role, pousadaId, isOwner)
+- **user** - Better Auth + custom fields (role, pousadaId=active, isOwner)
+- **user_pousadas** - Junction table (userId, pousadaId, role, isOwner, joinedAt)
 - **session** - Better Auth sessions (HTTPOnly cookies)
 - **account** - OAuth providers (Google)
 - **verification** - Email verification tokens
 - **pousadas** - Inn data (nome, slug, numQuartos, endereco, etc.)
 - **reservas** - Reservations (nome, cpf, quarto, datas, valor, status)
+- **staff_invites** - Staff invitations (token, email, role, status, expiresAt)
 - **auditoria** - Audit trail (action, entity, jsonb details, IP)
 
 ### Key Indexes
@@ -190,13 +196,20 @@ const query = `SELECT * FROM reservas WHERE id = ${id}`;
 - `DELETE /api/reservas/:id` - Delete (admin only)
 
 ### Pousadas (requires auth)
-- `GET /api/pousadas/minha` - Current user's pousada
-- `POST /api/pousadas` - Create (onboarding)
+- `GET /api/pousadas/minha` - Current active pousada
+- `GET /api/pousadas/minhas` - All user's pousadas (with role info)
+- `POST /api/pousadas/trocar` - Switch active pousada `{pousadaId}`
+- `POST /api/pousadas` - Create new pousada
 - `GET /api/pousadas/:id` - Details
 - `PUT /api/pousadas/:id` - Update
 - `GET /api/pousadas/:id/dashboard` - Statistics (SQL-optimized)
 - `GET /api/pousadas/:id/quartos` - List rooms
 - `GET/POST/DELETE /api/pousadas/:id/usuarios` - Manage staff
+- `POST/GET/DELETE /api/pousadas/:id/convites` - Staff invites
+
+### Convites (public + auth)
+- `GET /api/convites/:token` - Validate invite (public)
+- `POST /api/convites/:token/aceitar` - Accept invite (requires auth)
 
 ### Health
 - `GET /` - API status

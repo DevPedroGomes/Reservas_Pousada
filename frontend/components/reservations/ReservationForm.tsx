@@ -78,56 +78,61 @@ export function ReservationForm({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <Badge
-            variant="outline"
-            className="mb-2 border-primary/20 bg-primary/5 text-primary px-3 py-1 text-xs font-bold uppercase tracking-wider"
-          >
-            Cadastro
-          </Badge>
-          <h2 className="text-4xl font-bold tracking-tight">
-            {isEditing ? "Editar Reserva" : "Nova Reserva"}
-          </h2>
-        </div>
-        <Badge variant="outline" className="w-fit font-medium">
-          * Campos obrigatorios
-        </Badge>
+      <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {isEditing ? "Editar Reserva" : "Nova Reserva"}
+        </h2>
+        <span className="text-xs text-muted-foreground">* Campos obrigatorios</span>
       </div>
 
-      <Card className="border-2 shadow-xl">
-        <CardContent className="pt-6">
-          <form className="space-y-6" onSubmit={handleSubmit}>
+      <Card>
+        <CardContent className="pt-5">
+          <form className="space-y-5" onSubmit={handleSubmit}>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="nome" className="text-sm font-semibold">
+                <Label htmlFor="nome" className="text-xs">
                   Nome do Hospede *
                 </Label>
                 <Input
                   id="nome"
                   value={form.nome}
-                  onChange={handleChange("nome")}
+                  onChange={(e) => {
+                    const filtered = e.target.value.replace(/[^a-zA-ZÀ-ÿ\s]/g, '').slice(0, 100);
+                    setForm((prev) => ({ ...prev, nome: filtered }));
+                  }}
                   required
-                  className="border-2 h-11"
+                  className=""
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cpf" className="text-sm font-semibold">
+                <Label htmlFor="cpf" className="text-xs">
                   CPF *
                 </Label>
                 <Input
                   id="cpf"
                   value={form.cpf}
-                  onChange={handleChange("cpf")}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                    let formatted = digits;
+                    if (digits.length > 9) {
+                      formatted = `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+                    } else if (digits.length > 6) {
+                      formatted = `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+                    } else if (digits.length > 3) {
+                      formatted = `${digits.slice(0, 3)}.${digits.slice(3)}`;
+                    }
+                    setForm((prev) => ({ ...prev, cpf: formatted }));
+                  }}
+                  placeholder="000.000.000-00"
                   required
-                  className="border-2 h-11"
+                  className=""
                 />
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="quarto" className="text-sm font-semibold">
+                <Label htmlFor="quarto" className="text-xs">
                   Quarto *
                 </Label>
                 <Select
@@ -135,7 +140,7 @@ export function ReservationForm({
                   value={form.quarto}
                   onChange={handleChange("quarto")}
                   required
-                  className="border-2 h-11"
+                  className=""
                 >
                   {Array.from({ length: totalQuartos }, (_, idx) => idx + 1).map((num) => (
                     <option key={num} value={num}>
@@ -145,7 +150,7 @@ export function ReservationForm({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="data-entrada" className="text-sm font-semibold">
+                <Label htmlFor="data-entrada" className="text-xs">
                   Data de Entrada *
                 </Label>
                 <Input
@@ -154,11 +159,11 @@ export function ReservationForm({
                   value={form.data_entrada}
                   onChange={handleChange("data_entrada")}
                   required
-                  className="border-2 h-11"
+                  className=""
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="data-saida" className="text-sm font-semibold">
+                <Label htmlFor="data-saida" className="text-xs">
                   Data de Saida *
                 </Label>
                 <Input
@@ -167,14 +172,14 @@ export function ReservationForm({
                   value={form.data_saida}
                   onChange={handleChange("data_saida")}
                   required
-                  className="border-2 h-11"
+                  className=""
                 />
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="valor" className="text-sm font-semibold">
+                <Label htmlFor="valor" className="text-xs">
                   Valor (R$)
                 </Label>
                 <Input
@@ -188,11 +193,11 @@ export function ReservationForm({
                       valor: e.target.value ? Number(e.target.value) : null,
                     }))
                   }
-                  className="border-2 h-11"
+                  className=""
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="status" className="text-sm font-semibold">
+                <Label htmlFor="status" className="text-xs">
                   Status *
                 </Label>
                 <Select
@@ -200,7 +205,7 @@ export function ReservationForm({
                   value={form.status}
                   onChange={handleChange("status")}
                   required
-                  className="border-2 h-11"
+                  className=""
                 >
                   <option value="ativa">Ativa</option>
                   <option value="finalizada">Finalizada</option>
@@ -208,19 +213,19 @@ export function ReservationForm({
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="pago" className="text-sm font-semibold">
+                <Label htmlFor="pago" className="text-xs">
                   Pago
                 </Label>
                 <label
                   htmlFor="pago"
-                  className="flex cursor-pointer items-center gap-3 h-11 rounded-xl border-2 border-border bg-white px-4"
+                  className="flex cursor-pointer items-center gap-3 h-10 rounded-lg border border-border bg-white px-3"
                 >
                   <input
                     id="pago"
                     type="checkbox"
                     checked={form.pago}
                     onChange={(e) => setForm((prev) => ({ ...prev, pago: e.target.checked }))}
-                    className="h-5 w-5 rounded border-2 border-border"
+                    className="h-4 w-4 rounded border border-border accent-primary"
                   />
                   <span className="text-sm font-medium">Pagamento recebido</span>
                 </label>
@@ -228,7 +233,7 @@ export function ReservationForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="observacoes" className="text-sm font-semibold">
+              <Label htmlFor="observacoes" className="text-xs">
                 Observacoes
               </Label>
               <Textarea
@@ -236,14 +241,13 @@ export function ReservationForm({
                 value={form.observacoes || ""}
                 onChange={handleChange("observacoes")}
                 rows={4}
-                className="border-2"
+                className=""
               />
             </div>
 
             <div className="flex gap-3 pt-4">
               <Button
                 type="submit"
-                className="font-semibold h-11 px-8 shadow-lg shadow-primary/25"
                 disabled={loading}
               >
                 {loading ? "Salvando..." : isEditing ? "Atualizar Reserva" : "Criar Reserva"}
@@ -252,7 +256,6 @@ export function ReservationForm({
                 type="button"
                 variant="outline"
                 onClick={onCancel}
-                className="font-semibold h-11 px-8 border-2"
                 disabled={loading}
               >
                 Cancelar
@@ -275,29 +278,28 @@ interface AuditHistoryProps {
 
 export function AuditHistory({ logs }: AuditHistoryProps) {
   return (
-    <Card className="border-2 shadow-xl">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-xl font-bold">Historico de Alteracoes</CardTitle>
-        <CardDescription>Registro de todas as modificacoes desta reserva</CardDescription>
+        <CardTitle>Historico de Alteracoes</CardTitle>
+        <CardDescription>Registro de modificacoes desta reserva</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
+        <div className="space-y-2">
           {logs.map((log) => (
             <div
               key={log.id}
-              className="border-2 border-border rounded-xl p-4 hover:bg-muted/30 transition-colors"
+              className="border border-border rounded-lg p-3 hover:bg-muted/30 transition-colors"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-foreground">{renderResumoAuditoria(log)}</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Por:{" "}
-                    <span className="font-medium">{log.user?.nome || log.user?.email || "Sistema"}</span>
+                  <p className="text-sm font-medium">{renderResumoAuditoria(log)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Por: {log.user?.nome || log.user?.email || "Sistema"}
                   </p>
                 </div>
-                <Badge variant="outline" className="text-xs">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
                   {formatarDataHora(log.created_at)}
-                </Badge>
+                </span>
               </div>
             </div>
           ))}

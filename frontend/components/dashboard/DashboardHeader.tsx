@@ -1,18 +1,20 @@
 "use client"
 
+import { useState, useRef, useEffect } from "react"
 import { Button } from "../ui/button"
-import { Badge } from "../ui/badge"
 import { cn } from "../../lib/utils"
-import type { Usuario, Pousada } from "../../lib/types"
+import type { Usuario, Pousada, UserPousada } from "../../lib/types"
 
 type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoes"
 
 interface DashboardHeaderProps {
   user: Usuario | null
   pousada: Pousada | null
+  pousadas: UserPousada[]
   currentPage: PageType
   onPageChange: (page: PageType) => void
   onLogout: () => void
+  onTrocarPousada: (pousadaId: number) => Promise<boolean>
 }
 
 const NAV_ITEMS = [
@@ -24,63 +26,122 @@ const NAV_ITEMS = [
 export function DashboardHeader({
   user,
   pousada,
+  pousadas,
   currentPage,
   onPageChange,
   onLogout,
+  onTrocarPousada,
 }: DashboardHeaderProps) {
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  const switcherRef = useRef<HTMLDivElement>(null)
+
   const navItems = user?.is_owner
-    ? [...NAV_ITEMS, { id: "configuracoes" as const, label: "Configuracoes", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" }]
+    ? [...NAV_ITEMS, { id: "configuracoes" as const, label: "Config", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" }]
     : NAV_ITEMS
 
+  // Close switcher on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+        setSwitcherOpen(false)
+      }
+    }
+    if (switcherOpen) document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [switcherOpen])
+
+  const hasMultiple = pousadas.length > 1
+
+  async function handleSwitch(id: number) {
+    setSwitcherOpen(false)
+    await onTrocarPousada(id)
+    // Reload to refresh all data for new pousada
+    window.location.reload()
+  }
+
   return (
-    <header className="sticky top-0 z-40 border-b border-border/40 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-base font-bold text-primary-foreground shadow-lg">
-              {pousada?.nome ? pousada.nome.substring(0, 2).toUpperCase() : "RP"}
+    <header className="sticky top-0 z-40 border-b border-border/50 bg-white/80 backdrop-blur-md">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 h-14">
+        <div className="relative flex items-center gap-3" ref={switcherRef}>
+          <button
+            onClick={() => hasMultiple && setSwitcherOpen(!switcherOpen)}
+            className={cn(
+              "flex items-center gap-2.5",
+              hasMultiple && "cursor-pointer hover:opacity-80 transition-opacity"
+            )}
+          >
+            <img src="/logo.png" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="text-sm font-semibold hidden sm:block">{pousada?.nome || "Minha Pousada"}</span>
+            {hasMultiple && (
+              <svg className={cn("h-4 w-4 text-muted-foreground transition-transform", switcherOpen && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
+          </button>
+
+          {/* Pousada Switcher Dropdown */}
+          {switcherOpen && (
+            <div className="absolute left-0 top-full mt-2 w-72 rounded-lg border border-border bg-white shadow-lg z-50">
+              <div className="p-2">
+                <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Suas Pousadas</p>
+                {pousadas.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSwitch(p.id)}
+                    className={cn(
+                      "w-full flex items-center gap-3 rounded-md px-2 py-2 text-left text-sm transition-colors",
+                      p.id === pousada?.id
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-muted/50 text-foreground"
+                    )}
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
+                      {p.nome.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{p.nome}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.isOwner ? "Proprietario" : p.role === "admin" ? "Admin" : p.role === "recepcao" ? "Recepcao" : p.role}
+                        {p.cidade && ` · ${p.cidade}`}
+                      </p>
+                    </div>
+                    {p.id === pousada?.id && (
+                      <svg className="h-4 w-4 shrink-0 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sistema</p>
-            <p className="text-lg font-bold tracking-tight">{pousada?.nome || "Reservas Pousada"}</p>
-          </div>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="font-medium">
-            {user?.nome}
-          </Badge>
-          {user?.is_owner && <Badge className="text-xs font-bold">Owner</Badge>}
-          <Button variant="ghost" onClick={onLogout} className="font-medium">
-            Sair
-          </Button>
-        </div>
-      </div>
-      <div className="border-t border-border/40">
-        <div className="mx-auto flex max-w-7xl items-center gap-2 px-6 py-3 overflow-x-auto">
+
+        <nav className="flex items-center gap-1">
           {navItems.map((item) => (
-            <Button
+            <button
               key={item.id}
-              variant={currentPage === item.id ? "default" : "ghost"}
-              className={cn(
-                "rounded-xl font-semibold transition-all",
-                currentPage === item.id ? "shadow-lg shadow-primary/25" : "",
-              )}
               onClick={() => onPageChange(item.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                currentPage === item.id
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              )}
             >
-              <svg
-                className="mr-2 h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
               </svg>
-              {item.label}
-            </Button>
+              <span className="hidden sm:inline">{item.label}</span>
+            </button>
           ))}
+        </nav>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground hidden sm:block">{user?.nome}</span>
+          <Button variant="ghost" size="sm" onClick={onLogout}>
+            Sair
+          </Button>
         </div>
       </div>
     </header>

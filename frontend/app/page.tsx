@@ -3,9 +3,9 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
-import { Badge } from "../components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card"
 import { Button } from "../components/ui/button"
+import { Badge } from "../components/ui/badge"
 import { ConfirmDialog } from "../components/confirm-dialog"
 import { cn } from "../lib/utils"
 
@@ -33,11 +33,11 @@ if (typeof window !== "undefined") {
 type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoes"
 
 export default function Home() {
-  // Auth hook
   const {
     isAuthenticated,
     user,
     pousada,
+    pousadas: userPousadas,
     loading: loginLoading,
     authLoading,
     signupLoading,
@@ -47,10 +47,10 @@ export default function Home() {
     signup,
     logout,
     googleLogin,
+    trocarPousada,
     setMessage,
   } = useAuth()
 
-  // Reservations hook
   const {
     reservas,
     dashReservas,
@@ -73,7 +73,6 @@ export default function Home() {
     setPage: setReservasPage,
   } = useReservations(isAuthenticated)
 
-  // Staff invites hook
   const {
     convites,
     loading: convitesLoading,
@@ -84,7 +83,6 @@ export default function Home() {
     setMessage: setConvitesMessage,
   } = useStaffInvites()
 
-  // Local state
   const [page, setPage] = useState<PageType>("dashboard")
   const [isSignup, setIsSignup] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -96,7 +94,6 @@ export default function Home() {
   const [verificationSent, setVerificationSent] = useState(false)
   const [formLoading, setFormLoading] = useState(false)
 
-  // Refs for GSAP animations
   const heroRef = useRef<HTMLDivElement>(null)
   const statsRef = useRef<HTMLDivElement>(null)
   const authFormRef = useRef<HTMLDivElement>(null)
@@ -104,7 +101,6 @@ export default function Home() {
   const TOTAL_QUARTOS = pousada?.num_quartos || 25
   const quartosDisponiveis = TOTAL_QUARTOS - reservasAtivas
 
-  // Computed values
   const proximasReservas = useMemo(
     () =>
       dashReservas
@@ -114,7 +110,6 @@ export default function Home() {
     [dashReservas]
   )
 
-  // Load data when authenticated
   useEffect(() => {
     if (isAuthenticated) {
       carregarDashboard()
@@ -122,7 +117,6 @@ export default function Home() {
     }
   }, [isAuthenticated, carregarDashboard, carregarReservas])
 
-  // GSAP Animations for Landing Page
   useEffect(() => {
     if (!isAuthenticated && heroRef.current) {
       const ctx = gsap.context(() => {
@@ -136,29 +130,26 @@ export default function Home() {
     }
   }, [isAuthenticated])
 
-  // Animation for auth form toggle
   useEffect(() => {
     if (!isAuthenticated && authFormRef.current) {
       gsap.fromTo(
         authFormRef.current,
-        { opacity: 0, scale: 0.95, y: 20 },
-        { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "power3.out" }
+        { opacity: 0, scale: 0.97, y: 15 },
+        { opacity: 1, scale: 1, y: 0, duration: 0.4, ease: "power3.out" }
       )
     }
   }, [isSignup, isAuthenticated])
 
-  // GSAP Animations for Dashboard
   useEffect(() => {
     if (isAuthenticated && page === "dashboard" && statsRef.current) {
       const ctx = gsap.context(() => {
-        gsap.from(".stat-card", { opacity: 0, y: 30, duration: 0.6, stagger: 0.1, ease: "power3.out" })
-        gsap.from(".dashboard-table", { opacity: 0, y: 30, duration: 0.8, delay: 0.3, ease: "power3.out" })
+        gsap.from(".stat-card", { opacity: 0, y: 20, duration: 0.5, stagger: 0.08, ease: "power3.out" })
+        gsap.from(".dashboard-table", { opacity: 0, y: 20, duration: 0.6, delay: 0.25, ease: "power3.out" })
       }, statsRef)
       return () => ctx.revert()
     }
   }, [isAuthenticated, page, reservasAtivas])
 
-  // Page change handlers
   const handlePageChange = useCallback((newPage: PageType) => {
     setPage(newPage)
     if (newPage === "dashboard") carregarDashboard()
@@ -172,7 +163,6 @@ export default function Home() {
     }
   }, [carregarDashboard, carregarReservas, carregarConvites, pousada])
 
-  // Edit reservation
   const handleEditReserva = useCallback(async (id: number) => {
     const reserva = await editarReserva(id)
     if (reserva) {
@@ -183,7 +173,6 @@ export default function Home() {
     }
   }, [editarReserva, carregarAuditoria])
 
-  // Save reservation
   const handleSaveReserva = useCallback(async (data: Reserva) => {
     setFormLoading(true)
     const result = await salvarReserva(data, formId)
@@ -201,7 +190,6 @@ export default function Home() {
     }
   }, [formId, salvarReserva, setMessage, carregarReservas, carregarDashboard])
 
-  // Delete reservation
   const handleConfirmDelete = useCallback((id: number) => {
     setReservaToDelete(id)
     setConfirmOpen(true)
@@ -221,7 +209,6 @@ export default function Home() {
     setReservaToDelete(null)
   }, [reservaToDelete, excluirReserva, setMessage, carregarReservas, carregarDashboard])
 
-  // Auth handlers
   const handleLogin = useCallback(async (username: string, password: string) => {
     await login(username, password)
   }, [login])
@@ -237,74 +224,63 @@ export default function Home() {
   // Loading state
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">Carregando...</p>
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Carregando...</p>
         </div>
       </div>
     )
   }
 
-  // Landing Page (not logged in)
+  // ========================================
+  // Landing Page
+  // ========================================
   if (!isAuthenticated) {
     return (
-      <main ref={heroRef} className="min-h-screen bg-background">
-        {/* Header */}
-        <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-background/80 backdrop-blur-xl">
-          <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full" />
-                <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-base font-bold text-primary-foreground shadow-lg">
-                  RP
-                </div>
-              </div>
-              <span className="text-xl font-bold tracking-tight">Reservas Pousada</span>
+      <main ref={heroRef} className="min-h-screen">
+        <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-white/80 backdrop-blur-md">
+          <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <img src="/logo.png" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
+              <span className="text-sm font-semibold">Minha Pousada</span>
             </div>
-            <div className="flex items-center gap-3 relative z-10">
-              <Button type="button" variant="ghost" className="text-sm font-medium" onClick={() => setIsSignup(false)}>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setIsSignup(false)}>
                 Entrar
               </Button>
-              <Button type="button" className="text-sm font-semibold shadow-lg shadow-primary/25" onClick={() => setIsSignup(true)}>
+              <Button type="button" size="sm" onClick={() => setIsSignup(true)}>
                 Comecar gratis
               </Button>
             </div>
           </div>
         </header>
 
-        {/* Hero Section */}
-        <section className="pt-24 pb-20 px-6">
-          <div className="mx-auto max-w-7xl">
-            <div className="grid gap-16 lg:grid-cols-2 lg:gap-20 items-center">
-              <div className="space-y-10">
-                <div className="space-y-6">
-                  <Badge variant="outline" className="hero-badge border-primary/20 bg-primary/5 text-primary px-4 py-1.5 text-sm font-medium">
-                    Plataforma completa para hospedagem
-                  </Badge>
-                  <h1 className="hero-title text-5xl md:text-6xl lg:text-7xl font-bold leading-[1.1] tracking-tight">
+        <section className="pt-24 pb-16 px-6">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
+              <div className="space-y-8">
+                <div className="space-y-4">
+                  <Badge className="hero-badge">Gestao de hospedagem</Badge>
+                  <h1 className="hero-title text-4xl md:text-5xl font-bold leading-[1.15] tracking-tight">
                     Gerencie sua pousada de forma{" "}
-                    <span className="relative inline-block">
-                      <span className="relative z-10 text-primary">simples</span>
-                      <span className="absolute bottom-2 left-0 right-0 h-3 bg-primary/20 -rotate-1" />
-                    </span>
+                    <span className="text-primary">simples</span>
                   </h1>
-                  <p className="hero-description text-xl text-muted-foreground leading-relaxed max-w-xl">
+                  <p className="hero-description text-lg text-muted-foreground leading-relaxed max-w-md">
                     Sistema completo para gerenciar reservas, hospedes e quartos da sua pousada.
                   </p>
                 </div>
-                <div className="hero-buttons flex flex-col sm:flex-row gap-4 relative z-10">
-                  <Button type="button" size="lg" className="text-base px-8 shadow-xl shadow-primary/25 h-12" onClick={() => setIsSignup(true)}>
+                <div className="hero-buttons flex gap-3">
+                  <Button type="button" size="lg" onClick={() => setIsSignup(true)}>
                     Criar conta gratuita
                   </Button>
-                  <Button type="button" size="lg" variant="outline" className="text-base px-8 h-12 border-2" onClick={() => setIsSignup(false)}>
+                  <Button type="button" size="lg" variant="outline" onClick={() => setIsSignup(false)}>
                     Ja tenho conta
                   </Button>
                 </div>
               </div>
 
-              {/* Auth Card */}
-              <div ref={authFormRef} className="flex justify-center lg:justify-start lg:pl-12">
+              <div ref={authFormRef} className="flex justify-center lg:justify-end">
                 <AuthCard
                   isSignup={isSignup}
                   onToggleMode={() => setIsSignup(!isSignup)}
@@ -319,33 +295,27 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Features Section */}
-        <section className="py-20 px-6 bg-muted/30">
-          <div className="mx-auto max-w-7xl">
-            <div className="text-center mb-16">
-              <Badge variant="outline" className="mb-4 border-primary/20 bg-primary/5 text-primary px-4 py-1.5 text-sm font-medium">
-                Recursos
-              </Badge>
-              <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">Tudo que voce precisa</h2>
-              <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-                Ferramentas completas para gerenciar sua pousada com eficiencia
-              </p>
+        <section className="py-16 px-6 border-t border-border/40">
+          <div className="mx-auto max-w-6xl">
+            <div className="text-center mb-12">
+              <h2 className="text-2xl font-semibold tracking-tight mb-2">Tudo que voce precisa</h2>
+              <p className="text-muted-foreground">Ferramentas completas para gerenciar sua pousada</p>
             </div>
-            <div className="grid gap-8 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
               {[
-                { icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", title: "Gestao de Reservas", desc: "Controle completo sobre check-ins, check-outs e disponibilidade", color: "primary" },
-                { icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z", title: "Cadastro de Hospedes", desc: "Historico completo e organizado de todos os seus clientes", color: "teal" },
-                { icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", title: "Relatorios e Analises", desc: "Metricas importantes e exportacao de dados", color: "amber" },
+                { icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", title: "Gestao de Reservas", desc: "Check-ins, check-outs e disponibilidade" },
+                { icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z", title: "Cadastro de Hospedes", desc: "Historico organizado de todos os clientes" },
+                { icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", title: "Relatorios", desc: "Metricas e exportacao de dados" },
               ].map((feature) => (
-                <Card key={feature.title} className="feature-card border-2 hover:shadow-2xl transition-all duration-300 hover:-translate-y-1">
+                <Card key={feature.title} className="feature-card hover:shadow-md transition-shadow">
                   <CardHeader>
-                    <div className={cn("h-14 w-14 rounded-2xl flex items-center justify-center mb-3", feature.color === "primary" ? "bg-primary/10" : feature.color === "teal" ? "bg-teal-500/10" : "bg-amber-500/10")}>
-                      <svg className={cn("h-7 w-7", feature.color === "primary" ? "text-primary" : feature.color === "teal" ? "text-teal-600" : "text-amber-600")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <div className="h-10 w-10 rounded-lg bg-primary/8 flex items-center justify-center mb-2">
+                      <svg className="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                         <path strokeLinecap="round" strokeLinejoin="round" d={feature.icon} />
                       </svg>
                     </div>
-                    <CardTitle className="text-xl">{feature.title}</CardTitle>
-                    <CardDescription className="text-base pt-2">{feature.desc}</CardDescription>
+                    <CardTitle>{feature.title}</CardTitle>
+                    <CardDescription className="pt-1">{feature.desc}</CardDescription>
                   </CardHeader>
                 </Card>
               ))}
@@ -353,47 +323,50 @@ export default function Home() {
           </div>
         </section>
 
-        <footer className="py-12 px-6 border-t border-border">
-          <div className="mx-auto max-w-7xl text-center">
-            <p className="text-sm text-muted-foreground">2025 Reservas Pousada. Sistema completo de gestao hoteleira.</p>
+        <footer className="py-8 px-6 border-t border-border/40">
+          <div className="mx-auto max-w-6xl text-center">
+            <p className="text-xs text-muted-foreground">Minha Pousada - Sistema de gestao hoteleira</p>
           </div>
         </footer>
       </main>
     )
   }
 
-  // Dashboard (logged in)
+  // ========================================
+  // Dashboard (authenticated)
+  // ========================================
   return (
-    <main className="min-h-screen bg-background">
+    <main className="min-h-screen">
       <DashboardHeader
         user={user}
         pousada={pousada}
+        pousadas={userPousadas}
         currentPage={page}
         onPageChange={handlePageChange}
         onLogout={handleLogout}
+        onTrocarPousada={trocarPousada}
       />
 
-      <div ref={statsRef} className="mx-auto max-w-7xl px-6 py-8 space-y-8">
+      <div ref={statsRef} className="mx-auto max-w-7xl px-6 py-6 space-y-6">
         {message && (
           <div className={cn(
-            "rounded-xl border-2 px-5 py-4 text-sm font-medium shadow-lg",
-            message.type === "success" ? "border-teal-200 bg-teal-50 text-teal-900" : "border-rose-200 bg-rose-50 text-rose-900"
+            "rounded-lg border px-4 py-3 text-sm",
+            message.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
           )}>
             {message.text}
           </div>
         )}
 
-        {/* Email Verification Banner */}
         {user && user.email_verified === false && (
-          <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-5 py-4 flex items-center justify-between gap-4">
-            <p className="text-sm font-medium text-amber-900">
-              Seu email ainda nao foi verificado. Verifique sua caixa de entrada.
+          <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-4 py-3 flex items-center justify-between gap-4">
+            <p className="text-sm text-amber-800">
+              Seu email ainda nao foi verificado.
             </p>
             <Button
               variant="outline"
               size="sm"
               disabled={verificationSent}
-              className="border-amber-300 text-amber-900 hover:bg-amber-100 shrink-0"
+              className="border-amber-300 text-amber-800 hover:bg-amber-100 shrink-0"
               onClick={async () => {
                 if (user.email) {
                   await sendEmailVerification(user.email)
@@ -402,21 +375,18 @@ export default function Home() {
                 }
               }}
             >
-              {verificationSent ? "Enviado!" : "Reenviar email"}
+              {verificationSent ? "Enviado!" : "Reenviar"}
             </Button>
           </div>
         )}
 
-        {/* Dashboard Page */}
+        {/* Dashboard */}
         {page === "dashboard" && (
-          <div className="space-y-8">
-            <div className="flex flex-col gap-2">
-              <Badge variant="outline" className="w-fit border-primary/20 bg-primary/5 text-primary px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                Panorama
-              </Badge>
-              <h2 className="text-4xl font-bold tracking-tight">Dashboard</h2>
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
               {pousada && (
-                <p className="text-base text-muted-foreground">
+                <p className="text-sm text-muted-foreground mt-0.5">
                   {pousada.cidade && pousada.estado ? `${pousada.cidade} - ${pousada.estado}` : ""}
                   {pousada.telefone ? ` | ${pousada.telefone}` : ""}
                 </p>
@@ -437,15 +407,10 @@ export default function Home() {
           </div>
         )}
 
-        {/* Reservas Page */}
+        {/* Reservas */}
         {page === "reservas" && (
-          <div className="space-y-6">
-            <div className="flex flex-col gap-2">
-              <Badge variant="outline" className="w-fit border-primary/20 bg-primary/5 text-primary px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                Gestao
-              </Badge>
-              <h2 className="text-4xl font-bold tracking-tight">Todas as Reservas</h2>
-            </div>
+          <div className="space-y-5">
+            <h2 className="text-2xl font-semibold tracking-tight">Todas as Reservas</h2>
 
             <ReservationFilters
               filters={filters}
@@ -469,7 +434,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Nova Reserva Page */}
+        {/* Nova Reserva */}
         {page === "nova-reserva" && (
           <ReservationForm
             initialData={formData}
@@ -486,83 +451,77 @@ export default function Home() {
           />
         )}
 
-        {/* Configuracoes Page */}
+        {/* Configuracoes */}
         {page === "configuracoes" && pousada && (
-          <div className="space-y-6">
-            <div className="flex flex-col gap-2">
-              <Badge variant="outline" className="w-fit border-primary/20 bg-primary/5 text-primary px-3 py-1 text-xs font-bold uppercase tracking-wider">
-                Configuracoes
-              </Badge>
-              <h2 className="text-4xl font-bold tracking-tight">Dados da Pousada</h2>
-            </div>
+          <div className="space-y-5">
+            <h2 className="text-2xl font-semibold tracking-tight">Configuracoes</h2>
 
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card className="border-2 shadow-xl">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl font-bold">Informacoes Gerais</CardTitle>
-                  <CardDescription className="text-base">Dados basicos da sua pousada</CardDescription>
+                  <CardTitle>Informacoes Gerais</CardTitle>
+                  <CardDescription>Dados da pousada</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <span className="text-muted-foreground font-medium">Nome:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.nome}</span>
-                    <span className="text-muted-foreground font-medium">Quartos:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.num_quartos}</span>
-                    <span className="text-muted-foreground font-medium">Email:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.email || "-"}</span>
-                    <span className="text-muted-foreground font-medium">Telefone:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.telefone || "-"}</span>
-                  </div>
+                <CardContent>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                    <dt className="text-muted-foreground">Nome</dt>
+                    <dd className="font-medium truncate">{pousada.nome}</dd>
+                    <dt className="text-muted-foreground">Quartos</dt>
+                    <dd className="font-medium">{pousada.num_quartos}</dd>
+                    <dt className="text-muted-foreground">Email</dt>
+                    <dd className="font-medium truncate">{pousada.email || "-"}</dd>
+                    <dt className="text-muted-foreground">Telefone</dt>
+                    <dd className="font-medium">{pousada.telefone || "-"}</dd>
+                  </dl>
                 </CardContent>
               </Card>
 
-              <Card className="border-2 shadow-xl">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl font-bold">Endereco</CardTitle>
-                  <CardDescription className="text-base">Localizacao da pousada</CardDescription>
+                  <CardTitle>Endereco</CardTitle>
+                  <CardDescription>Localizacao</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <span className="text-muted-foreground font-medium">Endereco:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.endereco || "-"}</span>
-                    <span className="text-muted-foreground font-medium">Cidade:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.cidade || "-"}</span>
-                    <span className="text-muted-foreground font-medium">Estado:</span>
-                    <span className="text-foreground font-bold truncate">{pousada.estado || "-"}</span>
-                  </div>
+                <CardContent>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                    <dt className="text-muted-foreground">Endereco</dt>
+                    <dd className="font-medium truncate">{pousada.endereco || "-"}</dd>
+                    <dt className="text-muted-foreground">Cidade</dt>
+                    <dd className="font-medium truncate">{pousada.cidade || "-"}</dd>
+                    <dt className="text-muted-foreground">Estado</dt>
+                    <dd className="font-medium">{pousada.estado || "-"}</dd>
+                  </dl>
                 </CardContent>
               </Card>
             </div>
 
-            <Card className="border-2 shadow-xl">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-xl font-bold">Equipe</CardTitle>
-                <CardDescription className="text-base">Membros com acesso ao sistema</CardDescription>
+                <CardTitle>Equipe</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/50 border-2 border-border">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-lg">
+              <CardContent>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 border border-border/60">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
                     {user?.nome?.charAt(0).toUpperCase() || "U"}
                   </div>
                   <div>
-                    <p className="font-bold text-foreground text-lg">{user?.nome}</p>
-                    <p className="text-sm text-muted-foreground font-medium">Owner (voce)</p>
+                    <p className="text-sm font-medium">{user?.nome}</p>
+                    <p className="text-xs text-muted-foreground">Owner</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {(user?.is_owner || user?.role === "admin") && (
-              <Card className="border-2 shadow-xl">
+              <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl font-bold">Convidar Equipe</CardTitle>
-                  <CardDescription className="text-base">Envie convites por email para novos membros</CardDescription>
+                  <CardTitle>Convidar Equipe</CardTitle>
+                  <CardDescription>Envie convites por email</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {convitesMessage && (
                     <div className={cn(
-                      "rounded-xl border-2 px-4 py-3 text-sm font-medium",
-                      convitesMessage.type === "success" ? "border-teal-200 bg-teal-50 text-teal-900" : "border-rose-200 bg-rose-50 text-rose-900"
+                      "rounded-lg border px-3 py-2 text-sm",
+                      convitesMessage.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
                     )}>
                       {convitesMessage.text}
                     </div>
@@ -578,7 +537,7 @@ export default function Home() {
                         setInviteRole("recepcao")
                       }
                     }}
-                    className="flex flex-col sm:flex-row gap-3"
+                    className="flex flex-col sm:flex-row gap-2"
                   >
                     <input
                       type="email"
@@ -587,36 +546,36 @@ export default function Home() {
                       onChange={(e) => setInviteEmail(e.target.value)}
                       required
                       autoComplete="email"
-                      className="flex-1 rounded-xl border-2 border-border bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
+                      className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
                     />
                     <select
                       value={inviteRole}
                       onChange={(e) => setInviteRole(e.target.value)}
-                      className="rounded-xl border-2 border-border bg-background px-4 py-2.5 text-sm focus:border-primary focus:outline-none"
+                      className="rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
                     >
                       <option value="recepcao">Recepcionista</option>
                       <option value="admin">Administrador</option>
                       <option value="auditoria">Auditor</option>
                       <option value="operacao">Operacional</option>
                     </select>
-                    <Button type="submit" disabled={convitesLoading} className="font-semibold shadow-lg">
-                      {convitesLoading ? "Enviando..." : "Enviar Convite"}
+                    <Button type="submit" disabled={convitesLoading}>
+                      {convitesLoading ? "Enviando..." : "Enviar"}
                     </Button>
                   </form>
 
                   {convites.length > 0 && (
                     <div className="space-y-2 pt-2">
-                      <p className="text-sm font-bold text-foreground">Convites enviados</p>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Convites enviados</p>
                       {convites.map((c) => (
-                        <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border border-border">
+                        <div key={c.id} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30 border border-border/50">
                           <div>
-                            <p className="text-sm font-medium text-foreground">{c.email}</p>
+                            <p className="text-sm font-medium">{c.email}</p>
                             <p className="text-xs text-muted-foreground">
                               {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : c.role === "auditoria" ? "Auditor" : "Operacional"}
                               {" - "}
                               <span className={cn(
                                 "font-medium",
-                                c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-teal-600" : "text-rose-600"
+                                c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600"
                               )}>
                                 {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
                               </span>
@@ -627,7 +586,7 @@ export default function Home() {
                               variant="ghost"
                               size="sm"
                               onClick={() => pousada && revogarConvite(pousada.id, c.id)}
-                              className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 text-xs"
+                              className="text-rose-600 hover:text-rose-700 text-xs"
                             >
                               Revogar
                             </Button>

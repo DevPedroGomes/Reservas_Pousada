@@ -1,5 +1,5 @@
 import { eq, and, sql } from 'drizzle-orm';
-import { db, pousadas, user, reservas } from '../db/index.js';
+import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
 
 export class PousadaModel {
@@ -10,10 +10,10 @@ export class PousadaModel {
     return nome
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .replace(/[^a-z0-9\s]/g, '') // Remove special characters
-      .replace(/\s+/g, '-') // Replace spaces with hyphens
-      .replace(/-+/g, '-') // Remove duplicate hyphens
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
       .trim();
   }
 
@@ -59,13 +59,20 @@ export class PousadaModel {
   }
 
   /**
-   * Create pousada and associate user as owner
+   * Create pousada and associate user as owner (junction table + active)
    */
   static async criarComOwner(pousadaData: Omit<NewPousada, 'slug'>, userId: string): Promise<Pousada> {
-    // Create pousada
     const pousada = await this.criar(pousadaData);
 
-    // Update user as owner
+    // Insert into junction table
+    await db.insert(userPousadas).values({
+      userId,
+      pousadaId: pousada.id,
+      role: 'admin',
+      isOwner: true,
+    });
+
+    // Set as active pousada on user record
     await db
       .update(user)
       .set({
@@ -114,7 +121,6 @@ export class PousadaModel {
       updatedAt: new Date(),
     };
 
-    // Update slug if name changed
     if (pousadaData.nome) {
       updateData.slug = await this.gerarSlugUnico(pousadaData.nome);
     }
@@ -143,7 +149,7 @@ export class PousadaModel {
   }
 
   /**
-   * Get pousada statistics (SQL-optimized - no full table scan)
+   * Get pousada statistics (SQL-optimized)
    */
   static async obterEstatisticas(pousadaId: number) {
     const pousada = await this.buscarPorId(pousadaId);
@@ -151,7 +157,6 @@ export class PousadaModel {
 
     const hoje = new Date().toISOString().split('T')[0];
 
-    // Single query: all stats via SQL aggregation
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_reservas,
@@ -196,34 +201,55 @@ export class PousadaModel {
   }
 
   /**
-   * List pousada users
+   * List pousada users (from junction table)
    */
-  static async listarUsuarios(pousadaId: number): Promise<Partial<User>[]> {
-    const usuarios = await db
+  static async listarUsuarios(pousadaId: number) {
+    const rows = await db
       .select({
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        isOwner: user.isOwner,
         image: user.image,
         createdAt: user.createdAt,
+        role: userPousadas.role,
+        isOwner: userPousadas.isOwner,
       })
-      .from(user)
-      .where(eq(user.pousadaId, pousadaId));
+      .from(userPousadas)
+      .innerJoin(user, eq(userPousadas.userId, user.id))
+      .where(eq(userPousadas.pousadaId, pousadaId));
 
-    return usuarios;
+    return rows;
   }
 
   /**
-   * Add user to pousada
+   * Add user to pousada (junction table + set as active)
    */
   static async adicionarUsuario(pousadaId: number, userId: string, role: string = 'recepcao'): Promise<{ success: boolean }> {
+    // Check if already a member
+    const [existing] = await db
+      .select({ id: userPousadas.id })
+      .from(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
+      .limit(1);
+
+    if (existing) {
+      throw new Error('Usuário já é membro desta pousada');
+    }
+
+    await db.insert(userPousadas).values({
+      userId,
+      pousadaId,
+      role,
+      isOwner: false,
+    });
+
+    // Set as active pousada
     await db
       .update(user)
       .set({
         pousadaId,
         role,
+        isOwner: false,
         updatedAt: new Date(),
       })
       .where(eq(user.id, userId));
@@ -232,43 +258,138 @@ export class PousadaModel {
   }
 
   /**
-   * Remove user from pousada
+   * Remove user from pousada (junction table + auto-switch active)
    */
   static async removerUsuario(pousadaId: number, userId: string): Promise<{ success: boolean }> {
-    // Check if not owner
-    const [userData] = await db
-      .select({ isOwner: user.isOwner })
-      .from(user)
-      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)))
+    const [membership] = await db
+      .select({ isOwner: userPousadas.isOwner })
+      .from(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
       .limit(1);
 
-    if (userData?.isOwner) {
+    if (!membership) {
+      throw new Error('Usuário não é membro desta pousada');
+    }
+
+    if (membership.isOwner) {
       throw new Error('Não é possível remover o proprietário da pousada');
     }
 
+    // Remove from junction table
     await db
-      .update(user)
-      .set({
-        pousadaId: null,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)));
+      .delete(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
+
+    // If this was the active pousada, switch to another or clear
+    const [userData] = await db
+      .select({ pousadaId: user.pousadaId })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    if (userData?.pousadaId === pousadaId) {
+      const [nextMembership] = await db
+        .select({
+          pousadaId: userPousadas.pousadaId,
+          role: userPousadas.role,
+          isOwner: userPousadas.isOwner,
+        })
+        .from(userPousadas)
+        .where(eq(userPousadas.userId, userId))
+        .limit(1);
+
+      if (nextMembership) {
+        await db
+          .update(user)
+          .set({
+            pousadaId: nextMembership.pousadaId,
+            role: nextMembership.role,
+            isOwner: nextMembership.isOwner || false,
+            updatedAt: new Date(),
+          })
+          .where(eq(user.id, userId));
+      } else {
+        await db
+          .update(user)
+          .set({
+            pousadaId: null,
+            role: 'recepcao',
+            isOwner: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(user.id, userId));
+      }
+    }
 
     return { success: true };
   }
 
   /**
-   * Check if user has access to pousada
+   * List all pousadas a user belongs to
    */
-  static async verificarAcesso(pousadaId: number, userId: string): Promise<{ id: string; role: string | null; isOwner: boolean | null } | null> {
+  static async listarPousadasDoUsuario(userId: string) {
+    const rows = await db
+      .select({
+        id: pousadas.id,
+        nome: pousadas.nome,
+        slug: pousadas.slug,
+        numQuartos: pousadas.numQuartos,
+        cidade: pousadas.cidade,
+        estado: pousadas.estado,
+        ativa: pousadas.ativa,
+        role: userPousadas.role,
+        isOwner: userPousadas.isOwner,
+        joinedAt: userPousadas.joinedAt,
+      })
+      .from(userPousadas)
+      .innerJoin(pousadas, eq(userPousadas.pousadaId, pousadas.id))
+      .where(eq(userPousadas.userId, userId));
+
+    return rows;
+  }
+
+  /**
+   * Switch active pousada for a user (validates membership)
+   */
+  static async trocarPousadaAtiva(userId: string, pousadaId: number) {
+    const [membership] = await db
+      .select({
+        role: userPousadas.role,
+        isOwner: userPousadas.isOwner,
+      })
+      .from(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
+      .limit(1);
+
+    if (!membership) {
+      throw new Error('Você não é membro desta pousada');
+    }
+
+    await db
+      .update(user)
+      .set({
+        pousadaId,
+        role: membership.role,
+        isOwner: membership.isOwner || false,
+        updatedAt: new Date(),
+      })
+      .where(eq(user.id, userId));
+
+    return { pousadaId, role: membership.role, isOwner: membership.isOwner || false };
+  }
+
+  /**
+   * Check if user has access to pousada (via junction table)
+   */
+  static async verificarAcesso(pousadaId: number, userId: string) {
     const [result] = await db
       .select({
-        id: user.id,
-        role: user.role,
-        isOwner: user.isOwner,
+        id: userPousadas.userId,
+        role: userPousadas.role,
+        isOwner: userPousadas.isOwner,
       })
-      .from(user)
-      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)))
+      .from(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
       .limit(1);
 
     return result || null;

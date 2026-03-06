@@ -119,6 +119,11 @@ export default function OnboardingPage() {
       setMessage({ type: 'error', text: 'Telefone é obrigatório.' });
       return false;
     }
+    const phoneDigits = form.telefone.replace(/\D/g, '');
+    if (phoneDigits.length < 10 || phoneDigits.length > 11) {
+      setMessage({ type: 'error', text: 'Telefone deve ter 10 ou 11 dígitos.' });
+      return false;
+    }
     if (!form.email.trim()) {
       setMessage({ type: 'error', text: 'Email é obrigatório.' });
       return false;
@@ -193,19 +198,15 @@ export default function OnboardingPage() {
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-500 text-2xl font-semibold text-white shadow-lg shadow-indigo-500/30">
-              RP
-            </div>
+            <img src="/logo.png" alt="Logo" className="h-12 w-12 rounded-lg object-cover" />
           </div>
           <div>
-            <Badge variant="outline" className="uppercase tracking-[0.14em] text-[10px] mb-2">
-              Configuracao inicial
-            </Badge>
-            <h1 className="text-3xl font-semibold text-slate-900">
+            <Badge className="mb-2">Configuracao inicial</Badge>
+            <h1 className="text-2xl font-semibold">
               Configure sua Pousada
             </h1>
-            <p className="text-slate-600 mt-2">
-              Preencha as informacoes da sua pousada para comecar a usar o sistema.
+            <p className="text-muted-foreground text-sm mt-1">
+              Preencha as informacoes para comecar a usar o sistema.
             </p>
           </div>
         </div>
@@ -221,20 +222,20 @@ export default function OnboardingPage() {
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={cn(
-                    'flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition-colors',
+                    'flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors',
                     step === s.num
-                      ? 'bg-indigo-600 text-white'
+                      ? 'bg-primary text-primary-foreground'
                       : step > s.num
                       ? 'bg-emerald-500 text-white'
-                      : 'bg-slate-200 text-slate-500'
+                      : 'bg-muted text-muted-foreground'
                   )}
                 >
                   {step > s.num ? '✓' : s.num}
                 </div>
                 <span
                   className={cn(
-                    'text-sm',
-                    step >= s.num ? 'text-indigo-600 font-medium' : 'text-slate-500'
+                    'text-xs',
+                    step >= s.num ? 'text-primary font-medium' : 'text-muted-foreground'
                   )}
                 >
                   {s.label}
@@ -244,7 +245,7 @@ export default function OnboardingPage() {
                 <div
                   className={cn(
                     'h-1 w-16 mx-3 mb-6 rounded-full transition-colors',
-                    step > s.num ? 'bg-emerald-500' : 'bg-slate-200'
+                    step > s.num ? 'bg-emerald-500' : 'bg-muted'
                   )}
                 />
               )}
@@ -367,7 +368,18 @@ export default function OnboardingPage() {
                     <Input
                       id="telefone"
                       value={form.telefone}
-                      onChange={(e) => setForm((prev) => ({ ...prev, telefone: e.target.value }))}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
+                        let formatted = digits;
+                        if (digits.length > 6) {
+                          formatted = `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+                        } else if (digits.length > 2) {
+                          formatted = `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+                        } else if (digits.length > 0) {
+                          formatted = `(${digits}`;
+                        }
+                        setForm((prev) => ({ ...prev, telefone: formatted }));
+                      }}
                       placeholder="(00) 00000-0000"
                       required
                     />

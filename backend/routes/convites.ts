@@ -84,14 +84,6 @@ router.post('/:token/aceitar', authMiddleware, async (req: Request, res: Respons
       });
     }
 
-    // Check if user already has a pousada
-    if (req.user.pousadaId) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'Você já está associado a uma pousada',
-      });
-    }
-
     const result = await StaffInviteModel.aceitar(token, req.user.id);
 
     res.json({

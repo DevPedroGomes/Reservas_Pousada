@@ -19,19 +19,6 @@ const PORT = process.env.PORT || 4000;
 app.set('trust proxy', 1);
 
 // ==========================================
-// Rate Limiting
-// ==========================================
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { sucesso: false, mensagem: 'Muitas requisições deste IP, tente novamente após 15 minutos' }
-});
-
-app.use('/api/', limiter);
-
-// ==========================================
 // Security Headers
 // ==========================================
 app.disable('x-powered-by');
@@ -51,7 +38,7 @@ app.use((req, res, next) => {
 });
 
 // ==========================================
-// CORS Configuration
+// CORS Configuration (MUST be before rate limiter)
 // ==========================================
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -59,6 +46,19 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+
+// ==========================================
+// Rate Limiting
+// ==========================================
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Muitas requisições deste IP, tente novamente após 15 minutos' }
+});
+
+app.use('/api/', limiter);
 
 // ==========================================
 // Better Auth Handler

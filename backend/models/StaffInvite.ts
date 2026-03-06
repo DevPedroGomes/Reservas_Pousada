@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, staffInvites, pousadas, user } from '../db/index.js';
+import { db, staffInvites, pousadas, user, userPousadas } from '../db/index.js';
 
 export class StaffInviteModel {
   /**
@@ -115,7 +115,24 @@ export class StaffInviteModel {
       })
       .where(eq(staffInvites.id, invite.id));
 
-    // Associate user with pousada
+    // Check if already a member of this pousada
+    const [existing] = await db
+      .select({ id: userPousadas.id })
+      .from(userPousadas)
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, invite.pousadaId)))
+      .limit(1);
+
+    if (!existing) {
+      // Insert into junction table
+      await db.insert(userPousadas).values({
+        userId,
+        pousadaId: invite.pousadaId,
+        role: invite.role,
+        isOwner: false,
+      });
+    }
+
+    // Set as active pousada
     await db
       .update(user)
       .set({

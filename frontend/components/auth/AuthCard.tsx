@@ -47,15 +47,15 @@ export function AuthCard({
   }
 
   return (
-    <Card className="w-full max-w-md border-2 shadow-xl">
-      <CardHeader className="space-y-1 pb-4">
-        <CardTitle className="text-2xl font-bold tracking-tight">
+    <Card className="w-full max-w-md">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-xl">
           {isSignup ? "Criar Conta" : "Entrar"}
         </CardTitle>
-        <CardDescription className="text-base">
+        <CardDescription>
           {isSignup
-            ? "Crie sua conta para comecar a gerenciar reservas"
-            : "Entre com suas credenciais para acessar o sistema"}
+            ? "Crie sua conta para gerenciar reservas"
+            : "Acesse o sistema com suas credenciais"}
         </CardDescription>
       </CardHeader>
 
@@ -65,60 +65,35 @@ export function AuthCard({
             className={`p-3 rounded-lg text-sm font-medium ${
               message.type === "error"
                 ? "bg-destructive/10 text-destructive border border-destructive/20"
-                : "bg-green-500/10 text-green-600 border border-green-500/20"
+                : "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
             }`}
           >
             {message.text}
           </div>
         )}
 
-        {/* Google Login */}
         <Button
           type="button"
           variant="outline"
-          className="w-full h-11 font-semibold border-2 hover:bg-muted/50 transition-colors"
+          className="w-full h-10"
           onClick={onGoogleLogin}
           disabled={loading.google}
         >
           {loading.google ? (
             <span className="flex items-center gap-2">
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
               Conectando...
             </span>
           ) : (
-            <span className="flex items-center gap-3">
-              <svg className="h-5 w-5" viewBox="0 0 24 24">
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
+            <span className="flex items-center gap-2">
+              <svg className="h-4 w-4" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
               </svg>
               Continuar com Google
             </span>
@@ -130,72 +105,53 @@ export function AuthCard({
             <span className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground font-medium">
-              ou
-            </span>
+            <span className="bg-white px-2 text-muted-foreground">ou</span>
           </div>
         </div>
 
-        {/* Login Form */}
         {!isSignup && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="login-email" className="text-sm font-semibold">
-                Email
-              </Label>
+          <form onSubmit={handleLoginSubmit} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="login-email" className="text-sm">Email</Label>
               <Input
                 id="login-email"
                 type="email"
                 name="username"
                 autoComplete="username"
-                placeholder="Digite seu email"
+                placeholder="seu@email.com"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
                 required
-                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-semibold">
-                Senha
-              </Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm">Senha</Label>
               <Input
                 id="password"
                 type="password"
                 name="password"
                 autoComplete="current-password"
-                placeholder="Digite sua senha"
+                placeholder="Sua senha"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 required
-                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
             <div className="text-right">
-              <a
-                href="/forgot-password"
-                className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium"
-              >
+              <a href="/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
                 Esqueceu a senha?
               </a>
             </div>
-            <Button
-              type="submit"
-              className="w-full h-11 font-semibold"
-              disabled={loading.login}
-            >
+            <Button type="submit" className="w-full" disabled={loading.login}>
               {loading.login ? "Entrando..." : "Entrar"}
             </Button>
           </form>
         )}
 
-        {/* Signup Form */}
         {isSignup && (
-          <form onSubmit={handleSignupSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="signup-nome" className="text-sm font-semibold">
-                Nome Completo
-              </Label>
+          <form onSubmit={handleSignupSubmit} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="signup-nome" className="text-sm">Nome Completo</Label>
               <Input
                 id="signup-nome"
                 type="text"
@@ -205,29 +161,23 @@ export function AuthCard({
                 value={signupNome}
                 onChange={(e) => setSignupNome(e.target.value)}
                 required
-                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="signup-email" className="text-sm font-semibold">
-                Email
-              </Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="signup-email" className="text-sm">Email</Label>
               <Input
                 id="signup-email"
                 type="email"
                 name="username"
                 autoComplete="username"
-                placeholder="Digite seu email"
+                placeholder="seu@email.com"
                 value={signupEmail}
                 onChange={(e) => setSignupEmail(e.target.value)}
                 required
-                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="signup-password" className="text-sm font-semibold">
-                Senha
-              </Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="signup-password" className="text-sm">Senha</Label>
               <Input
                 id="signup-password"
                 type="password"
@@ -238,24 +188,19 @@ export function AuthCard({
                 onChange={(e) => setSignupPassword(e.target.value)}
                 required
                 minLength={6}
-                className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
               />
             </div>
-            <Button
-              type="submit"
-              className="w-full h-11 font-semibold"
-              disabled={loading.signup}
-            >
+            <Button type="submit" className="w-full" disabled={loading.signup}>
               {loading.signup ? "Criando conta..." : "Criar Conta"}
             </Button>
           </form>
         )}
 
-        <div className="text-center pt-2">
+        <div className="text-center pt-1">
           <button
             type="button"
             onClick={onToggleMode}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium"
+            className="text-xs text-muted-foreground hover:text-primary transition-colors"
           >
             {isSignup ? "Ja tem uma conta? Entre aqui" : "Nao tem conta? Crie agora"}
           </button>

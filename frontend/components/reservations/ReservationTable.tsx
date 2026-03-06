@@ -26,21 +26,21 @@ export function ReservationTable({
   loading = false,
 }: ReservationTableProps) {
   return (
-    <Card className="shadow-xl">
-      <div className="overflow-x-auto rounded-xl border-2 border-border m-4">
+    <Card className="p-0 overflow-hidden">
+      <div className="overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50">
-              <TableHead className="font-bold">ID</TableHead>
-              <TableHead className="font-bold">Hospede</TableHead>
-              <TableHead className="font-bold">CPF</TableHead>
-              <TableHead className="font-bold">Quarto</TableHead>
-              <TableHead className="font-bold">Entrada</TableHead>
-              <TableHead className="font-bold">Saida</TableHead>
-              <TableHead className="font-bold">Valor (R$)</TableHead>
-              <TableHead className="font-bold">Pago</TableHead>
-              <TableHead className="font-bold">Status</TableHead>
-              <TableHead className="font-bold">Acoes</TableHead>
+            <TableRow className="bg-muted/30">
+              <TableHead>ID</TableHead>
+              <TableHead>Hospede</TableHead>
+              <TableHead>CPF</TableHead>
+              <TableHead>Quarto</TableHead>
+              <TableHead>Entrada</TableHead>
+              <TableHead>Saida</TableHead>
+              <TableHead>Valor (R$)</TableHead>
+              <TableHead>Pago</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Acoes</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -49,7 +49,7 @@ export function ReservationTable({
                 <TableCell colSpan={10} className="text-center py-8">
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <span className="text-muted-foreground">Carregando...</span>
+                    <span className="text-muted-foreground text-sm">Carregando...</span>
                   </div>
                 </TableCell>
               </TableRow>
@@ -61,40 +61,30 @@ export function ReservationTable({
               </TableRow>
             ) : (
               reservas.map((reserva) => (
-                <TableRow key={reserva.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="font-medium">#{reserva.id}</TableCell>
+                <TableRow key={reserva.id}>
+                  <TableCell className="font-medium text-muted-foreground">#{reserva.id}</TableCell>
                   <TableCell className="font-medium">{reserva.nome}</TableCell>
-                  <TableCell>{reserva.cpf}</TableCell>
-                  <TableCell>Quarto {reserva.quarto}</TableCell>
+                  <TableCell className="text-muted-foreground">{reserva.cpf}</TableCell>
+                  <TableCell>{reserva.quarto}</TableCell>
                   <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>
                   <TableCell>{reserva.valor ? formatarValor(Number(reserva.valor)) : "-"}</TableCell>
                   <TableCell>
-                    <Badge variant={reserva.pago ? "default" : "destructive"} className="font-semibold">
+                    <Badge variant={reserva.pago ? "success" : "destructive"}>
                       {reserva.pago ? "Sim" : "Nao"}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={getStatusBadgeVariant(reserva.status)} className="font-semibold">
+                    <Badge variant={getStatusBadgeVariant(reserva.status)}>
                       {reserva.status}
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onEdit(Number(reserva.id))}
-                        className="font-medium"
-                      >
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => onEdit(Number(reserva.id))}>
                         Editar
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onDelete(Number(reserva.id))}
-                        className="font-medium border-2"
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => onDelete(Number(reserva.id))} className="text-destructive hover:text-destructive">
                         Excluir
                       </Button>
                     </div>
@@ -106,7 +96,7 @@ export function ReservationTable({
         </Table>
       </div>
       {meta.paginas > 1 && (
-        <div className="p-4">
+        <div className="p-4 border-t">
           <Pagination
             page={meta.pagina || 1}
             totalPages={meta.paginas || 1}
@@ -118,7 +108,6 @@ export function ReservationTable({
   )
 }
 
-// Compact version for dashboard
 interface ProximasReservasTableProps {
   reservas: Reserva[]
   onViewAll: () => void
@@ -126,59 +115,51 @@ interface ProximasReservasTableProps {
 
 export function ProximasReservasTable({ reservas, onViewAll }: ProximasReservasTableProps) {
   return (
-    <Card className="dashboard-table shadow-xl">
-      <div className="flex items-center justify-between p-6 pb-4">
+    <Card className="dashboard-table p-0 overflow-hidden">
+      <div className="flex items-center justify-between p-5 pb-4">
         <div>
-          <Badge
-            variant="outline"
-            className="mb-2 border-primary/20 bg-primary/5 text-primary px-3 py-1 text-xs font-bold uppercase tracking-wider"
-          >
-            Pipeline
-          </Badge>
-          <h3 className="text-2xl font-bold">Proximas Reservas</h3>
-          <p className="text-base text-muted-foreground mt-1">Check-ins e check-outs em breve</p>
+          <h3 className="text-lg font-semibold">Proximas Reservas</h3>
+          <p className="text-sm text-muted-foreground">Check-ins e check-outs em breve</p>
         </div>
-        <Button onClick={onViewAll} className="font-semibold">
+        <Button variant="outline" size="sm" onClick={onViewAll}>
           Ver todas
         </Button>
       </div>
-      <div className="px-6 pb-6">
-        <div className="overflow-x-auto rounded-xl border-2 border-border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="font-bold">Hospede</TableHead>
-                <TableHead className="font-bold">Quarto</TableHead>
-                <TableHead className="font-bold">Entrada</TableHead>
-                <TableHead className="font-bold">Saida</TableHead>
-                <TableHead className="font-bold">Status</TableHead>
+      <div className="border-t">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/30">
+              <TableHead>Hospede</TableHead>
+              <TableHead>Quarto</TableHead>
+              <TableHead>Entrada</TableHead>
+              <TableHead>Saida</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {reservas.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  Nenhuma reserva proxima.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {reservas.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    Nenhuma reserva proxima.
+            ) : (
+              reservas.map((reserva) => (
+                <TableRow key={reserva.id}>
+                  <TableCell className="font-medium">{reserva.nome}</TableCell>
+                  <TableCell>{reserva.quarto}</TableCell>
+                  <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
+                  <TableCell>{formatarData(reserva.data_saida)}</TableCell>
+                  <TableCell>
+                    <Badge variant={getStatusBadgeVariant(reserva.status)}>
+                      {reserva.status}
+                    </Badge>
                   </TableCell>
                 </TableRow>
-              ) : (
-                reservas.map((reserva) => (
-                  <TableRow key={reserva.id} className="hover:bg-muted/30 transition-colors">
-                    <TableCell className="font-medium">{reserva.nome}</TableCell>
-                    <TableCell>Quarto {reserva.quarto}</TableCell>
-                    <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
-                    <TableCell>{formatarData(reserva.data_saida)}</TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusBadgeVariant(reserva.status)} className="font-semibold">
-                        {reserva.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </div>
     </Card>
   )

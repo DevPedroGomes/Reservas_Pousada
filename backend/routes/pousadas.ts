@@ -45,18 +45,10 @@ const requirePousadaOwner = (req: Request, res: Response, next: NextFunction) =>
 
 /**
  * POST /api/pousadas
- * Create new pousada (onboarding)
+ * Create new pousada (can create multiple)
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    // Check if user already has a pousada
-    if (req.user?.pousadaId) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'Você já possui uma pousada cadastrada'
-      });
-    }
-
     // Sanitize data
     const dadosSanitizados = sanitizarPousada(req.body);
 
@@ -101,7 +93,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * GET /api/pousadas/minha
- * Get current user's pousada
+ * Get current user's active pousada
  */
 router.get('/minha', async (req: Request, res: Response) => {
   try {
@@ -131,6 +123,62 @@ router.get('/minha', async (req: Request, res: Response) => {
     res.status(500).json({
       sucesso: false,
       mensagem: 'Erro ao buscar dados da pousada'
+    });
+  }
+});
+
+/**
+ * GET /api/pousadas/minhas
+ * List all pousadas the user belongs to (with role info)
+ */
+router.get('/minhas', async (req: Request, res: Response) => {
+  try {
+    const pousadasList = await PousadaModel.listarPousadasDoUsuario(req.user!.id);
+
+    res.json({
+      sucesso: true,
+      pousadas: pousadasList,
+      ativaId: req.user!.pousadaId,
+    });
+  } catch (error) {
+    console.error('Erro ao listar pousadas:', error);
+    res.status(500).json({
+      sucesso: false,
+      mensagem: 'Erro ao listar pousadas',
+    });
+  }
+});
+
+/**
+ * POST /api/pousadas/trocar
+ * Switch active pousada
+ */
+router.post('/trocar', async (req: Request, res: Response) => {
+  try {
+    const { pousadaId } = req.body;
+
+    if (!pousadaId || isNaN(parseInt(pousadaId))) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'ID da pousada inválido',
+      });
+    }
+
+    const result = await PousadaModel.trocarPousadaAtiva(req.user!.id, parseInt(pousadaId));
+    const pousada = await PousadaModel.buscarPorId(parseInt(pousadaId));
+
+    res.json({
+      sucesso: true,
+      mensagem: 'Pousada ativa alterada com sucesso',
+      pousada,
+      role: result.role,
+      isOwner: result.isOwner,
+    });
+  } catch (error: any) {
+    console.error('Erro ao trocar pousada:', error);
+    res.status(400).json({
+      sucesso: false,
+      mensagem: error.message || 'Erro ao trocar pousada',
     });
   }
 });

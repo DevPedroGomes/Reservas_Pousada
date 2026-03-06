@@ -117,6 +117,18 @@ export const auditoria = pgTable('auditoria', {
   entityIdx: index('idx_auditoria_entity').on(table.entity, table.entityId),
 }));
 
+export const userPousadas = pgTable('user_pousadas', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }).notNull(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  role: text('role').notNull().default('recepcao'),
+  isOwner: boolean('is_owner').default(false),
+  joinedAt: timestamp('joined_at').defaultNow(),
+}, (table) => ({
+  userPousadaIdx: index('idx_user_pousadas_user_pousada').on(table.userId, table.pousadaId),
+  userIdx: index('idx_user_pousadas_user').on(table.userId),
+}));
+
 export const staffInvites = pgTable('staff_invites', {
   id: serial('id').primaryKey(),
   pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
@@ -144,6 +156,7 @@ export const userRelations = relations(user, ({ one, many }) => ({
     fields: [user.pousadaId],
     references: [pousadas.id],
   }),
+  pousadas: many(userPousadas),
   sessions: many(session),
   accounts: many(account),
   reservasCriadas: many(reservas),
@@ -164,8 +177,20 @@ export const accountRelations = relations(account, ({ one }) => ({
   }),
 }));
 
+export const userPousadasRelations = relations(userPousadas, ({ one }) => ({
+  user: one(user, {
+    fields: [userPousadas.userId],
+    references: [user.id],
+  }),
+  pousada: one(pousadas, {
+    fields: [userPousadas.pousadaId],
+    references: [pousadas.id],
+  }),
+}));
+
 export const pousadasRelations = relations(pousadas, ({ many }) => ({
   usuarios: many(user),
+  membros: many(userPousadas),
   reservas: many(reservas),
   staffInvites: many(staffInvites),
 }));
@@ -213,5 +238,7 @@ export type Reserva = typeof reservas.$inferSelect;
 export type NewReserva = typeof reservas.$inferInsert;
 export type Auditoria = typeof auditoria.$inferSelect;
 export type NewAuditoria = typeof auditoria.$inferInsert;
+export type UserPousada = typeof userPousadas.$inferSelect;
+export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
 export type NewStaffInvite = typeof staffInvites.$inferInsert;

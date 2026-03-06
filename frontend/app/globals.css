@@ -3,26 +3,26 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 3.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 3.9%;
-  --primary: 262 83% 58%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
-  --accent: 240 4.8% 95.9%;
-  --accent-foreground: 240 5.9% 10%;
-  --destructive: 0 84.2% 60.2%;
+  --background: 35 30% 98%;
+  --foreground: 20 25% 12%;
+  --card: 36 25% 99%;
+  --card-foreground: 20 25% 12%;
+  --popover: 36 25% 99%;
+  --popover-foreground: 20 25% 12%;
+  --primary: 25 75% 47%;
+  --primary-foreground: 40 100% 97%;
+  --secondary: 35 18% 93%;
+  --secondary-foreground: 20 18% 22%;
+  --muted: 33 14% 93%;
+  --muted-foreground: 20 10% 44%;
+  --accent: 162 45% 40%;
+  --accent-foreground: 160 100% 97%;
+  --destructive: 2 60% 52%;
   --destructive-foreground: 0 0% 98%;
-  --border: 240 5.9% 90%;
-  --input: 240 5.9% 90%;
-  --ring: 262 83% 58%;
-  --radius: 0.75rem;
+  --border: 30 18% 86%;
+  --input: 30 18% 86%;
+  --ring: 25 75% 47%;
+  --radius: 0.5rem;
 }
 
 * {
@@ -37,38 +37,27 @@ body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   min-height: 100vh;
-  font-feature-settings: "rlig" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+::selection {
+  background: hsl(25 75% 47% / 0.15);
+}
+
 .scroll-area {
   scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
+  scrollbar-color: hsl(25 25% 72%) transparent;
 }
 
 .scroll-area::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 .scroll-area::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.5);
+  background: hsl(25 25% 72%);
   border-radius: 999px;
-}
-
-.card-shadow {
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-}
-
-.glass {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  backdrop-filter: blur(16px);
-}
-
-.status-pill {
-  @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold capitalize;
 }
 
 @layer base {
@@ -82,58 +71,43 @@ body {
 
 @layer components {
   .ambient {
-    @apply fixed inset-0 -z-10 blur-3xl;
-    background: radial-gradient(800px circle at 20% 20%, rgba(79, 70, 229, 0.08), transparent 35%),
-      radial-gradient(700px circle at 80% 10%, rgba(14, 165, 233, 0.08), transparent 25%),
-      radial-gradient(900px circle at 60% 80%, rgba(16, 185, 129, 0.08), transparent 30%);
-  }
-
-  .section-title {
-    @apply text-3xl font-semibold text-slate-900;
-  }
-
-  .section-kicker {
-    @apply text-xs uppercase tracking-[0.14em] text-slate-500;
+    @apply fixed inset-0 -z-10;
+    background:
+      radial-gradient(ellipse 700px 500px at 10% 5%, hsl(25 60% 82% / 0.1), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 90% 15%, hsl(162 40% 72% / 0.07), transparent 50%),
+      radial-gradient(ellipse 600px 400px at 45% 95%, hsl(38 50% 78% / 0.06), transparent 50%);
   }
 
   .data-table th {
-    @apply bg-slate-50/80 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500;
+    @apply text-[11px] font-medium uppercase tracking-wider text-muted-foreground;
   }
 
   .data-table td,
   .data-table th {
-    @apply border-b border-slate-200/70 px-4 py-3 text-sm text-slate-900;
+    @apply border-b border-border/50 px-4 py-3 text-sm;
   }
 
   .data-table tr:hover {
-    @apply bg-indigo-50/30 transition-colors;
+    @apply bg-primary/[0.03] transition-colors;
   }
 
   .pill {
-    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold;
-  }
-
-  .pill-ghost {
-    @apply border-slate-200/70 bg-slate-100/60 text-slate-700;
+    @apply inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5 text-xs font-medium;
   }
 
   .pill-success {
-    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+    @apply border-emerald-200/80 bg-emerald-50/70 text-emerald-700;
   }
 
   .pill-danger {
-    @apply border-rose-200 bg-rose-50 text-rose-700;
+    @apply border-rose-200/80 bg-rose-50/70 text-rose-700;
   }
 
   .pill-warning {
-    @apply border-amber-200 bg-amber-50 text-amber-700;
-  }
-
-  .metric {
-    @apply text-4xl font-bold text-slate-900;
+    @apply border-amber-200/80 bg-amber-50/70 text-amber-700;
   }
 
   .glass-card {
-    @apply glass card-shadow rounded-2xl p-6;
+    @apply rounded-lg border border-border/50 bg-white/90 p-6 shadow-md backdrop-blur-sm;
   }
 }

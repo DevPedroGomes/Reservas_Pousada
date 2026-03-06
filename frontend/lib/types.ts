@@ -45,6 +45,19 @@ export interface Pousada {
   ativa?: boolean
 }
 
+export interface UserPousada {
+  id: number
+  nome: string
+  slug?: string
+  numQuartos?: number
+  cidade?: string
+  estado?: string
+  ativa?: boolean
+  role: string
+  isOwner: boolean
+  joinedAt?: string
+}
+
 export interface Reserva {
   id?: number
   nome: string

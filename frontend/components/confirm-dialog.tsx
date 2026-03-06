@@ -2,7 +2,6 @@
 
 import { Button } from './ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
-import { Badge } from './ui/badge';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -15,22 +14,19 @@ export function ConfirmDialog({ open, message, onCancel, onConfirm }: ConfirmDia
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 backdrop-blur-sm px-4">
-      <div className="w-full max-w-lg">
-        <Card className="glass-card border-0">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/20 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm">
+        <Card>
           <CardHeader>
-            <div>
-              <Badge variant="outline" className="uppercase tracking-[0.14em] text-[10px]">Confirmação</Badge>
-              <CardTitle className="mt-2">Deseja continuar?</CardTitle>
-            </div>
+            <CardTitle>Confirmar</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <p className="text-sm text-slate-600">{message}</p>
-            <div className="flex items-center justify-end gap-3">
-              <Button variant="ghost" onClick={onCancel} aria-label="Cancelar exclusão">
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{message}</p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={onCancel} aria-label="Cancelar">
                 Cancelar
               </Button>
-              <Button onClick={onConfirm} aria-label="Confirmar exclusão">
+              <Button variant="destructive" size="sm" onClick={onConfirm} aria-label="Confirmar">
                 Confirmar
               </Button>
             </div>
