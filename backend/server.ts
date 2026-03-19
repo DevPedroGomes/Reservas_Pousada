@@ -69,8 +69,8 @@ app.all('/api/auth/*', toNodeHandler(auth));
 // ==========================================
 // Body Parser (after Better Auth)
 // ==========================================
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '256kb' }));
+app.use(express.urlencoded({ extended: true, limit: '256kb' }));
 
 // ==========================================
 // Activity Logger

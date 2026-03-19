@@ -54,6 +54,7 @@ export default function Home() {
   const {
     reservas,
     dashReservas,
+    dashboardStats,
     filters,
     meta,
     loading: reservasLoading,
@@ -71,7 +72,7 @@ export default function Home() {
     excluirReserva,
     carregarAuditoria,
     setPage: setReservasPage,
-  } = useReservations(isAuthenticated)
+  } = useReservations(isAuthenticated, pousada?.id)
 
   const {
     convites,
@@ -99,7 +100,7 @@ export default function Home() {
   const authFormRef = useRef<HTMLDivElement>(null)
 
   const TOTAL_QUARTOS = pousada?.num_quartos || 25
-  const quartosDisponiveis = TOTAL_QUARTOS - reservasAtivas
+  const quartosDisponiveis = dashboardStats?.quartos_disponiveis ?? (TOTAL_QUARTOS - reservasAtivas)
 
   const proximasReservas = useMemo(
     () =>
@@ -430,6 +431,7 @@ export default function Home() {
               onEdit={handleEditReserva}
               onDelete={handleConfirmDelete}
               loading={reservasLoading}
+              userRole={user?.role}
             />
           </div>
         )}

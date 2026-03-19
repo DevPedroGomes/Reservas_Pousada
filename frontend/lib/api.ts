@@ -3,7 +3,8 @@
  * Better Auth handles authentication via cookies, so no manual token management needed
  */
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api"
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+export const API_URL = `${API_BASE_URL}/api`
 
 /**
  * Interface para resposta padrao da API
@@ -144,17 +145,3 @@ export async function apiPatch<T>(
   return handleResponse<T>(response)
 }
 
-// Legacy exports for backwards compatibility (deprecated)
-/** @deprecated Better Auth uses cookies, no manual token storage needed */
-export const TokenStorage = {
-  getToken: () => null,
-  setToken: (_token: string) => {},
-  getRefreshToken: () => null,
-  setRefreshToken: (_token: string) => {},
-  clearTokens: () => {},
-}
-
-/** @deprecated Better Auth handles token refresh automatically */
-export async function refreshAccessToken(): Promise<string | null> {
-  return null
-}

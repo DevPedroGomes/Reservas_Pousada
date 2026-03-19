@@ -10,8 +10,7 @@ import {
   handleSignOut
 } from "../lib/auth-client";
 import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+import { API_BASE_URL } from "../lib/api";
 
 interface UseAuthReturn {
   // State
@@ -75,8 +74,8 @@ export function useAuth(): UseAuthReturn {
     try {
       // Fetch both in parallel
       const [minhaRes, minhasRes] = await Promise.all([
-        fetch(`${API_URL}/api/pousadas/minha`, { credentials: 'include' }),
-        fetch(`${API_URL}/api/pousadas/minhas`, { credentials: 'include' }),
+        fetch(`${API_BASE_URL}/api/pousadas/minha`, { credentials: 'include' }),
+        fetch(`${API_BASE_URL}/api/pousadas/minhas`, { credentials: 'include' }),
       ]);
 
       const minhaData = await minhaRes.json();
@@ -115,7 +114,7 @@ export function useAuth(): UseAuthReturn {
   // Switch active pousada
   const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_URL}/api/pousadas/trocar`, {
+      const response = await fetch(`${API_BASE_URL}/api/pousadas/trocar`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -174,8 +173,8 @@ export function useAuth(): UseAuthReturn {
     setSignupLoading(true);
     setMessage(null);
 
-    if (password.length < 6) {
-      setMessage({ type: "error", text: "A senha deve ter pelo menos 6 caracteres." });
+    if (password.length < 8) {
+      setMessage({ type: "error", text: "A senha deve ter pelo menos 8 caracteres." });
       setSignupLoading(false);
       return false;
     }

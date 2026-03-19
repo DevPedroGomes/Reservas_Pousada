@@ -86,7 +86,7 @@ router.post('/', async (req: Request, res: Response) => {
     console.error('Erro ao criar pousada:', error);
     res.status(500).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao criar pousada'
+      mensagem: 'Erro ao criar pousada'
     });
   }
 });
@@ -178,7 +178,7 @@ router.post('/trocar', async (req: Request, res: Response) => {
     console.error('Erro ao trocar pousada:', error);
     res.status(400).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao trocar pousada',
+      mensagem: 'Erro ao trocar pousada',
     });
   }
 });
@@ -271,7 +271,7 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
     console.error('Erro ao atualizar pousada:', error);
     res.status(500).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao atualizar pousada'
+      mensagem: 'Erro ao atualizar pousada'
     });
   }
 });
@@ -411,7 +411,7 @@ router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Resp
     console.error('Erro ao adicionar usuário:', error);
     res.status(500).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao adicionar usuário'
+      mensagem: 'Erro ao adicionar usuário'
     });
   }
 });
@@ -456,7 +456,7 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
     console.error('Erro ao remover usuário:', error);
     res.status(500).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao remover usuário'
+      mensagem: 'Erro ao remover usuário'
     });
   }
 });
@@ -621,7 +621,7 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
     console.error('Erro ao criar convite:', error);
     res.status(500).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao criar convite',
+      mensagem: 'Erro ao criar convite',
     });
   }
 });
@@ -674,7 +674,7 @@ router.delete('/:id/convites/:inviteId', requirePousadaOwner, async (req: Reques
     console.error('Erro ao revogar convite:', error);
     res.status(400).json({
       sucesso: false,
-      mensagem: error.message || 'Erro ao revogar convite',
+      mensagem: 'Erro ao revogar convite',
     });
   }
 });

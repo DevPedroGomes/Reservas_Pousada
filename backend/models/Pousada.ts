@@ -162,11 +162,11 @@ export class PousadaModel {
         COUNT(*)::int AS total_reservas,
         COUNT(*) FILTER (WHERE status = 'ativa')::int AS reservas_ativas,
         COUNT(*) FILTER (WHERE status = 'ativa' AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
-        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND data_entrada <= ${hoje} AND data_saida >= ${hoje})::int AS quartos_ocupados,
+        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida >= ${hoje})::int AS quartos_ocupados,
         COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true), 0)::numeric AS receita_total,
         COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status = 'ativa'), 0)::numeric AS receita_pendente
       FROM reservas
-      WHERE pousada_id = ${pousadaId}
+      WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
     `);
 
     const stats = result.rows[0] as Record<string, unknown>;

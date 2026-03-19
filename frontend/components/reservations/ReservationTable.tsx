@@ -15,6 +15,7 @@ interface ReservationTableProps {
   onEdit: (id: number) => void
   onDelete: (id: number) => void
   loading?: boolean
+  userRole?: string
 }
 
 export function ReservationTable({
@@ -24,6 +25,7 @@ export function ReservationTable({
   onEdit,
   onDelete,
   loading = false,
+  userRole,
 }: ReservationTableProps) {
   return (
     <Card className="p-0 overflow-hidden">
@@ -84,9 +86,11 @@ export function ReservationTable({
                       <Button variant="ghost" size="sm" onClick={() => onEdit(Number(reserva.id))}>
                         Editar
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => onDelete(Number(reserva.id))} className="text-destructive hover:text-destructive">
-                        Excluir
-                      </Button>
+                      {(userRole === 'admin' || userRole === 'owner') && (
+                        <Button variant="ghost" size="sm" onClick={() => onDelete(Number(reserva.id))} className="text-destructive hover:text-destructive">
+                          Excluir
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

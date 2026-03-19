@@ -24,6 +24,7 @@ interface UseReservationsReturn {
   // State
   reservas: Reserva[]
   dashReservas: Reserva[]
+  dashboardStats: DashboardStats | null
   filters: FiltersState
   meta: PaginationMeta
   loading: boolean
@@ -47,7 +48,18 @@ interface UseReservationsReturn {
   setPage: (page: number) => void
 }
 
-export function useReservations(isAuthenticated: boolean = false): UseReservationsReturn {
+interface DashboardStats {
+  reservas_ativas: number
+  reservas_hoje: number
+  quartos_ocupados: number
+  quartos_disponiveis: number
+  taxa_ocupacao: number
+  receita_total: number
+  receita_pendente: number
+  total_reservas: number
+}
+
+export function useReservations(isAuthenticated: boolean = false, pousadaId?: number | null): UseReservationsReturn {
   const [reservas, setReservas] = useState<Reserva[]>([])
   const [dashReservas, setDashReservas] = useState<Reserva[]>([])
   const [filters, setFilters] = useState<FiltersState>(initialFilters)
@@ -55,19 +67,21 @@ export function useReservations(isAuthenticated: boolean = false): UseReservatio
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [auditLogs, setAuditLogs] = useState<Auditoria[]>([])
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
 
-  // Computed values
+  // Computed values — prefer SQL stats when available
   const reservasAtivas = useMemo(
-    () => dashReservas.filter((r) => r.status === "ativa").length,
-    [dashReservas]
+    () => dashboardStats?.reservas_ativas ?? dashReservas.filter((r) => r.status === "ativa").length,
+    [dashboardStats, dashReservas]
   )
 
   const reservasHoje = useMemo(() => {
+    if (dashboardStats) return dashboardStats.reservas_hoje
     const hoje = new Date().toISOString().split("T")[0]
     return dashReservas.filter(
       (r) => r.data_entrada === hoje || r.data_saida === hoje
     ).length
-  }, [dashReservas])
+  }, [dashboardStats, dashReservas])
 
   const clearFilters = useCallback(() => {
     setFilters(initialFilters)
@@ -81,15 +95,27 @@ export function useReservations(isAuthenticated: boolean = false): UseReservatio
   const carregarDashboard = useCallback(async () => {
     if (!isAuthenticated) return
     try {
-      const response = await authenticatedFetch(`${API_URL}/reservas`)
-      const data = await response.json()
-      if (data.sucesso) {
-        setDashReservas(data.reservas || [])
+      const fetches: Promise<Response>[] = [
+        authenticatedFetch(`${API_URL}/reservas`),
+      ]
+      if (pousadaId) {
+        fetches.push(authenticatedFetch(`${API_URL}/pousadas/${pousadaId}/dashboard`))
+      }
+      const responses = await Promise.all(fetches)
+      const reservasData = await responses[0].json()
+      if (reservasData.sucesso) {
+        setDashReservas(reservasData.reservas || [])
+      }
+      if (pousadaId && responses[1]) {
+        const statsData = await responses[1].json()
+        if (statsData.sucesso) {
+          setDashboardStats(statsData.estatisticas)
+        }
       }
     } catch (error) {
       console.error("Erro ao carregar dashboard", error)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, pousadaId])
 
   // Carregar reservas com filtros
   const carregarReservas = useCallback(async (pageNum?: number) => {
@@ -284,6 +310,7 @@ export function useReservations(isAuthenticated: boolean = false): UseReservatio
   return {
     reservas,
     dashReservas,
+    dashboardStats,
     filters,
     meta,
     loading,

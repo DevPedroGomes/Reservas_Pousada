@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, varchar, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ==========================================
@@ -125,7 +125,7 @@ export const userPousadas = pgTable('user_pousadas', {
   isOwner: boolean('is_owner').default(false),
   joinedAt: timestamp('joined_at').defaultNow(),
 }, (table) => ({
-  userPousadaIdx: index('idx_user_pousadas_user_pousada').on(table.userId, table.pousadaId),
+  userPousadaIdx: uniqueIndex('idx_user_pousadas_user_pousada').on(table.userId, table.pousadaId),
   userIdx: index('idx_user_pousadas_user').on(table.userId),
 }));
 
