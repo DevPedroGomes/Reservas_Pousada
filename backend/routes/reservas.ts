@@ -50,7 +50,7 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), async (req:
 
     const { data } = await ReservaModel.listarTodas({
       page: 1,
-      limit: 10000,
+      limit: 5000,
       search: search as string,
       status: status as string | undefined,
       pago: pagoBool,
@@ -254,6 +254,8 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
+
     const resultado = await ReservaModel.atualizar(parseInt(id), {
       nome: dadosSanitizados.nome,
       cpf: dadosSanitizados.cpf,
@@ -264,7 +266,7 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       valor: dadosSanitizados.valor,
       pago: dadosSanitizados.pago,
       observacoes: dadosSanitizados.observacoes,
-    }, req.user!.pousadaId!);
+    }, req.user!.pousadaId!, version);
 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
@@ -287,6 +289,13 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     ).catch(err => console.error('[Auditoria] Erro ao registrar atualização:', err.message));
 
   } catch (error: any) {
+    if (error.code === 'VERSION_CONFLICT') {
+      return res.status(409).json({
+        sucesso: false,
+        codigo: 'RES_009',
+        mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
+      });
+    }
     const conflito = error.message && error.message.includes('não disponível');
     if (conflito) {
       return res.status(409).json({
@@ -319,7 +328,8 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
-    const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!);
+    const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
+    const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!, version);
 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
@@ -342,7 +352,14 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       req.ip || null
     ).catch(err => console.error('[Auditoria] Erro ao registrar status:', err.message));
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'VERSION_CONFLICT') {
+      return res.status(409).json({
+        sucesso: false,
+        codigo: 'RES_009',
+        mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
+      });
+    }
     next(new AppError('Erro ao atualizar status', 500, 'RES_004'));
   }
 });

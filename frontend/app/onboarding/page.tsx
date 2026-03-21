@@ -171,7 +171,7 @@ export default function OnboardingPage() {
 
         // Aguardar um pouco para mostrar a mensagem e redirecionar
         setTimeout(() => {
-          router.push('/');
+          window.location.href = '/';
         }, 1500);
       } else {
         setMessage({ type: 'error', text: data.mensagem || 'Erro ao configurar pousada.' });

@@ -93,6 +93,17 @@ export async function resetPassword(newPassword: string, token: string) {
 }
 
 /**
+ * Change password while logged in
+ */
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return authClient.changePassword({
+    currentPassword,
+    newPassword,
+    revokeOtherSessions: true,
+  });
+}
+
+/**
  * Send email verification
  */
 export async function sendEmailVerification(email: string) {

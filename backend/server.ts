@@ -78,11 +78,24 @@ app.use(express.urlencoded({ extended: true, limit: '256kb' }));
 app.use(activityLogger);
 
 // ==========================================
+// Per-user rate limiter (after auth, before routes)
+// ==========================================
+const userLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 500,
+  keyGenerator: (req: any) => req.user?.id || req.ip || 'anonymous',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req: any) => !req.user,
+  message: { sucesso: false, mensagem: 'Limite de requisicoes excedido. Tente novamente em alguns minutos.' },
+});
+
+// ==========================================
 // API Routes
 // ==========================================
 app.use('/api/convites', conviteRoutes);
-app.use('/api/reservas', authMiddleware, requirePousada, reservaRoutes);
-app.use('/api/pousadas', authMiddleware, pousadaRoutes);
+app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, reservaRoutes);
+app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 
 // ==========================================
 // Health Check & Status

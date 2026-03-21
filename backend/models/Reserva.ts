@@ -1,6 +1,7 @@
-import { eq, and, or, gte, lte, ne, ilike, sql, count, isNull } from 'drizzle-orm';
+import { eq, and, or, gte, lte, ne, ilike, sql, count, isNull, SQL } from 'drizzle-orm';
 import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
+import { encryptCpf, decryptCpf, hashCpf, isEncrypted } from '../utils/crypto.js';
 
 interface ListarOptions {
   page?: number;
@@ -18,6 +19,33 @@ interface ReservaComCriador extends Reserva {
 }
 
 export class ReservaModel {
+  /**
+   * Decrypt CPF in a reservation result (gracefully handles unencrypted CPFs)
+   */
+  private static decryptResult<T extends { cpf: string }>(result: T): T {
+    try {
+      return { ...result, cpf: decryptCpf(result.cpf) };
+    } catch {
+      return result; // Return as-is if decryption fails (unencrypted legacy data)
+    }
+  }
+
+  private static decryptResults<T extends { cpf: string }>(results: T[]): T[] {
+    return results.map(r => this.decryptResult(r));
+  }
+
+  /**
+   * Encrypt CPF and generate hash for storage
+   */
+  private static encryptCpfData(cpf: string): { cpf: string; cpfHash: string } | null {
+    try {
+      return { cpf: encryptCpf(cpf), cpfHash: hashCpf(cpf) };
+    } catch {
+      // If encryption key not configured, store as-is
+      return null;
+    }
+  }
+
   /**
    * List all reservations with filters and pagination
    */
@@ -53,13 +81,26 @@ export class ReservaModel {
 
     if (search) {
       const searchPattern = `%${search}%`;
-      conditions.push(
-        or(
-          ilike(reservas.nome, searchPattern),
-          ilike(reservas.cpf, searchPattern),
-          sql`${reservas.quarto}::text = ${search}`
-        )!
-      );
+      // If search looks like a CPF (digits only, 11 chars), search by hash
+      const searchDigits = search.replace(/[^\d]/g, '');
+      if (searchDigits.length === 11) {
+        const cpfHashValue = hashCpf(searchDigits);
+        conditions.push(
+          or(
+            ilike(reservas.nome, searchPattern),
+            eq(reservas.cpfHash, cpfHashValue),
+            sql`${reservas.quarto}::text = ${search}`
+          )!
+        );
+      } else {
+        conditions.push(
+          or(
+            ilike(reservas.nome, searchPattern),
+            ilike(reservas.cpf, searchPattern), // Fallback for legacy unencrypted data or partial match
+            sql`${reservas.quarto}::text = ${search}`
+          )!
+        );
+      }
     }
 
     // Get total count
@@ -75,6 +116,7 @@ export class ReservaModel {
         pousadaId: reservas.pousadaId,
         nome: reservas.nome,
         cpf: reservas.cpf,
+        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
@@ -83,6 +125,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        version: reservas.version,
         deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
@@ -96,7 +139,7 @@ export class ReservaModel {
       .offset(offset);
 
     return {
-      data,
+      data: this.decryptResults(data),
       count: countResult?.count || 0,
     };
   }
@@ -111,6 +154,7 @@ export class ReservaModel {
         pousadaId: reservas.pousadaId,
         nome: reservas.nome,
         cpf: reservas.cpf,
+        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
@@ -119,6 +163,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        version: reservas.version,
         deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
@@ -129,7 +174,7 @@ export class ReservaModel {
       .where(and(eq(reservas.id, id), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result || null;
+    return result ? this.decryptResult(result) : null;
   }
 
   /**
@@ -142,6 +187,7 @@ export class ReservaModel {
         pousadaId: reservas.pousadaId,
         nome: reservas.nome,
         cpf: reservas.cpf,
+        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
@@ -150,6 +196,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        version: reservas.version,
         deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
@@ -160,7 +207,7 @@ export class ReservaModel {
       .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result || null;
+    return result ? this.decryptResult(result) : null;
   }
 
   /**
@@ -201,15 +248,19 @@ export class ReservaModel {
   }
 
   /**
-   * Create a new reservation (with idempotency guard)
+   * Create a new reservation (with idempotency guard + CPF encryption)
    */
   static async criar(reserva: NewReserva): Promise<Reserva> {
+    // Encrypt CPF for storage
+    const cpfData = this.encryptCpfData(reserva.cpf);
+    const cpfHashForSearch = cpfData ? cpfData.cpfHash : hashCpf(reserva.cpf);
+
     // Idempotency guard: prevent duplicate from double-clicks (same cpf+quarto+dates within 30s)
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
       .where(and(
-        eq(reservas.cpf, reserva.cpf),
+        eq(reservas.cpfHash, cpfHashForSearch),
         eq(reservas.quarto, reserva.quarto),
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
@@ -239,18 +290,22 @@ export class ReservaModel {
       throw error;
     }
 
+    const insertData = cpfData
+      ? { ...reserva, cpf: cpfData.cpf, cpfHash: cpfData.cpfHash }
+      : { ...reserva, cpfHash: cpfHashForSearch };
+
     const [created] = await db
       .insert(reservas)
-      .values(reserva)
+      .values(insertData)
       .returning();
 
-    return created;
+    return this.decryptResult(created);
   }
 
   /**
-   * Update a reservation
+   * Update a reservation (with optimistic locking)
    */
-  static async atualizar(id: number, reserva: Partial<NewReserva>, pousadaId: number): Promise<{ changes: number; id: number }> {
+  static async atualizar(id: number, reserva: Partial<NewReserva>, pousadaId: number, version?: number): Promise<{ changes: number; id: number }> {
     // If updating room or dates, check availability
     if (reserva.quarto || reserva.dataEntrada || reserva.dataSaida) {
       const existing = await this.buscarPorIdEPousada(id, pousadaId);
@@ -273,13 +328,41 @@ export class ReservaModel {
       }
     }
 
+    // Encrypt CPF if it's being updated
+    let updateData: Record<string, unknown> = { ...reserva };
+    if (reserva.cpf) {
+      const cpfData = this.encryptCpfData(reserva.cpf);
+      if (cpfData) {
+        updateData.cpf = cpfData.cpf;
+        updateData.cpfHash = cpfData.cpfHash;
+      } else {
+        updateData.cpfHash = hashCpf(reserva.cpf);
+      }
+    }
+
+    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
+    if (version !== undefined) {
+      conditions.push(eq(reservas.version, version));
+    }
+
     const result = await db
       .update(reservas)
       .set({
-        ...reserva,
+        ...updateData,
+        version: sql`${reservas.version} + 1`,
         updatedAt: new Date(),
       })
-      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)));
+      .where(and(...conditions));
+
+    if (result.rowCount === 0 && version !== undefined) {
+      // Check if the record exists to distinguish "not found" from "version conflict"
+      const exists = await this.buscarPorIdEPousada(id, pousadaId);
+      if (exists) {
+        const error = new Error('Conflito de versão: esta reserva foi alterada por outro usuário') as Error & { code?: string };
+        error.code = 'VERSION_CONFLICT';
+        throw error;
+      }
+    }
 
     return {
       changes: result.rowCount || 0,
@@ -288,16 +371,31 @@ export class ReservaModel {
   }
 
   /**
-   * Update reservation status
+   * Update reservation status (with optimistic locking)
    */
-  static async atualizarStatus(id: number, status: string, pousadaId: number): Promise<{ changes: number; id: number; status: string }> {
+  static async atualizarStatus(id: number, status: string, pousadaId: number, version?: number): Promise<{ changes: number; id: number; status: string }> {
+    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
+    if (version !== undefined) {
+      conditions.push(eq(reservas.version, version));
+    }
+
     const result = await db
       .update(reservas)
       .set({
         status,
+        version: sql`${reservas.version} + 1`,
         updatedAt: new Date(),
       })
-      .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)));
+      .where(and(...conditions));
+
+    if (result.rowCount === 0 && version !== undefined) {
+      const exists = await this.buscarPorIdEPousada(id, pousadaId);
+      if (exists) {
+        const error = new Error('Conflito de versão: esta reserva foi alterada por outro usuário') as Error & { code?: string };
+        error.code = 'VERSION_CONFLICT';
+        throw error;
+      }
+    }
 
     return {
       changes: result.rowCount || 0,
@@ -328,6 +426,7 @@ export class ReservaModel {
         pousadaId: reservas.pousadaId,
         nome: reservas.nome,
         cpf: reservas.cpf,
+        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
@@ -336,6 +435,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        version: reservas.version,
         deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
@@ -356,7 +456,7 @@ export class ReservaModel {
       )
       .orderBy(reservas.dataEntrada);
 
-    return data;
+    return this.decryptResults(data);
   }
 
   /**
@@ -369,6 +469,7 @@ export class ReservaModel {
         pousadaId: reservas.pousadaId,
         nome: reservas.nome,
         cpf: reservas.cpf,
+        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
@@ -377,6 +478,7 @@ export class ReservaModel {
         pago: reservas.pago,
         observacoes: reservas.observacoes,
         criadoPor: reservas.criadoPor,
+        version: reservas.version,
         deletedAt: reservas.deletedAt,
         createdAt: reservas.createdAt,
         updatedAt: reservas.updatedAt,
@@ -387,7 +489,7 @@ export class ReservaModel {
       .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, status), isNull(reservas.deletedAt)))
       .orderBy(reservas.dataEntrada);
 
-    return data;
+    return this.decryptResults(data);
   }
 }
 

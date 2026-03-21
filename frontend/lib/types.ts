@@ -71,6 +71,7 @@ export interface Reserva {
   observacoes?: string
   criado_por?: string // Better Auth user ID
   pousada_id?: number
+  version?: number
 }
 
 export interface Auditoria {

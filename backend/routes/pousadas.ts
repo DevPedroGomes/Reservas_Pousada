@@ -1,9 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel from '../models/Pousada.js';
 import StaffInviteModel from '../models/StaffInvite.js';
-import { validarPousada, sanitizarPousada } from '../utils/validation.js';
+import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner } from '../middleware/auth.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
+import AuditoriaModel from '../models/Auditoria.js';
 
 const router = Router();
 
@@ -262,6 +263,8 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
       configuracoes: dadosSanitizados.configuracoes,
     });
 
+    await AuditoriaModel.log(req.user!.id, 'pousada_update', 'pousada', parseInt(id), dadosSanitizados, req.ip || null);
+
     res.json({
       sucesso: true,
       mensagem: 'Pousada atualizada com sucesso',
@@ -403,6 +406,8 @@ router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Resp
 
     await PousadaModel.adicionarUsuario(parseInt(id), user_id, role || 'recepcao');
 
+    await AuditoriaModel.log(req.user!.id, 'user_add', 'user_pousada', parseInt(id), { userId: user_id, role: role || 'recepcao' }, req.ip || null);
+
     res.json({
       sucesso: true,
       mensagem: 'Usuário adicionado à pousada'
@@ -447,6 +452,8 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
     }
 
     await PousadaModel.removerUsuario(parseInt(id), userId);
+
+    await AuditoriaModel.log(req.user!.id, 'user_remove', 'user_pousada', parseInt(id), { removedUserId: userId }, req.ip || null);
 
     res.json({
       sucesso: true,
@@ -556,7 +563,7 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
     const pousadaId = parseInt(req.params.id);
     const { email, role } = req.body;
 
-    if (!email || !email.includes('@')) {
+    if (!validarEmail(email)) {
       return res.status(400).json({
         sucesso: false,
         mensagem: 'Email inválido',
@@ -595,6 +602,8 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
       role: role || 'recepcao',
       invitedBy: req.user!.id,
     });
+
+    await AuditoriaModel.log(req.user!.id, 'invite_create', 'staff_invite', invite.id, { email, role: role || 'recepcao', pousadaId }, req.ip || null);
 
     // Send invite email (fire-and-forget)
     const inviteUrl = `${FRONTEND_URL}/convite/${invite.token}`;
@@ -665,6 +674,8 @@ router.delete('/:id/convites/:inviteId', requirePousadaOwner, async (req: Reques
     }
 
     await StaffInviteModel.revogar(inviteId, pousadaId);
+
+    await AuditoriaModel.log(req.user!.id, 'invite_revoke', 'staff_invite', inviteId, { pousadaId }, req.ip || null);
 
     res.json({
       sucesso: true,

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useMemo } from "react"
-import { API_URL, authenticatedFetch } from "../lib/api"
+import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
 
@@ -30,6 +30,7 @@ interface UseReservationsReturn {
   loading: boolean
   exporting: boolean
   auditLogs: Auditoria[]
+  error: string | null
 
   // Computed
   reservasAtivas: number
@@ -38,6 +39,7 @@ interface UseReservationsReturn {
   // Actions
   setFilters: (filters: FiltersState) => void
   clearFilters: () => void
+  clearError: () => void
   carregarReservas: (pageNum?: number) => Promise<void>
   carregarDashboard: () => Promise<void>
   exportarCsv: () => Promise<void>
@@ -68,6 +70,9 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
   const [exporting, setExporting] = useState(false)
   const [auditLogs, setAuditLogs] = useState<Auditoria[]>([])
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const clearError = useCallback(() => setError(null), [])
 
   // Computed values — prefer SQL stats when available
   const reservasAtivas = useMemo(
@@ -95,6 +100,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
   const carregarDashboard = useCallback(async () => {
     if (!isAuthenticated) return
     try {
+      setError(null)
       const fetches: Promise<Response>[] = [
         authenticatedFetch(`${API_URL}/reservas`),
       ]
@@ -112,8 +118,12 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
           setDashboardStats(statsData.estatisticas)
         }
       }
-    } catch (error) {
-      console.error("Erro ao carregar dashboard", error)
+    } catch (err) {
+      if (err instanceof NetworkError) {
+        setError("Nao foi possivel conectar ao servidor. Verifique sua conexao.")
+      } else {
+        console.error("Erro ao carregar dashboard", err)
+      }
     }
   }, [isAuthenticated, pousadaId])
 
@@ -142,8 +152,12 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
         setReservas(data.reservas || [])
         if (data.meta) setMeta(data.meta)
       }
-    } catch (error) {
-      console.error("Erro ao carregar reservas", error)
+    } catch (err) {
+      if (err instanceof NetworkError) {
+        setError("Nao foi possivel conectar ao servidor. Verifique sua conexao.")
+      } else {
+        console.error("Erro ao carregar reservas", err)
+      }
     } finally {
       setLoading(false)
     }
@@ -232,11 +246,16 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       return { sucesso: false, mensagem: erros.join(" ") }
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...form,
       cpf: cpfNormalizado,
       valor: form.valor ? Number(form.valor) : null,
       pago: Boolean(form.pago),
+    }
+
+    // Include version for optimistic locking on updates
+    if (formId && form.version !== undefined) {
+      payload.version = form.version
     }
 
     try {
@@ -316,10 +335,12 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     loading,
     exporting,
     auditLogs,
+    error,
     reservasAtivas,
     reservasHoje,
     setFilters,
     clearFilters,
+    clearError,
     carregarReservas,
     carregarDashboard,
     exportarCsv,

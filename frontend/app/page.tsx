@@ -13,7 +13,7 @@ import { cn } from "../lib/utils"
 import { useAuth } from "../hooks/useAuth"
 import { useReservations } from "../hooks/useReservations"
 import { useStaffInvites } from "../hooks/useStaffInvites"
-import { sendEmailVerification } from "../lib/auth-client"
+import { sendEmailVerification, changePassword } from "../lib/auth-client"
 
 // Components
 import { AuthCard } from "../components/auth/AuthCard"
@@ -60,10 +60,12 @@ export default function Home() {
     loading: reservasLoading,
     exporting,
     auditLogs,
+    error: apiError,
     reservasAtivas,
     reservasHoje,
     setFilters,
     clearFilters,
+    clearError,
     carregarReservas,
     carregarDashboard,
     exportarCsv,
@@ -93,6 +95,11 @@ export default function Home() {
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("recepcao")
   const [verificationSent, setVerificationSent] = useState(false)
+  const [pwCurrent, setPwCurrent] = useState("")
+  const [pwNew, setPwNew] = useState("")
+  const [pwConfirm, setPwConfirm] = useState("")
+  const [pwLoading, setPwLoading] = useState(false)
+  const [pwMessage, setPwMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [formLoading, setFormLoading] = useState(false)
 
   const heroRef = useRef<HTMLDivElement>(null)
@@ -349,6 +356,20 @@ export default function Home() {
       />
 
       <div ref={statsRef} className="mx-auto max-w-7xl px-6 py-6 space-y-6">
+        {apiError && (
+          <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
+            <p className="text-sm text-rose-800">{apiError}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { clearError(); carregarDashboard(); carregarReservas(); }}
+              className="shrink-0 text-rose-700 border-rose-300 hover:bg-rose-100"
+            >
+              Tentar novamente
+            </Button>
+          </div>
+        )}
+
         {message && (
           <div className={cn(
             "rounded-lg border px-4 py-3 text-sm",
@@ -510,6 +531,85 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">Owner</p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Seguranca</CardTitle>
+                <CardDescription>Alterar sua senha</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {pwMessage && (
+                  <div className={cn(
+                    "rounded-lg border px-3 py-2 text-sm",
+                    pwMessage.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
+                  )}>
+                    {pwMessage.text}
+                  </div>
+                )}
+                <form
+                  onSubmit={async (e: React.FormEvent) => {
+                    e.preventDefault()
+                    setPwMessage(null)
+                    if (pwNew.length < 8) {
+                      setPwMessage({ type: "error", text: "A nova senha deve ter pelo menos 8 caracteres." })
+                      return
+                    }
+                    if (pwNew !== pwConfirm) {
+                      setPwMessage({ type: "error", text: "As senhas nao coincidem." })
+                      return
+                    }
+                    setPwLoading(true)
+                    try {
+                      const result = await changePassword(pwCurrent, pwNew)
+                      if ((result as any)?.error) {
+                        setPwMessage({ type: "error", text: (result as any).error.message || "Senha atual incorreta." })
+                      } else {
+                        setPwMessage({ type: "success", text: "Senha alterada com sucesso!" })
+                        setPwCurrent("")
+                        setPwNew("")
+                        setPwConfirm("")
+                      }
+                    } catch (err: any) {
+                      setPwMessage({ type: "error", text: err.message || "Erro ao alterar senha." })
+                    } finally {
+                      setPwLoading(false)
+                    }
+                  }}
+                  className="space-y-2 max-w-sm"
+                >
+                  <input
+                    type="password"
+                    placeholder="Senha atual"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Nova senha"
+                    value={pwNew}
+                    onChange={(e) => setPwNew(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Confirmar nova senha"
+                    value={pwConfirm}
+                    onChange={(e) => setPwConfirm(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+                  />
+                  <Button type="submit" disabled={pwLoading} className="w-full">
+                    {pwLoading ? "Alterando..." : "Alterar Senha"}
+                  </Button>
+                </form>
               </CardContent>
             </Card>
 

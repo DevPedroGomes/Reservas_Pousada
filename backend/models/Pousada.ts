@@ -216,7 +216,8 @@ export class PousadaModel {
       })
       .from(userPousadas)
       .innerJoin(user, eq(userPousadas.userId, user.id))
-      .where(eq(userPousadas.pousadaId, pousadaId));
+      .where(eq(userPousadas.pousadaId, pousadaId))
+      .limit(200);
 
     return rows;
   }
@@ -343,7 +344,8 @@ export class PousadaModel {
       })
       .from(userPousadas)
       .innerJoin(pousadas, eq(userPousadas.pousadaId, pousadas.id))
-      .where(eq(userPousadas.userId, userId));
+      .where(eq(userPousadas.userId, userId))
+      .limit(50);
 
     return rows;
   }

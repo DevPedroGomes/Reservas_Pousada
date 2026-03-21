@@ -34,6 +34,16 @@ export class ApiError extends Error {
 }
 
 /**
+ * Erro de rede (servidor offline, sem conexao)
+ */
+export class NetworkError extends Error {
+  constructor(message: string = "Nao foi possivel conectar ao servidor.") {
+    super(message)
+    this.name = "NetworkError"
+  }
+}
+
+/**
  * Fetch autenticado usando cookies (Better Auth)
  * No need for manual token handling - cookies are sent automatically
  */
@@ -46,13 +56,20 @@ export async function authenticatedFetch(
     ...(init.headers || {}),
   }
 
-  const response = await fetch(input, {
-    ...init,
-    headers,
-    credentials: "include", // Important: include cookies for auth
-  })
+  try {
+    const response = await fetch(input, {
+      ...init,
+      headers,
+      credentials: "include", // Important: include cookies for auth
+    })
 
-  return response
+    return response
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new NetworkError()
+    }
+    throw error
+  }
 }
 
 /**

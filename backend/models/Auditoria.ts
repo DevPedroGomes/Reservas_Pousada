@@ -32,7 +32,8 @@ export class AuditoriaModel {
     limit?: number;
     offset?: number;
   }): Promise<AuditoriaComUsuario[]> {
-    const { userId, entity, entityId, pousadaId, limit = 100, offset = 0 } = options;
+    const { userId, entity, entityId, pousadaId, limit: rawLimit = 100, offset = 0 } = options;
+    const limit = Math.min(rawLimit, 500);
 
     const conditions = [];
 
