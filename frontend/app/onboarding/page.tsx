@@ -167,12 +167,12 @@ export default function OnboardingPage() {
       const data = await response.json();
 
       if (data.sucesso) {
-        setMessage({ type: 'success', text: 'Pousada configurada com sucesso!' });
+        setMessage({ type: 'success', text: 'Pousada configurada com sucesso! Redirecionando...' });
 
-        // Aguardar um pouco para mostrar a mensagem e redirecionar
+        // Full reload to refresh session with new pousadaId
         setTimeout(() => {
-          window.location.href = '/';
-        }, 1500);
+          window.location.replace('/');
+        }, 1200);
       } else {
         setMessage({ type: 'error', text: data.mensagem || 'Erro ao configurar pousada.' });
       }

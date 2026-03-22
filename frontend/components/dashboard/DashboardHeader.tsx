@@ -54,9 +54,10 @@ export function DashboardHeader({
 
   async function handleSwitch(id: number) {
     setSwitcherOpen(false)
-    await onTrocarPousada(id)
-    // Reload to refresh all data for new pousada
-    window.location.reload()
+    const success = await onTrocarPousada(id)
+    if (success) {
+      onPageChange("dashboard")
+    }
   }
 
   return (

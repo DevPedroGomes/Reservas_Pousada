@@ -97,7 +97,7 @@ export function ReservationForm({
                   id="nome"
                   value={form.nome}
                   onChange={(e) => {
-                    const filtered = e.target.value.replace(/[^a-zA-ZÀ-ÿ\s]/g, '').slice(0, 100);
+                    const filtered = e.target.value.replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '').slice(0, 100);
                     setForm((prev) => ({ ...prev, nome: filtered }));
                   }}
                   required

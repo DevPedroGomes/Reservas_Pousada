@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
@@ -71,8 +71,22 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
   const [auditLogs, setAuditLogs] = useState<Auditoria[]>([])
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const prevPousadaId = useRef(pousadaId)
 
   const clearError = useCallback(() => setError(null), [])
+
+  // Clear all state when pousada changes (prevents stale data flash)
+  useEffect(() => {
+    if (pousadaId !== prevPousadaId.current) {
+      prevPousadaId.current = pousadaId
+      setReservas([])
+      setDashReservas([])
+      setDashboardStats(null)
+      setMeta(initialMeta)
+      setFilters(initialFilters)
+      setError(null)
+    }
+  }, [pousadaId])
 
   // Computed values — prefer SQL stats when available
   const reservasAtivas = useMemo(
@@ -229,11 +243,14 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     if (!form.data_entrada || !form.data_saida) {
       erros.push("Datas de entrada e saida sao obrigatorias.")
     } else {
-      if (isDataNoPassado(form.data_entrada)) {
-        erros.push("Data de entrada nao pode estar no passado.")
-      }
-      if (isDataNoPassado(form.data_saida)) {
-        erros.push("Data de saida nao pode estar no passado.")
+      // Only validate past dates for NEW reservations, not edits
+      if (!formId) {
+        if (isDataNoPassado(form.data_entrada)) {
+          erros.push("Data de entrada nao pode estar no passado.")
+        }
+        if (isDataNoPassado(form.data_saida)) {
+          erros.push("Data de saida nao pode estar no passado.")
+        }
       }
       const entrada = new Date(`${form.data_entrada}T00:00:00`)
       const saida = new Date(`${form.data_saida}T00:00:00`)

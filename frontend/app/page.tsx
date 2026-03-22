@@ -42,12 +42,14 @@ export default function Home() {
     authLoading,
     signupLoading,
     googleLoading,
+    pousadaLoading,
     message,
     login,
     signup,
     logout,
     googleLogin,
     trocarPousada,
+    refreshPousadas,
     setMessage,
   } = useAuth()
 
@@ -118,12 +120,21 @@ export default function Home() {
     [dashReservas]
   )
 
+  // Load data when authenticated and pousada is ready
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && pousada?.id && !pousadaLoading) {
       carregarDashboard()
       carregarReservas()
     }
-  }, [isAuthenticated, carregarDashboard, carregarReservas])
+  }, [isAuthenticated, pousada?.id, pousadaLoading, carregarDashboard, carregarReservas])
+
+  // Auto-dismiss messages after 4 seconds
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(null), 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [message, setMessage])
 
   useEffect(() => {
     if (!isAuthenticated && heroRef.current) {
@@ -229,8 +240,8 @@ export default function Home() {
     logout()
   }, [logout])
 
-  // Loading state
-  if (authLoading) {
+  // Loading state (session or pousada loading)
+  if (authLoading || (isAuthenticated && pousadaLoading)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   useSession,
@@ -21,6 +21,7 @@ interface UseAuthReturn {
   authLoading: boolean;
   signupLoading: boolean;
   googleLoading: boolean;
+  pousadaLoading: boolean;
   message: Message | null;
   isAuthenticated: boolean;
 
@@ -31,21 +32,23 @@ interface UseAuthReturn {
   googleLogin: () => Promise<void>;
   setMessage: (message: Message | null) => void;
   clearMessage: () => void;
-  refreshSession: () => Promise<void>;
+  refreshPousadas: () => Promise<void>;
   trocarPousada: (pousadaId: number) => Promise<boolean>;
 }
 
 export function useAuth(): UseAuthReturn {
   const router = useRouter();
-  const { data: session, isPending: sessionLoading, error: sessionError } = useSession();
+  const { data: session, isPending: sessionLoading } = useSession();
 
   const [user, setUser] = useState<Usuario | null>(null);
   const [pousada, setPousada] = useState<Pousada | null>(null);
   const [pousadas, setPousadas] = useState<UserPousada[]>([]);
+  const [pousadaLoading, setPousadaLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
+  const pousadaChecked = useRef(false);
 
   const clearMessage = useCallback(() => setMessage(null), []);
 
@@ -62,17 +65,20 @@ export function useAuth(): UseAuthReturn {
         is_owner: (session.user as any).isOwner || false,
         email_verified: session.user.emailVerified || false,
       });
-    } else {
+    } else if (!sessionLoading) {
       setUser(null);
+      setPousada(null);
+      setPousadas([]);
+      setPousadaLoading(false);
     }
-  }, [session]);
+  }, [session, sessionLoading]);
 
-  // Load active pousada + list of all pousadas
-  const carregarPousadas = useCallback(async () => {
+  // Load pousadas from API (single source of truth)
+  const refreshPousadas = useCallback(async () => {
     if (!session?.user) return;
+    setPousadaLoading(true);
 
     try {
-      // Fetch both in parallel
       const [minhaRes, minhasRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/pousadas/minha`, { credentials: 'include' }),
         fetch(`${API_BASE_URL}/api/pousadas/minhas`, { credentials: 'include' }),
@@ -83,35 +89,56 @@ export function useAuth(): UseAuthReturn {
 
       if (minhaData.sucesso && minhaData.pousada) {
         setPousada(minhaData.pousada);
-      } else if (minhaData.needsOnboarding) {
+      } else {
         setPousada(null);
       }
 
       if (minhasData.sucesso && minhasData.pousadas) {
         setPousadas(minhasData.pousadas);
       }
+
+      // Update user with accurate role/owner from API
+      if (minhasData.sucesso && minhasData.pousadas && minhasData.ativaId) {
+        const ativa = minhasData.pousadas.find((p: UserPousada) => p.id === minhasData.ativaId);
+        if (ativa) {
+          setUser(prev => prev ? {
+            ...prev,
+            pousada_id: minhasData.ativaId,
+            role: ativa.role,
+            is_owner: ativa.isOwner,
+          } : null);
+        }
+      }
+
+      pousadaChecked.current = true;
     } catch (error) {
       console.error("Erro ao carregar pousadas:", error);
+    } finally {
+      setPousadaLoading(false);
     }
   }, [session]);
 
+  // Load pousadas when session arrives
   useEffect(() => {
     if (session?.user) {
-      carregarPousadas();
+      refreshPousadas();
     }
-  }, [session, carregarPousadas]);
+  }, [session?.user?.id]);
 
-  // Check if user needs onboarding (no pousadas at all)
+  // Redirect to onboarding ONLY after pousada API check completes
   useEffect(() => {
-    if (session?.user && !(session.user as any).pousadaId) {
+    if (!session?.user || !pousadaChecked.current || pousadaLoading) return;
+
+    // No pousada found via API — needs onboarding
+    if (!pousada) {
       const currentPath = window.location.pathname;
       if (!currentPath.startsWith('/onboarding') && !currentPath.startsWith('/auth') && !currentPath.startsWith('/convite')) {
         router.push('/onboarding');
       }
     }
-  }, [session, router]);
+  }, [session, pousada, pousadaLoading, router]);
 
-  // Switch active pousada
+  // Switch active pousada (client-side state update, no reload)
   const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/pousadas/trocar`, {
@@ -125,7 +152,6 @@ export function useAuth(): UseAuthReturn {
 
       if (data.sucesso) {
         setPousada(data.pousada);
-        // Update user's role/owner for new pousada
         setUser(prev => prev ? {
           ...prev,
           pousada_id: data.pousada.id,
@@ -144,7 +170,7 @@ export function useAuth(): UseAuthReturn {
     }
   }, []);
 
-  // Login with email/password
+  // Login
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     setMessage(null);
@@ -168,7 +194,7 @@ export function useAuth(): UseAuthReturn {
     }
   }, []);
 
-  // Signup with email/password
+  // Signup
   const signup = useCallback(async (name: string, email: string, password: string): Promise<boolean> => {
     setSignupLoading(true);
     setMessage(null);
@@ -208,6 +234,7 @@ export function useAuth(): UseAuthReturn {
       setUser(null);
       setPousada(null);
       setPousadas([]);
+      pousadaChecked.current = false;
       router.push("/");
     } catch (error) {
       console.error("Erro ao fazer logout", error);
@@ -219,7 +246,6 @@ export function useAuth(): UseAuthReturn {
     try {
       setGoogleLoading(true);
       setMessage(null);
-
       await signInWithGoogle();
     } catch (error: any) {
       console.error("Erro ao iniciar login com Google:", error);
@@ -227,11 +253,6 @@ export function useAuth(): UseAuthReturn {
     } finally {
       setGoogleLoading(false);
     }
-  }, []);
-
-  // Refresh session
-  const refreshSession = useCallback(async () => {
-    window.location.reload();
   }, []);
 
   return {
@@ -242,6 +263,7 @@ export function useAuth(): UseAuthReturn {
     authLoading: sessionLoading,
     signupLoading,
     googleLoading,
+    pousadaLoading,
     message,
     isAuthenticated: !!session?.user,
     login,
@@ -250,7 +272,7 @@ export function useAuth(): UseAuthReturn {
     googleLogin,
     setMessage,
     clearMessage,
-    refreshSession,
+    refreshPousadas,
     trocarPousada,
   };
 }
