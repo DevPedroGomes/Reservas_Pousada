@@ -676,38 +676,39 @@ export default function Home() {
                     </Button>
                   </form>
 
-                  {convites.length > 0 && (
-                    <div className="space-y-2 pt-2">
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Convites enviados</p>
-                      {convites.map((c) => (
-                        <div key={c.id} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30 border border-border/50">
-                          <div>
-                            <p className="text-sm font-medium">{c.email}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : c.role === "auditoria" ? "Auditor" : "Operacional"}
-                              {" - "}
-                              <span className={cn(
-                                "font-medium",
-                                c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600"
-                              )}>
-                                {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
-                              </span>
-                            </p>
-                          </div>
-                          {c.status === "pending" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => pousada && revogarConvite(pousada.id, c.id)}
-                              className="text-rose-600 hover:text-rose-700 text-xs"
-                            >
-                              Revogar
-                            </Button>
-                          )}
+                  <div className="space-y-2 pt-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Convites enviados</p>
+                    {!convitesLoading && convites.length === 0 && (
+                      <p className="text-sm text-muted-foreground py-3">Nenhum convite enviado ainda.</p>
+                    )}
+                    {convites.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30 border border-border/50">
+                        <div>
+                          <p className="text-sm font-medium">{c.email}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : c.role === "auditoria" ? "Auditor" : "Operacional"}
+                            {" - "}
+                            <span className={cn(
+                              "font-medium",
+                              c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600"
+                            )}>
+                              {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
+                            </span>
+                          </p>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        {c.status === "pending" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => pousada && revogarConvite(pousada.id, c.id)}
+                            className="text-rose-600 hover:text-rose-700 text-xs"
+                          >
+                            Revogar
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             )}

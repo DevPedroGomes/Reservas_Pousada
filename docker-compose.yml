@@ -4,6 +4,10 @@ services:
     image: postgres:16-alpine
     container_name: reservas-db
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-reservas}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -26,6 +30,10 @@ services:
       dockerfile: Dockerfile
     container_name: reservas-backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -77,6 +85,10 @@ services:
         NEXT_PUBLIC_APP_URL: https://minhapousada.pgdev.com.br
     container_name: reservas-frontend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     environment:
       NODE_ENV: production
     depends_on:

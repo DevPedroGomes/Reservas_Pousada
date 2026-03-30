@@ -33,6 +33,7 @@ export function DashboardHeader({
   onTrocarPousada,
 }: DashboardHeaderProps) {
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
 
   const navItems = user?.is_owner
@@ -53,10 +54,16 @@ export function DashboardHeader({
   const hasMultiple = pousadas.length > 1
 
   async function handleSwitch(id: number) {
-    setSwitcherOpen(false)
-    const success = await onTrocarPousada(id)
-    if (success) {
-      onPageChange("dashboard")
+    if (switching) return
+    setSwitching(true)
+    try {
+      setSwitcherOpen(false)
+      const success = await onTrocarPousada(id)
+      if (success) {
+        onPageChange("dashboard")
+      }
+    } finally {
+      setSwitching(false)
     }
   }
 
@@ -84,16 +91,23 @@ export function DashboardHeader({
           {switcherOpen && (
             <div className="absolute left-0 top-full mt-2 w-72 rounded-lg border border-border bg-white shadow-lg z-50">
               <div className="p-2">
-                <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">Suas Pousadas</p>
+                <div className="flex items-center justify-between px-2 py-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Suas Pousadas</p>
+                  {switching && (
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  )}
+                </div>
                 {pousadas.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => handleSwitch(p.id)}
+                    disabled={switching}
                     className={cn(
                       "w-full flex items-center gap-3 rounded-md px-2 py-2 text-left text-sm transition-colors",
                       p.id === pousada?.id
                         ? "bg-primary/10 text-primary"
-                        : "hover:bg-muted/50 text-foreground"
+                        : "hover:bg-muted/50 text-foreground",
+                      switching && "opacity-50 cursor-not-allowed"
                     )}
                   >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
