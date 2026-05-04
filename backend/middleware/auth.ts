@@ -119,10 +119,17 @@ export function requireOwner(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
- * Factory for role-based authorization middleware
- * @param allowedRoles - Roles allowed to access the route
+ * Factory for role-based authorization middleware.
+ *
+ * SECURITY: allowedRoles is required and must be non-empty. An empty list
+ * previously short-circuited to "allow all" — that footgun is removed.
+ *
+ * @param allowedRoles - Roles allowed to access the route (required, non-empty)
  */
-export function authorize(allowedRoles: string[] = []) {
+export function authorize(allowedRoles: string[]) {
+  if (!Array.isArray(allowedRoles) || allowedRoles.length === 0) {
+    throw new Error('authorize() requires a non-empty allowedRoles array');
+  }
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
@@ -138,7 +145,7 @@ export function authorize(allowedRoles: string[] = []) {
     }
 
     // Check if user role is in allowed roles
-    if (allowedRoles.length === 0 || allowedRoles.includes(req.user.role)) {
+    if (allowedRoles.includes(req.user.role)) {
       return next();
     }
 

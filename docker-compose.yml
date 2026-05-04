@@ -57,7 +57,7 @@ services:
       - "traefik.http.routers.reservas-api.rule=Host(`api-pousada.pgdev.com.br`)"
       - "traefik.http.routers.reservas-api.tls=true"
       - "traefik.http.routers.reservas-api.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.reservas-api.middlewares=reservas-api-security@docker"
+      - "traefik.http.routers.reservas-api.middlewares=reservas-api-security@docker,global-ratelimit@file,strip-server-header@file"
       - "traefik.http.services.reservas-api.loadbalancer.server.port=4000"
       # Security Headers (OBRIGATORIO)
       - "traefik.http.middlewares.reservas-api-security.headers.stsSeconds=31536000"
@@ -101,7 +101,7 @@ services:
       - "traefik.http.routers.pousada-frontend.rule=Host(`minhapousada.pgdev.com.br`)"
       - "traefik.http.routers.pousada-frontend.tls=true"
       - "traefik.http.routers.pousada-frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.pousada-frontend.middlewares=pousada-frontend-security@docker"
+      - "traefik.http.routers.pousada-frontend.middlewares=pousada-frontend-security@docker,global-ratelimit@file,strip-server-header@file"
       - "traefik.http.services.pousada-frontend.loadbalancer.server.port=3000"
       # Security Headers (OBRIGATORIO)
       - "traefik.http.middlewares.pousada-frontend-security.headers.stsSeconds=31536000"

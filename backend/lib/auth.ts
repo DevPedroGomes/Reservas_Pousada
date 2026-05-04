@@ -65,8 +65,9 @@ export const auth = betterAuth({
   },
 
   // Session configuration
+  // expiresIn = 12h absolute idle cap; updateAge = sliding refresh every 1h
   session: {
-    expiresIn: 60 * 60 * 24, // 24 hours in seconds
+    expiresIn: 43200, // 12 hours
     updateAge: 60 * 60, // Update session every 1 hour
     cookieCache: {
       enabled: true,

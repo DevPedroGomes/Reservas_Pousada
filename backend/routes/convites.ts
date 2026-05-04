@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { auth } from '../lib/auth.js';
 
 const router = Router();
 
@@ -77,14 +78,25 @@ router.post('/:token/aceitar', authMiddleware, async (req: Request, res: Respons
       });
     }
 
-    if (!req.user?.id) {
+    if (!req.user?.id || !req.user?.email) {
       return res.status(401).json({
         sucesso: false,
         mensagem: 'Você precisa estar autenticado para aceitar o convite',
       });
     }
 
-    const result = await StaffInviteModel.aceitar(token, req.user.id);
+    const result = await StaffInviteModel.aceitar(token, req.user.id, req.user.email);
+
+    // Revoke all other active sessions for this user (session-pinning protection
+    // after privilege change). The current session remains valid so the user
+    // doesn't need to re-login.
+    try {
+      await auth.api.revokeOtherSessions({
+        headers: req.headers as unknown as Headers,
+      });
+    } catch (revokeErr) {
+      console.error('[convites] Falha ao revogar sessões anteriores:', revokeErr);
+    }
 
     res.json({
       sucesso: true,

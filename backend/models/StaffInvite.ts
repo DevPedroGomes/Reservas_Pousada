@@ -87,8 +87,9 @@ export class StaffInviteModel {
 
   /**
    * Accept an invite - associate user with pousada
+   * Requires the authenticated user's email to match the invite recipient
    */
-  static async aceitar(token: string, userId: string) {
+  static async aceitar(token: string, userId: string, userEmail: string) {
     const result = await this.buscarPorToken(token);
 
     if (!result) {
@@ -103,6 +104,11 @@ export class StaffInviteModel {
 
     if (new Date(invite.expiresAt) < new Date()) {
       throw new Error('Este convite expirou');
+    }
+
+    // Email must match invite recipient (prevents wrong-account hijack)
+    if (!userEmail || invite.email.toLowerCase() !== userEmail.toLowerCase()) {
+      throw new Error('Este convite foi enviado para outro email');
     }
 
     // Update invite status

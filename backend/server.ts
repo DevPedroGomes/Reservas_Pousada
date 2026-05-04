@@ -61,6 +61,67 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // ==========================================
+// Auth-endpoint Rate Limiter (narrow, IP-based)
+// ==========================================
+// Tighter window for credential endpoints to slow brute-force attempts.
+// Successful sign-ins do not consume the budget.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  keyGenerator: (req) => req.ip || 'unknown',
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Muitas tentativas de autenticação. Tente novamente em 15 minutos.' },
+});
+
+app.use(
+  [
+    '/api/auth/sign-in/email',
+    '/api/auth/sign-in',
+    '/api/auth/sign-up/email',
+    '/api/auth/forget-password',
+  ],
+  authLimiter,
+);
+
+// ==========================================
+// Session Invalidation on Sensitive Auth Changes
+// ==========================================
+// Better Auth does not expose a clean afterUpdate hook for change-password /
+// change-email at this version; intercept the response and, on 2xx, evict
+// every session for the user EXCEPT the current one. This forces other
+// devices to re-authenticate after credential changes.
+const SENSITIVE_AUTH_PATHS = new Set([
+  '/api/auth/change-password',
+  '/api/auth/change-email',
+]);
+
+app.use((req, res, next) => {
+  if (req.method !== 'POST' || !SENSITIVE_AUTH_PATHS.has(req.path)) {
+    return next();
+  }
+
+  res.on('finish', async () => {
+    if (res.statusCode < 200 || res.statusCode >= 300) return;
+    try {
+      const session = await auth.api.getSession({
+        headers: req.headers as unknown as Headers,
+      });
+      if (!session?.user?.id || !session?.session?.id) return;
+      await pool.query(
+        'DELETE FROM session WHERE user_id = $1 AND id <> $2',
+        [session.user.id, session.session.id],
+      );
+    } catch (err) {
+      console.error('[SessionEvict] Falha ao revogar sessões após mudança sensível:', err);
+    }
+  });
+
+  next();
+});
+
+// ==========================================
 // Better Auth Handler
 // ==========================================
 // Mount Better Auth BEFORE body parser (it handles its own parsing)

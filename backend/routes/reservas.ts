@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import ReservaModel from '../models/Reserva.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
@@ -6,6 +7,39 @@ import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 
 const router = Router();
+
+/**
+ * Prefix CSV field with a leading apostrophe when the first char could trigger
+ * formula execution in Excel/LibreOffice/Google Sheets. Defends against CSV
+ * injection on imported customer-supplied fields (nome, observacoes).
+ */
+function prefixoCsvSeguro(v: string): string {
+  if (!v) return v;
+  return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+}
+
+/**
+ * Mask CPF for non-admin/non-owner exports. Keeps the last 2 digits to allow
+ * cross-reference without disclosing the full document. Accepts CPFs in any
+ * format (with/without dots and dash).
+ */
+function mascararCpf(cpf: string): string {
+  if (!cpf) return cpf;
+  const digits = String(cpf).replace(/\D/g, '');
+  if (digits.length < 2) return '***.***.***-**';
+  return `***.***.***-${digits.slice(-2)}`;
+}
+
+// Narrow rate-limit for CSV export: 5 exports/hour per user (prevents bulk
+// PII exfiltration). Falls back to IP if user is somehow missing.
+const exportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req: any) => req.user?.id || req.ip || 'anonymous',
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Limite de exportações excedido. Tente novamente em 1 hora.' },
+});
 
 // List all reservations
 router.get('/', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
@@ -43,7 +77,7 @@ router.get('/', authorize(['admin', 'recepcao', 'auditoria']), async (req: Reque
 });
 
 // Export reservations as CSV
-router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status, data_inicio, data_fim, pago, search = '' } = req.query;
     const pagoBool = pago === 'true' ? true : pago === 'false' ? false : undefined;
@@ -59,18 +93,47 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), async (req:
       pousada_id: req.user!.pousadaId!
     });
 
+    // CPF visibility: full only for admins and owner, masked otherwise.
+    const role = req.user!.role;
+    const cpfMascarado = !(role === 'admin' || req.user!.isOwner === true);
+
+    // Fields where customer-supplied text must be neutralized vs CSV formula
+    // injection (Excel/Sheets evaluate cells starting with = + - @ tab CR).
+    const camposInjetaveis = new Set(['nome', 'observacoes']);
+
     const headers = ['id', 'nome', 'cpf', 'quarto', 'dataEntrada', 'dataSaida', 'valor', 'pago', 'status', 'observacoes'];
     const linhas = data.map((r: any) =>
       headers
         .map((h) => {
-          const valor = r[h] === undefined || r[h] === null ? '' : r[h];
-          const texto = typeof valor === 'string' ? valor.replace(/"/g, '""') : valor;
-          return `"${texto}"`;
+          let valor = r[h] === undefined || r[h] === null ? '' : r[h];
+          if (h === 'cpf' && cpfMascarado) {
+            valor = mascararCpf(String(valor));
+          }
+          if (typeof valor === 'string') {
+            let texto = valor;
+            if (camposInjetaveis.has(h)) {
+              texto = prefixoCsvSeguro(texto);
+            }
+            texto = texto.replace(/"/g, '""');
+            return `"${texto}"`;
+          }
+          return `"${valor}"`;
         })
         .join(',')
     );
 
-    const csv = [headers.join(','), ...linhas].join('\n');
+    // Excel expects CRLF line endings.
+    const csv = [headers.join(','), ...linhas].join('\r\n');
+
+    // Audit the export so PII access is traceable (non-blocking).
+    AuditoriaModel.log(
+      req.user!.id,
+      'export_reservas',
+      'reserva',
+      0,
+      { rowCount: data.length, masked: cpfMascarado },
+      req.ip || null,
+    ).catch(err => console.error('[Auditoria] Erro ao registrar export:', err.message));
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="reservas.csv"');
