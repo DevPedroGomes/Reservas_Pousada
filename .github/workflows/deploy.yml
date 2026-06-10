@@ -35,23 +35,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: SSH into VPS and deploy
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -eu
-            cd /opt/showcase/Reservas_Pousada
-            if [ -f .deploy-freeze ]; then
-              echo "Freeze ativo, abortando deploy"
-              exit 1
-            fi
-            git fetch origin
-            git reset --hard origin/main
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker image prune -f
-            docker compose ps
+      - name: SSH deploy (retry no i/o timeout de rede runner->VPS)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 600 /dev/stdin "$HOME/deploy_key" <<< "$VPS_SSH_KEY"
+          REMOTE='set -eu; cd /opt/showcase/Reservas_Pousada; if [ -f .deploy-freeze ]; then echo "Freeze ativo, abortando deploy"; exit 1; fi; git fetch origin; git reset --hard origin/main; docker compose pull; docker compose up -d --remove-orphans; docker image prune -f || true; docker compose ps'
+          set +e
+          for i in 1 2 3 4 5; do
+            ssh -i "$HOME/deploy_key" -o ConnectTimeout=30 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$VPS_USER@$VPS_HOST" "$REMOTE"
+            rc=$?
+            [ "$rc" -eq 0 ] && { echo "deploy OK (tentativa $i)"; exit 0; }
+            [ "$rc" -ne 255 ] && { echo "::error::deploy falhou no servidor (rc=$rc) — sem retry"; exit "$rc"; }
+            echo "::warning::SSH nao conectou (rc=255 timeout), tentativa $i/5 — retry em 20s"
+            sleep 20
+          done
+          echo "::error::SSH falhou apos 5 tentativas (rota runner->VPS instavel)"
+          exit 1
