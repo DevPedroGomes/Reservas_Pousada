@@ -54,3 +54,6 @@ backend/**/*.js
 postgres_data/
 .claude/
 PLAN_IMPROVEMENTS.md
+
+# deploy control (VPS-local)
+.deploy-freeze

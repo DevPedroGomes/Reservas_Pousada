@@ -27,6 +27,7 @@ services:
 
   # Backend API (Express + TypeScript)
   backend:
+    image: ghcr.io/devpedrogomes/reservas_pousada/backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -77,6 +78,7 @@ services:
 
   # Frontend (Next.js)
   frontend:
+    image: ghcr.io/devpedrogomes/reservas_pousada/frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
