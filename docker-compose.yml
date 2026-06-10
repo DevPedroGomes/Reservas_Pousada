@@ -1,27 +1,29 @@
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: reservas-db
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-reservas}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-reservas_pousada}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
-    networks:
-      - internal
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reservas} -d ${POSTGRES_DB:-reservas_pousada}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # MIGRATED 2026-05-07 -> central-db (/opt/docker/central-db).
+  # Service kept commented for rollback. Volume postgres_data preserved.
+  # Rollback: uncomment, revert backend DATABASE_URL host above to postgres, remove `databases` from backend networks, re-add depends_on.
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: reservas-db
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256m
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-reservas}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${POSTGRES_DB:-reservas_pousada}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+  #   networks:
+  #     - internal
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-reservas} -d ${POSTGRES_DB:-reservas_pousada}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
   # Backend API (Express + TypeScript)
   backend:
@@ -37,7 +39,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-reservas_pousada}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@central-db:5432/${POSTGRES_DB:-reservas_pousada}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: https://api-pousada.pgdev.com.br
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -45,12 +47,10 @@ services:
       CORS_ORIGIN: https://minhapousada.pgdev.com.br
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - internal
       - proxy
+      - databases
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.reservas-api.entrypoints=https"
@@ -121,6 +121,8 @@ services:
 
 networks:
   proxy:
+    external: true
+  databases:
     external: true
   internal:
     driver: bridge
