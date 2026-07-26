@@ -34,8 +34,12 @@ RUN npm ci --only=production && \
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy migrations for reference (already applied via init)
+# Migrations aplicadas no boot pelo runner (dist/db/migrate.js).
 COPY --from=builder /app/migrations ./migrations
+
+# Path absoluto de proposito: em producao o codigo roda de /app/dist/db/, entao
+# um path relativo ao modulo cairia em /app/dist/migrations (inexistente).
+ENV MIGRATIONS_DIR=/app/migrations
 
 # Set ownership
 RUN chown -R nodejs:nodejs /app

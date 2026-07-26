@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { testConnection, pool } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
 import conviteRoutes from './routes/convites.js';
@@ -200,6 +201,12 @@ async function iniciarServidor() {
       console.error('Não foi possível conectar ao banco de dados');
       process.exit(1);
     }
+
+    // Aplica migrations pendentes ANTES de aceitar tráfego. Deliberadamente
+    // fatal: se o schema não puder ser levado ao estado esperado, o servidor não
+    // sobe. É o oposto do que acontecia antes — schema divergente do código,
+    // servidor no ar, e todo endpoint de reserva respondendo 500.
+    await runMigrations();
 
     // Validate critical config
     if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY) {
