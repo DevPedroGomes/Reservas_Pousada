@@ -421,6 +421,19 @@ GET    /                                      API status
 GET    /health                                DB connectivity probe
 ```
 
+## Planned work
+
+Design decisions recorded before implementation, so the reasoning survives the
+conversation that produced it:
+
+- [`docs/chat-ia-dashboard.md`](docs/chat-ia-dashboard.md) — natural-language chat
+  over each tenant's own reservation data. **Deferred, not cancelled**: the
+  feature bills per question against a product that has no billing yet, and the
+  database has no reservations to answer from. The document records the
+  prerequisites, the architecture (fixed read-only tools with the tenant injected
+  server-side — never text-to-SQL, never RAG), why CPF must not enter the model
+  context, and the cost model.
+
 ## License
 
 ISC
