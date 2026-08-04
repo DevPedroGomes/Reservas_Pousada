@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import Link from "next/link"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 import type { Usuario, Pousada, UserPousada } from "../../lib/types"
@@ -159,6 +160,11 @@ export function DashboardHeader({
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground hidden sm:block">{user?.nome}</span>
+          {user?.is_owner && (
+            <Link href="/assinatura">
+              <Button variant="ghost" size="sm">Assinatura</Button>
+            </Link>
+          )}
           <Button variant="ghost" size="sm" onClick={onLogout}>
             Sair
           </Button>

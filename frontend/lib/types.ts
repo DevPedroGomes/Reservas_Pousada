@@ -85,6 +85,38 @@ export interface Auditoria {
   }
 }
 
+export type StatusAssinatura =
+  | "trial" | "ativa" | "inadimplente" | "suspensa" | "cancelada" | "cortesia"
+
+export interface SituacaoAssinatura {
+  status: StatusAssinatura
+  plano: string | null
+  planoNome: string | null
+  trialTerminaEm: string | null
+  periodoTerminaEm: string | null
+  liberado: boolean
+  motivo: string
+  diasRestantes: number | null
+}
+
+export interface LimitesPlano {
+  maxQuartos: number
+  maxUsuarios: number | null
+  maxPousadas: number
+}
+
+export interface PlanoDisponivel {
+  codigo: string
+  nome: string
+  precoCentavos: number
+  maxQuartos: number
+  maxUsuarios: number | null
+  maxPousadas: number
+  destaques: string[]
+}
+
+export type Ciclo = "mensal" | "anual"
+
 export interface PaginationMeta {
   pagina: number
   paginas: number

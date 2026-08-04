@@ -13,6 +13,7 @@ import { cn } from "../lib/utils"
 import { useAuth } from "../hooks/useAuth"
 import { useReservations } from "../hooks/useReservations"
 import { useStaffInvites } from "../hooks/useStaffInvites"
+import { useAssinatura } from "../hooks/useAssinatura"
 import { sendEmailVerification, changePassword } from "../lib/auth-client"
 
 // Components
@@ -22,8 +23,10 @@ import { StatsGrid } from "../components/dashboard/StatsGrid"
 import { ReservationFilters } from "../components/reservations/ReservationFilters"
 import { ReservationTable, ProximasReservasTable } from "../components/reservations/ReservationTable"
 import { ReservationForm } from "../components/reservations/ReservationForm"
+import { AvisoAssinatura } from "../components/billing/AvisoAssinatura"
 
 // Types
+import Link from "next/link"
 import type { Reserva } from "../lib/types"
 
 if (typeof window !== "undefined") {
@@ -87,6 +90,10 @@ export default function Home() {
     revogarConvite,
     setMessage: setConvitesMessage,
   } = useStaffInvites()
+
+  const assinatura = useAssinatura(isAuthenticated, pousada?.id)
+  // Bloqueio so existe com billing ligado; desligado, a tela roda como sempre.
+  const bloqueado = assinatura.billingHabilitado && assinatura.situacao?.liberado === false
 
   const [page, setPage] = useState<PageType>("dashboard")
   const [isSignup, setIsSignup] = useState(false)
@@ -542,6 +549,8 @@ export default function Home() {
       />
 
       <div ref={statsRef} className="mx-auto max-w-7xl px-6 py-6 space-y-6">
+        <AvisoAssinatura situacao={assinatura.situacao} billingHabilitado={assinatura.billingHabilitado} />
+
         {apiError && (
           <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
             <p className="text-sm text-rose-800">{apiError}</p>
@@ -588,6 +597,21 @@ export default function Home() {
           </div>
         )}
 
+        {bloqueado ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Acesso pausado</CardTitle>
+              <CardDescription>
+                Seus dados continuam salvos e intactos. Assim que a assinatura estiver em dia,
+                tudo volta exatamente como estava.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/assinatura"><Button>Ver planos</Button></Link>
+            </CardContent>
+          </Card>
+        ) : (
+        <>
         {/* Dashboard */}
         {page === "dashboard" && (
           <div className="space-y-6">
@@ -887,6 +911,8 @@ export default function Home() {
               </Card>
             )}
           </div>
+        )}
+        </>
         )}
       </div>
 
