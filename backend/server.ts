@@ -10,6 +10,7 @@ import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
 import conviteRoutes from './routes/convites.js';
 import billingRoutes from './routes/billing.js';
+import adminRoutes from './routes/admin.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -199,6 +200,7 @@ app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 // Sem requerAssinaturaAtiva de proposito: quem esta bloqueado precisa
 // conseguir ver o proprio estado e escolher um plano.
 app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);
+app.use('/api/admin', authMiddleware, userLimiter, adminRoutes);
 
 // ==========================================
 // Health Check & Status

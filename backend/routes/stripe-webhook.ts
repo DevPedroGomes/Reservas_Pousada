@@ -5,6 +5,9 @@ import AssinaturaModel from '../models/Assinatura.js';
 import { stripe, segredoDoWebhook } from '../lib/stripe.js';
 import { CODIGOS_PLANO, stripePriceId, type Ciclo, type CodigoPlano } from '../config/planos.js';
 import type { StatusAssinatura } from '../utils/assinatura.js';
+import FinanceiroModel from '../models/Financeiro.js';
+import { competenciaDe } from '../utils/margem.js';
+import { TIMEZONE } from '../utils/datas.js';
 
 const router = Router();
 
@@ -61,6 +64,101 @@ function fimDoPeriodo(sub: Stripe.Subscription): Date | null {
   const noItem = sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined;
   const ts = noTopo ?? noItem?.current_period_end;
   return typeof ts === 'number' ? new Date(ts * 1000) : null;
+}
+
+/**
+ * Taxa real cobrada pelo Stripe nesta fatura.
+ *
+ * Lê a `balance_transaction`, que é o número que o Stripe efetivamente
+ * descontou — não uma estimativa a partir de um percentual de tabela. Taxa
+ * varia por bandeira, parcelamento e meio de pagamento; estimar aqui seria
+ * inventar o custo que este painel existe justamente para medir.
+ *
+ * Só cai na estimativa quando o Stripe não expõe o encargo (o formato mudou
+ * entre versões da API), e nesse caso o lançamento vai marcado como estimado.
+ */
+async function taxaDaFatura(fatura: Stripe.Invoice): Promise<{ centavos: number; estimado: boolean }> {
+  const bruto = fatura as unknown as {
+    charge?: string | { id: string };
+    payment_intent?: string | { id: string };
+  };
+
+  try {
+    const chargeId = typeof bruto.charge === 'string' ? bruto.charge : bruto.charge?.id;
+    if (chargeId) {
+      const charge = await stripe().charges.retrieve(chargeId, { expand: ['balance_transaction'] });
+      const bt = charge.balance_transaction as unknown as { fee?: number } | null;
+      if (typeof bt?.fee === 'number') return { centavos: bt.fee, estimado: false };
+    }
+
+    const piId = typeof bruto.payment_intent === 'string' ? bruto.payment_intent : bruto.payment_intent?.id;
+    if (piId) {
+      const pi = await stripe().paymentIntents.retrieve(piId, { expand: ['latest_charge.balance_transaction'] });
+      const charge = pi.latest_charge as unknown as { balance_transaction?: { fee?: number } } | null;
+      if (typeof charge?.balance_transaction?.fee === 'number') {
+        return { centavos: charge.balance_transaction.fee, estimado: false };
+      }
+    }
+  } catch (err) {
+    console.warn('[Stripe] não foi possível ler a taxa real da fatura:', err instanceof Error ? err.message : err);
+  }
+
+  // Estimativa, marcada como tal. Percentual e fixo vêm do ambiente para que
+  // ninguém precise editar código quando a tarifa mudar.
+  const pct = Number(process.env.STRIPE_TAXA_PERCENTUAL ?? '3.99');
+  const fixo = Number(process.env.STRIPE_TAXA_FIXA_CENTAVOS ?? '39');
+  const pago = fatura.amount_paid ?? 0;
+  return { centavos: Math.round((pago * pct) / 100 + fixo), estimado: true };
+}
+
+/**
+ * Lança receita e custo de uma fatura paga.
+ *
+ * A competência sai do PERÍODO da fatura, não da data do pagamento: uma fatura
+ * de julho paga em agosto pertence a julho, senão a margem mensal fica torta.
+ */
+async function registrarFaturaPaga(fatura: Stripe.Invoice) {
+  const customerId = typeof fatura.customer === 'string' ? fatura.customer : fatura.customer?.id;
+  if (!customerId || !fatura.id) return;
+
+  const assinatura = await AssinaturaModel.buscarPorCustomer(customerId);
+  if (!assinatura) {
+    console.error(`[Stripe] fatura ${fatura.id} de customer ${customerId} sem pousada correspondente`);
+    return;
+  }
+
+  const inicioPeriodo =
+    (fatura.lines?.data?.[0] as unknown as { period?: { start?: number } } | undefined)?.period?.start ??
+    (fatura as unknown as { period_start?: number }).period_start ??
+    fatura.created;
+  const competencia = competenciaDe(new Date((inicioPeriodo ?? 0) * 1000), TIMEZONE);
+
+  const pago = fatura.amount_paid ?? 0;
+  if (pago > 0) {
+    await FinanceiroModel.registrar({
+      pousadaId: assinatura.pousadaId,
+      competencia,
+      categoria: 'receita_assinatura',
+      valorCentavos: pago,
+      moeda: fatura.currency ?? 'brl',
+      descricao: `Fatura ${fatura.number ?? fatura.id}`,
+      referenciaExterna: fatura.id,
+    });
+
+    const taxa = await taxaDaFatura(fatura);
+    if (taxa.centavos > 0) {
+      await FinanceiroModel.registrar({
+        pousadaId: assinatura.pousadaId,
+        competencia,
+        categoria: 'taxa_stripe',
+        valorCentavos: taxa.centavos,
+        moeda: fatura.currency ?? 'brl',
+        estimado: taxa.estimado,
+        descricao: taxa.estimado ? 'Taxa estimada do Stripe' : 'Taxa cobrada pelo Stripe',
+        referenciaExterna: fatura.id,
+      });
+    }
+  }
 }
 
 async function aplicarAssinatura(sub: Stripe.Subscription) {
@@ -153,6 +251,9 @@ router.post('/', express.raw({ type: 'application/json' }), async (req: Request,
         const id = typeof subId === 'string' ? subId : subId?.id;
         if (id) {
           await aplicarAssinatura(await stripe().subscriptions.retrieve(id));
+        }
+        if (evento.type === 'invoice.paid') {
+          await registrarFaturaPaga(fatura);
         }
         break;
       }

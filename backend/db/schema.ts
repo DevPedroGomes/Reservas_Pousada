@@ -149,6 +149,22 @@ export const assinaturas = pgTable('assinaturas', {
   customerIdx: index('idx_assinaturas_customer').on(table.stripeCustomerId),
 }));
 
+export const financeiroLancamentos = pgTable('financeiro_lancamentos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  competencia: text('competencia').notNull(),
+  categoria: text('categoria').notNull(),
+  valorCentavos: integer('valor_centavos').notNull(),
+  moeda: text('moeda').notNull().default('brl'),
+  estimado: boolean('estimado').notNull().default(false),
+  descricao: text('descricao'),
+  referenciaExterna: text('referencia_externa'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  pousadaCompetenciaIdx: index('idx_financeiro_pousada_competencia').on(table.pousadaId, table.competencia),
+  competenciaIdx: index('idx_financeiro_competencia').on(table.competencia, table.categoria),
+}));
+
 // Idempotencia de webhook: o id do evento do Stripe e a chave primaria, entao
 // um reenvio do mesmo evento colide no insert e o handler pula o reprocessamento.
 export const stripeEvents = pgTable('stripe_events', {
@@ -270,5 +286,6 @@ export type UserPousada = typeof userPousadas.$inferSelect;
 export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
 export type Assinatura = typeof assinaturas.$inferSelect;
+export type FinanceiroLancamento = typeof financeiroLancamentos.$inferSelect;
 export type NewAssinatura = typeof assinaturas.$inferInsert;
 export type NewStaffInvite = typeof staffInvites.$inferInsert;

@@ -74,6 +74,17 @@ services:
       STRIPE_PRICE_POUSADA_ANUAL: ${STRIPE_PRICE_POUSADA_ANUAL:-}
       STRIPE_PRICE_REDE_MENSAL: ${STRIPE_PRICE_REDE_MENSAL:-}
       STRIPE_PRICE_REDE_ANUAL: ${STRIPE_PRICE_REDE_ANUAL:-}
+      # Taxa usada SO como estimativa, quando o Stripe nao expoe o encargo real.
+      STRIPE_TAXA_PERCENTUAL: ${STRIPE_TAXA_PERCENTUAL:-3.99}
+      STRIPE_TAXA_FIXA_CENTAVOS: ${STRIPE_TAXA_FIXA_CENTAVOS:-39}
+      # --- Painel de margem ---
+      # Quem enxerga a area administrativa. Vazio = ninguem. Vive no ambiente,
+      # nao no banco: papel de super-admin gravado em tabela e coluna que
+      # alguem pode escrever.
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # Custo fixo mensal de infra a ratear entre os pagantes. 0 = nao
+      # configurado, e o painel avisa em vez de mostrar margem inflada.
+      CUSTO_INFRA_MENSAL_CENTAVOS: ${CUSTO_INFRA_MENSAL_CENTAVOS:-0}
     networks:
       - internal
       - proxy
