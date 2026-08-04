@@ -131,6 +131,32 @@ export const userPousadas = pgTable('user_pousadas', {
   userIdx: index('idx_user_pousadas_user').on(table.userId),
 }));
 
+export const assinaturas = pgTable('assinaturas', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull().unique(),
+  status: text('status').notNull().default('trial'),
+  plano: text('plano'),
+  ciclo: text('ciclo'),
+  trialTerminaEm: timestamp('trial_termina_em', { withTimezone: true }),
+  periodoTerminaEm: timestamp('periodo_termina_em', { withTimezone: true }),
+  cancelaNoFim: boolean('cancela_no_fim').notNull().default(false),
+  stripeCustomerId: text('stripe_customer_id').unique(),
+  stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  statusIdx: index('idx_assinaturas_status').on(table.status),
+  customerIdx: index('idx_assinaturas_customer').on(table.stripeCustomerId),
+}));
+
+// Idempotencia de webhook: o id do evento do Stripe e a chave primaria, entao
+// um reenvio do mesmo evento colide no insert e o handler pula o reprocessamento.
+export const stripeEvents = pgTable('stripe_events', {
+  id: text('id').primaryKey(),
+  tipo: text('tipo').notNull(),
+  processadoEm: timestamp('processado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const staffInvites = pgTable('staff_invites', {
   id: serial('id').primaryKey(),
   pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
@@ -243,4 +269,6 @@ export type NewAuditoria = typeof auditoria.$inferInsert;
 export type UserPousada = typeof userPousadas.$inferSelect;
 export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
+export type Assinatura = typeof assinaturas.$inferSelect;
+export type NewAssinatura = typeof assinaturas.$inferInsert;
 export type NewStaffInvite = typeof staffInvites.$inferInsert;

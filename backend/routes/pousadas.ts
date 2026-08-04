@@ -6,6 +6,7 @@ import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../m
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
+import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
 
 const router = Router();
 
@@ -62,6 +63,14 @@ router.post('/', async (req: Request, res: Response) => {
         mensagem: 'Dados inválidos',
         erros: validacao.erros
       });
+    }
+
+    const estouro = await excedeLimiteDeQuartos(
+      req.user!.pousadaId ?? null,
+      dadosSanitizados.num_quartos as number,
+    );
+    if (estouro) {
+      return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
     }
 
     // Create pousada with owner
@@ -248,6 +257,13 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
         mensagem: 'Dados inválidos',
         erros: validacao.erros
       });
+    }
+
+    if (dadosSanitizados.num_quartos !== undefined) {
+      const estouro = await excedeLimiteDeQuartos(parseInt(id), dadosSanitizados.num_quartos as number);
+      if (estouro) {
+        return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
+      }
     }
 
     const pousadaAtualizada = await PousadaModel.atualizar(parseInt(id), {
@@ -576,6 +592,11 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
         sucesso: false,
         mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`,
       });
+    }
+
+    const estouro = await excedeLimiteDeUsuarios(pousadaId);
+    if (estouro) {
+      return res.status(402).json({ sucesso: false, codigo: 'BILLING_003', mensagem: estouro, precisaUpgrade: true });
     }
 
     // Check for existing pending invite

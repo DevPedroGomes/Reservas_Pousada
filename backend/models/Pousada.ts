@@ -2,6 +2,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
 import { hojeLocal } from '../utils/datas.js';
+import AssinaturaModel from './Assinatura.js';
 
 export class PousadaModel {
   /**
@@ -89,6 +90,10 @@ export class PousadaModel {
           updatedAt: new Date(),
         })
         .where(eq(user.id, userId));
+
+      // Mesma transacao: pousada sem assinatura e tenant que o enforcement nao
+      // sabe avaliar, e o trial precisa comecar a contar do minuto zero.
+      await AssinaturaModel.criarTrial(pousada.id, tx);
 
       return pousada;
     });

@@ -115,6 +115,56 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     await assert.rejects(() => reservar(11, '2026-08-12', '2026-08-10'), /reservas_periodo_valido/);
   });
 
+  it('billing: o grandfathering da 010 cobre pousada preexistente e e idempotente', async () => {
+    // Reproduz o statement da migration. No teste a pousada nasce depois das
+    // migrations, entao rodamos aqui — e duas vezes, porque uma migration
+    // reaplicada nao pode duplicar assinatura.
+    const grandfather = `
+      INSERT INTO assinaturas (pousada_id, status)
+      SELECT p.id, 'cortesia' FROM pousadas p
+      WHERE NOT EXISTS (SELECT 1 FROM assinaturas a WHERE a.pousada_id = p.id)`;
+    await pool.query(grandfather);
+    await pool.query(grandfather);
+
+    const { rows } = await pool.query(`SELECT status FROM assinaturas WHERE pousada_id = 1`);
+    assert.equal(rows.length, 1, 'idempotente: rodar duas vezes nao duplica');
+    assert.equal(rows[0].status, 'cortesia', 'ligar o billing nao pode derrubar quem ja estava dentro');
+  });
+
+  it('billing: status invalido e recusado pelo banco', async () => {
+    await assert.rejects(
+      () => pool.query(`UPDATE assinaturas SET status = 'inventado' WHERE pousada_id = 1`),
+      /assinaturas_status_valido/,
+    );
+  });
+
+  it('billing: plano invalido e recusado pelo banco', async () => {
+    await assert.rejects(
+      () => pool.query(`UPDATE assinaturas SET plano = 'ouro' WHERE pousada_id = 1`),
+      /assinaturas_plano_valido/,
+    );
+  });
+
+  it('billing: um pousada_id nao pode ter duas assinaturas', async () => {
+    await assert.rejects(
+      () => pool.query(`INSERT INTO assinaturas (pousada_id, status) VALUES (1, 'trial')`),
+      /duplicate key|unique/i,
+    );
+  });
+
+  it('billing: o mesmo evento do Stripe so entra uma vez (idempotencia)', async () => {
+    const a = await pool.query(
+      `INSERT INTO stripe_events (id, tipo) VALUES ('evt_teste_1','invoice.paid')
+       ON CONFLICT DO NOTHING RETURNING id`,
+    );
+    const b = await pool.query(
+      `INSERT INTO stripe_events (id, tipo) VALUES ('evt_teste_1','invoice.paid')
+       ON CONFLICT DO NOTHING RETURNING id`,
+    );
+    assert.equal(a.rowCount, 1, 'primeira entrega processa');
+    assert.equal(b.rowCount, 0, 'reentrega do Stripe nao pode reprocessar a cobranca');
+  });
+
   it('CORRIDA: duas reservas simultâneas no mesmo quarto — só uma sobrevive', async () => {
     await limparQuarto(7);
 

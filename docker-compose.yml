@@ -59,6 +59,21 @@ services:
       # mais forte, porque valida o formato e faz round-trip da cifra.
       CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      # --- Billing (Stripe) ---
+      # Interruptor explicito: sem ele nenhum limite de plano e aplicado. Existe
+      # para que ligar a cobranca seja decisao deliberada, e para que um deploy
+      # sem chave nao derrube o acesso de quem paga.
+      BILLING_ENABLED: ${BILLING_ENABLED:-false}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # Ids de Price do Stripe. Diferentes entre teste e producao, por isso vem
+      # do ambiente. Plano sem Price nao aparece na tela de planos.
+      STRIPE_PRICE_ESSENCIAL_MENSAL: ${STRIPE_PRICE_ESSENCIAL_MENSAL:-}
+      STRIPE_PRICE_ESSENCIAL_ANUAL: ${STRIPE_PRICE_ESSENCIAL_ANUAL:-}
+      STRIPE_PRICE_POUSADA_MENSAL: ${STRIPE_PRICE_POUSADA_MENSAL:-}
+      STRIPE_PRICE_POUSADA_ANUAL: ${STRIPE_PRICE_POUSADA_ANUAL:-}
+      STRIPE_PRICE_REDE_MENSAL: ${STRIPE_PRICE_REDE_MENSAL:-}
+      STRIPE_PRICE_REDE_ANUAL: ${STRIPE_PRICE_REDE_ANUAL:-}
     networks:
       - internal
       - proxy

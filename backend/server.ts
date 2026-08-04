@@ -9,6 +9,8 @@ import { runMigrations } from './db/migrate.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
 import conviteRoutes from './routes/convites.js';
+import billingRoutes from './routes/billing.js';
+import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
@@ -16,6 +18,8 @@ import { assertCpfCryptoConfigurada } from './utils/crypto.js';
 import { chaveDeRateLimit } from './utils/rede.js';
 import { origensPermitidas } from './utils/origens.js';
 import { TIMEZONE } from './utils/datas.js';
+import { avisarEstadoDoBilling } from './lib/stripe.js';
+import { requerAssinaturaAtiva } from './middleware/assinatura.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -61,6 +65,7 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 300,
   keyGenerator: (req) => chaveDeRateLimit(req.ip),
+  skip: (req) => req.originalUrl.startsWith('/api/webhooks/stripe'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { sucesso: false, mensagem: 'Muitas requisições deste IP, tente novamente após 15 minutos' }
@@ -154,6 +159,14 @@ app.use((req, res, next) => {
 app.all('/api/auth/*', toNodeHandler(auth));
 
 // ==========================================
+// Webhook do Stripe — ANTES do body parser
+// ==========================================
+// A verificação de assinatura do Stripe roda sobre os BYTES exatos do corpo.
+// Se o express.json() rodar antes, o JSON é reserializado, os bytes mudam e
+// toda verificação falha. A rota usa express.raw internamente.
+app.use('/api/webhooks/stripe', stripeWebhookRoutes);
+
+// ==========================================
 // Body Parser (after Better Auth)
 // ==========================================
 app.use(express.json({ limit: '256kb' }));
@@ -181,8 +194,11 @@ const userLimiter = rateLimit({
 // API Routes
 // ==========================================
 app.use('/api/convites', conviteRoutes);
-app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, reservaRoutes);
+app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, reservaRoutes);
 app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
+// Sem requerAssinaturaAtiva de proposito: quem esta bloqueado precisa
+// conseguir ver o proprio estado e escolher um plano.
+app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);
 
 // ==========================================
 // Health Check & Status
@@ -240,6 +256,8 @@ async function iniciarServidor() {
       console.error('ERRO CRÍTICO: BETTER_AUTH_URL não definida em produção');
       process.exit(1);
     }
+
+    avisarEstadoDoBilling();
 
     // Test database connection
     const dbOk = await testConnection();
