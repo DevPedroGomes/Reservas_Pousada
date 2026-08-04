@@ -10,7 +10,70 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Portao de qualidade. Nada e publicado se isto falhar.
+  #
+  # Antes, o unico gate era o `tsc` que rodava por dentro do `docker compose
+  # build`: nenhum teste, nenhuma verificacao de comportamento. Bug de regra de
+  # negocio (double-booking, fuso horario, papel sem permissao) ia direto para
+  # producao sem nada no caminho.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: teste
+          POSTGRES_PASSWORD: teste
+          POSTGRES_DB: reservas_teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Backend - deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend - typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend - testes (unitarios + integracao)
+        working-directory: backend
+        env:
+          # O suite de integracao aplica as migrations do ZERO neste banco: e
+          # tambem o teste de que um deploy limpo sobe.
+          DATABASE_URL: postgresql://teste:teste@localhost:5432/reservas_teste
+          CPF_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+          # Runner em UTC, igual ao container de producao — e assim que os
+          # testes de fuso pegam a regressao.
+          TZ: UTC
+        run: npm test
+
+      - name: Frontend - deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend - typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:

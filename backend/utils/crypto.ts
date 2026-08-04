@@ -1,37 +1,72 @@
 /**
- * CPF encryption/decryption for LGPD compliance
- * Uses AES-256-GCM for authenticated encryption
- * Uses SHA-256 for deterministic hashing (search by CPF)
+ * Proteção de CPF (LGPD).
+ *
+ * - Confidencialidade: AES-256-GCM (cifra autenticada) na coluna `cpf`.
+ * - Busca por igualdade: HMAC-SHA-256 na coluna `cpf_hash`.
+ *
+ * Por que HMAC e não SHA-256 puro: existem ~10^9 CPFs válidos. Um SHA-256 sem
+ * chave é varrido por força bruta em ~24 min num único core (medido nesta VPS:
+ * 625k hashes/s), então um `cpf_hash` sem chave devolve o CPF em claro para
+ * quem tiver o dump — anulando a cifra da coluna ao lado. Com HMAC, quem tem só
+ * o banco não consegue nada sem a chave, que vive fora dele.
+ *
+ * A chave do HMAC é derivada de CPF_ENCRYPTION_KEY com separação de domínio,
+ * para não exigir um segundo segredo em produção.
+ *
+ * ATENÇÃO: trocar CPF_ENCRYPTION_KEY invalida (a) a leitura dos CPFs cifrados e
+ * (b) todos os `cpf_hash` gravados. Rotação exige re-cifrar e re-hashear a base.
  */
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
+const HASH_DOMAIN = 'cpf-hash:v1:';
+
+let chaveCache: Buffer | null = null;
 
 function getEncryptionKey(): Buffer {
+  if (chaveCache) return chaveCache;
+
   const key = process.env.CPF_ENCRYPTION_KEY;
   if (!key) {
     throw new Error('CPF_ENCRYPTION_KEY nao configurada. Gere com: openssl rand -hex 32');
   }
-  const keyBuffer = Buffer.from(key, 'hex');
-  if (keyBuffer.length !== 32) {
-    throw new Error('CPF_ENCRYPTION_KEY deve ter 32 bytes (64 caracteres hex)');
+  if (!/^[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error('CPF_ENCRYPTION_KEY deve ter exatamente 64 caracteres hexadecimais (32 bytes)');
   }
-  return keyBuffer;
+
+  chaveCache = Buffer.from(key, 'hex');
+  return chaveCache;
 }
 
 /**
- * Normalize CPF to digits only
+ * Valida a configuração de cifra no boot.
+ *
+ * Deliberadamente chamada antes de o servidor aceitar tráfego: sem isso, uma
+ * chave ausente fazia o sistema subir normalmente e gravar CPF em TEXTO PURO,
+ * em silêncio, porque o caminho de erro era engolido por um catch.
  */
+export function assertCpfCryptoConfigurada(): void {
+  const chave = getEncryptionKey();
+  // Round-trip real: pega chave de tamanho certo mas inválida para o algoritmo.
+  const teste = '12345678909';
+  if (decryptCpf(encryptCpf(teste)) !== teste) {
+    throw new Error('Falha no round-trip de cifra de CPF — configuracao invalida');
+  }
+  if (chave.length !== 32) {
+    throw new Error('CPF_ENCRYPTION_KEY deve ter 32 bytes');
+  }
+}
+
 function normalizeCpf(cpf: string): string {
   return cpf.replace(/[^\d]/g, '');
 }
 
 /**
- * Encrypt a CPF value
- * Returns: iv:authTag:ciphertext (all base64)
+ * Cifra um CPF. Retorna `iv:authTag:ciphertext` (tudo em base64).
+ * Lança se a chave não estiver configurada — nunca devolve texto puro.
  */
 export function encryptCpf(cpf: string): string {
   const key = getEncryptionKey();
@@ -47,29 +82,26 @@ export function encryptCpf(cpf: string): string {
 }
 
 /**
- * Decrypt an encrypted CPF value
- * Input: iv:authTag:ciphertext (all base64)
+ * Decifra. Lança se o valor não estiver no formato esperado ou se a autenticação
+ * falhar — antes isso devolvia o próprio ciphertext como se fosse o CPF, e a
+ * recepção via base64 na tela sem nenhum erro em lugar nenhum.
  */
 export function decryptCpf(encrypted: string): string {
   const key = getEncryptionKey();
   const parts = encrypted.split(':');
 
-  // If it looks like a plain CPF (only digits, 11 chars), return as-is
-  if (parts.length === 1 && /^\d{11}$/.test(encrypted)) {
-    return encrypted;
-  }
-
   if (parts.length !== 3) {
-    // Might be an unencrypted CPF with formatting — return as-is
-    return encrypted;
+    throw new Error('Valor de CPF nao esta no formato cifrado esperado (iv:authTag:ciphertext)');
   }
 
   const [ivB64, authTagB64, ciphertext] = parts;
-  const iv = Buffer.from(ivB64, 'base64');
-  const authTag = Buffer.from(authTagB64, 'base64');
-
-  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
-  decipher.setAuthTag(authTag);
+  const decipher = createDecipheriv(
+    ALGORITHM,
+    key,
+    Buffer.from(ivB64, 'base64'),
+    { authTagLength: AUTH_TAG_LENGTH },
+  );
+  decipher.setAuthTag(Buffer.from(authTagB64, 'base64'));
 
   let decrypted = decipher.update(ciphertext, 'base64', 'utf8');
   decrypted += decipher.final('utf8');
@@ -78,17 +110,17 @@ export function decryptCpf(encrypted: string): string {
 }
 
 /**
- * Create a deterministic SHA-256 hash of a CPF (for search/lookup)
+ * Hash determinístico com chave, para busca por CPF exato sem decifrar a coluna.
  */
 export function hashCpf(cpf: string): string {
-  const normalized = normalizeCpf(cpf);
-  return createHash('sha256').update(normalized).digest('hex');
+  return createHmac('sha256', getEncryptionKey())
+    .update(HASH_DOMAIN + normalizeCpf(cpf))
+    .digest('hex');
 }
 
 /**
- * Check if a CPF value is already encrypted (contains colons for iv:tag:ciphertext format)
+ * O valor já está no formato cifrado?
  */
 export function isEncrypted(value: string): boolean {
-  const parts = value.split(':');
-  return parts.length === 3;
+  return value.split(':').length === 3;
 }

@@ -115,7 +115,7 @@ Backend (`backend/package.json`):
 
 - Node.js >=18, Express 4.21
 - TypeScript 5.5, ESM (`"type": "module"`)
-- `better-auth` 1.2.7 with `drizzle-adapter` and a node handler mounted at `/api/auth/*`
+- `better-auth` 1.4.18 (lockfile) with `drizzle-adapter` and a node handler mounted at `/api/auth/*`
 - `drizzle-orm` 0.45 + `drizzle-kit` 0.31, Postgres provider
 - `pg` 8.13 (connection pool)
 - `express-rate-limit` 7.1
@@ -127,12 +127,12 @@ Frontend (`frontend/package.json`):
 - Next.js 14.2 (standalone output, `poweredByHeader: false`)
 - React 18.3
 - Tailwind 3.4, `tailwindcss-animate`, shadcn/ui via `@radix-ui/react-slot`, `class-variance-authority`, `clsx`, `tailwind-merge`
-- `better-auth` 1.2.7 client
+- `better-auth` 1.4.18 client
 - `lucide-react` icons, `gsap` 3.14
 
 Infra:
 
-- PostgreSQL 16-alpine, app+auth in one DB, app schema bootstrapped via `migrations/*.sql` mounted into `/docker-entrypoint-initdb.d`
+- PostgreSQL 16-alpine (hosted in the shared `central-db` instance), app+auth in one DB, schema applied by the versioned migration runner at boot
 - Traefik v3 (external `proxy` network), Let's Encrypt resolver `letsencrypt`
 - Multi-stage Dockerfiles, non-root container users
 - 256 MB memory cap per container
@@ -206,7 +206,9 @@ Rate limiting
 
 - Traefik: `global-ratelimit@file` + `strip-server-header@file` chained on both routers.
 - Express global: 300 requests / 15 min per IP on `/api/`.
-- Auth-endpoint limiter: 10 requests / 15 min per IP on `/api/auth/sign-in`, `/sign-in/email`, `/sign-up/email`, `/forget-password`. Successful sign-ins do not consume the budget.
+- Auth-endpoint limiter: 10 requests / 15 min on `/api/auth/sign-in`, `/sign-in/email`, `/forget-password`. Successful sign-ins do not consume the budget.
+- Sign-up has its own limiter (5 / hour) that does **not** skip successful requests — otherwise creating real accounts was unlimited.
+- All IP-based limiters key on the **/64 prefix** for IPv6 (`utils/rede.ts`). Keying on the full address gave any attacker with an IPv6 block an effectively unlimited budget.
 - Per-user authenticated limiter: 500 requests / hour, keyed by `req.user.id`.
 - CSV export: 5 requests / hour per user.
 
@@ -224,6 +226,8 @@ Invite acceptance (`backend/models/StaffInvite.ts`, `backend/routes/convites.ts`
 
 Reservations
 
+- **No overbooking, guaranteed by the database**: `EXCLUDE USING gist (pousada_id WITH =, quarto WITH =, daterange(data_entrada, data_saida, '[)') WITH &&) WHERE (status = 'ativa' AND deleted_at IS NULL)`. Concurrent bookings for the same room cannot both land; the loser gets HTTP 409. The application-level availability check remains only to produce a helpful message.
+- Date ranges are **half-open** `[check-in, check-out)`: a guest leaving on the 12th frees the room for a guest arriving on the 12th.
 - Optimistic locking via a `version` column on `reservas`. Updates and status changes return HTTP 409 on stale writes.
 - Idempotency guard: identical (CPF + room + dates) within 30s rejects duplicates from double-clicks.
 - Soft delete (`deleted_at`); `DELETE` requires `admin` or owner.
@@ -239,8 +243,9 @@ CSV export (`backend/routes/reservas.ts`)
 CPF protection (`backend/utils/crypto.ts`)
 
 - AES-256-GCM at rest, 96-bit IV, 128-bit auth tag, format `iv:authTag:ciphertext` (base64).
-- `cpf_hash` (SHA-256 of normalized digits) enables exact-match lookup without decryption.
-- `CPF_ENCRYPTION_KEY` must be 32 raw bytes (64 hex). The module throws on misconfiguration.
+- `cpf_hash` is an **HMAC-SHA-256** keyed with `CPF_ENCRYPTION_KEY` (domain-separated), enabling exact-match lookup without decryption. A plain SHA-256 would be brute-forceable over the ~10^9 valid CPFs in about 24 minutes on one core, which would defeat the AES column next to it.
+- `CPF_ENCRYPTION_KEY` must be 32 raw bytes (64 hex). Validated at boot (`assertCpfCryptoConfigurada`) — the server exits rather than start, because a missing key previously caused CPFs to be written in plaintext silently.
+- Partial CPF search is impossible by construction (the column holds ciphertext); only exact match via the HMAC works.
 
 Validation
 
@@ -256,7 +261,10 @@ Headers
 
 Audit trail
 
-- `auditoria` table records `action`, `entity`, `entity_id`, `pousada_id`, `details` (jsonb), `ip`, `user_id`, `created_at`. Writes to reservations and CSV exports always emit an entry.
+- `auditoria` table records `action`, `entity`, `entity_id`, `details` (jsonb), `ip`, `user_id`, `created_at`.
+- There is **no** `pousada_id` column: tenant isolation is enforced at read time in `AuditoriaModel.listar`, which requires a `pousadaId` and scopes by a subquery over the owning table. Unknown entities raise rather than return cross-tenant rows.
+- `details` is passed through `redigirPII` before insert, so `cpf` / `cpf_hash` are stored as `[redigido]` — the encrypted column is not undone by the audit trail.
+- Writes to reservations and CSV exports always emit an entry.
 
 ## Local development
 
@@ -268,12 +276,17 @@ Environment file (`.env` at repo root, see `.env.example`):
 POSTGRES_USER=reservas
 POSTGRES_PASSWORD=...                          # strong
 POSTGRES_DB=reservas_pousada
-BETTER_AUTH_SECRET=...                         # openssl rand -base64 32
-CPF_ENCRYPTION_KEY=...                         # openssl rand -hex 32
+BETTER_AUTH_SECRET=...                         # openssl rand -base64 32   (server exits if missing)
+CPF_ENCRYPTION_KEY=...                         # openssl rand -hex 32      (server exits if missing)
+APP_TIMEZONE=America/Sao_Paulo                 # optional, this is the default
 GOOGLE_CLIENT_ID=                              # optional
 GOOGLE_CLIENT_SECRET=                          # optional
 RESEND_API_KEY=                                # optional in dev
 ```
+
+Both secrets are fatal at boot on purpose. `BETTER_AUTH_SECRET` was already;
+`CPF_ENCRYPTION_KEY` was not, and running without it caused every CPF to be
+written to the database in plaintext with no error and no log entry.
 
 `DATABASE_URL`, `BETTER_AUTH_URL`, `CORS_ORIGIN`, `NEXT_PUBLIC_API_URL` are injected by `docker-compose.yml`.
 
@@ -307,8 +320,9 @@ npm run db:migrate           # apply pending migrations
 npm run db:push              # dev-only direct push
 npm run db:studio            # GUI
 
-# manual JSON backup of the DB
-npm run backup
+# tests (unit; the DB suite runs too when DATABASE_URL is set)
+npm test
+npm run typecheck
 ```
 
 ## Deployment notes
@@ -319,7 +333,9 @@ The compose file expects:
 - Two Traefik file-provider middlewares available: `global-ratelimit@file` and `strip-server-header@file`.
 - DNS A records for `api-pousada.pgdev.com.br` and `minhapousada.pgdev.com.br`.
 
-Database migrations under `backend/migrations/` are mounted read-only into Postgres' `/docker-entrypoint-initdb.d`, so they only run on a fresh volume. For schema changes against an existing volume, run `npm run db:migrate` from the backend container.
+Database migrations under `backend/migrations/` are applied by a versioned runner (`db/migrate.ts`) at boot, inside a transaction per file, tracked in `schema_migrations` and serialized across instances with a Postgres advisory lock. A migration that fails aborts startup deliberately — the server never runs against a schema it does not expect.
+
+A clean `001` → `009` run against an empty database is exercised on every CI build (`tests/banco.test.ts`), so "deploy from scratch" is a tested path rather than an assumption.
 
 Verification:
 

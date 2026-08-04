@@ -13,8 +13,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "auth:generate": "npx @better-auth/cli@latest generate",
-    "backup": "node --import dotenv/config backup.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "pousada",

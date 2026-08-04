@@ -111,43 +111,50 @@ export class StaffInviteModel {
       throw new Error('Este convite foi enviado para outro email');
     }
 
-    // Update invite status
-    await db
-      .update(staffInvites)
-      .set({
-        status: 'accepted',
-        acceptedBy: userId,
-        updatedAt: new Date(),
-      })
-      .where(eq(staffInvites.id, invite.id));
+    // As três escritas viram uma só: antes, uma falha depois do primeiro UPDATE
+    // marcava o convite como aceito sem criar o vínculo — o convite queimava e
+    // o usuário ficava de fora, sem caminho de volta.
+    //
+    // O UPDATE do status é condicionado a `status = 'pending'`, então dois
+    // cliques simultâneos no mesmo convite não geram vínculo duplicado.
+    await db.transaction(async (tx) => {
+      const marcado = await tx
+        .update(staffInvites)
+        .set({ status: 'accepted', acceptedBy: userId, updatedAt: new Date() })
+        .where(and(eq(staffInvites.id, invite.id), eq(staffInvites.status, 'pending')))
+        .returning({ id: staffInvites.id });
 
-    // Check if already a member of this pousada
-    const [existing] = await db
-      .select({ id: userPousadas.id })
-      .from(userPousadas)
-      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, invite.pousadaId)))
-      .limit(1);
+      if (marcado.length === 0) {
+        throw new Error('Este convite já foi utilizado ou revogado');
+      }
 
-    if (!existing) {
-      // Insert into junction table
-      await db.insert(userPousadas).values({
-        userId,
-        pousadaId: invite.pousadaId,
-        role: invite.role,
-        isOwner: false,
-      });
-    }
+      const [existing] = await tx
+        .select({ id: userPousadas.id })
+        .from(userPousadas)
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, invite.pousadaId)))
+        .limit(1);
 
-    // Set as active pousada
-    await db
-      .update(user)
-      .set({
-        pousadaId: invite.pousadaId,
-        role: invite.role,
-        isOwner: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(user.id, userId));
+      if (!existing) {
+        await tx.insert(userPousadas).values({
+          userId,
+          pousadaId: invite.pousadaId,
+          role: invite.role,
+          isOwner: false,
+        });
+      }
+
+      // Aceitar convite É a manifestação de vontade de entrar nesta pousada,
+      // então aqui a troca de tenant ativo é legítima.
+      await tx
+        .update(user)
+        .set({
+          pousadaId: invite.pousadaId,
+          role: invite.role,
+          isOwner: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, userId));
+    });
 
     return { pousadaId: invite.pousadaId, role: invite.role };
   }

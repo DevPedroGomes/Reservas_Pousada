@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
-import ReservaModel from '../models/Reserva.js';
+import ReservaModel, { ConflitoDeReserva } from '../models/Reserva.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
 import { authorize } from '../middleware/auth.js';
@@ -123,7 +123,9 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
     );
 
     // Excel expects CRLF line endings.
-    const csv = [headers.join(','), ...linhas].join('\r\n');
+    // BOM UTF-8 na frente: sem ele o Excel em pt-BR abre o arquivo em latin-1 e
+    // todo acento vira mojibake ("JosÃ©"), que é como o contador recebe.
+    const csv = '﻿' + [headers.join(','), ...linhas].join('\r\n');
 
     // Audit the export so PII access is traceable (non-blocking).
     AuditoriaModel.log(
@@ -135,7 +137,7 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
       req.ip || null,
     ).catch(err => console.error('[Auditoria] Erro ao registrar export:', err.message));
 
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="reservas.csv"');
     return res.send(csv);
   } catch (error) {
@@ -278,13 +280,14 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
       reserva: reservaCriada
     });
   } catch (error: any) {
-    const conflito = error.message && error.message.includes('não disponível');
-    if (conflito) {
+    // Tipo, não substring da mensagem: `error.message.includes('não disponível')`
+    // quebrava calado no dia em que alguém reescrevesse o texto do erro.
+    if (error instanceof ConflitoDeReserva) {
       return res.status(409).json({
         sucesso: false,
         codigo: 'RES_002',
         mensagem: 'Quarto indisponível no período selecionado',
-        conflitos: error.conflitos || []
+        conflitos: error.conflitos
       });
     }
     next(new AppError('Erro ao criar reserva', 500, 'RES_003'));
@@ -302,7 +305,13 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
 
     const dadosSanitizados = sanitizarReserva(req.body);
 
-    const validacao = validarReserva({ ...dadosSanitizados, status: dadosSanitizados.status || 'ativa' });
+    // Edição permite data no passado: corrigir o nome de quem já fez check-in,
+    // marcar como paga ou finalizar uma estadia em andamento são operações do
+    // dia a dia, e reusar a validação do POST as rejeitava com 400.
+    const validacao = validarReserva(
+      { ...dadosSanitizados, status: dadosSanitizados.status || 'ativa' },
+      { permitirDataPassada: true },
+    );
     if (!validacao.valido) {
       return res.status(400).json({
         sucesso: false,
@@ -359,13 +368,12 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
         mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
       });
     }
-    const conflito = error.message && error.message.includes('não disponível');
-    if (conflito) {
+    if (error instanceof ConflitoDeReserva) {
       return res.status(409).json({
         sucesso: false,
         codigo: 'RES_002',
         mensagem: 'Quarto indisponível no período selecionado',
-        conflitos: error.conflitos || []
+        conflitos: error.conflitos
       });
     }
     next(new AppError('Erro ao atualizar reserva', 500, 'RES_004'));
@@ -421,6 +429,14 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
         sucesso: false,
         codigo: 'RES_009',
         mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
+      });
+    }
+    if (error instanceof ConflitoDeReserva) {
+      return res.status(409).json({
+        sucesso: false,
+        codigo: 'RES_002',
+        mensagem: 'Não é possível reativar: o quarto já foi ocupado neste período',
+        conflitos: error.conflitos
       });
     }
     next(new AppError('Erro ao atualizar status', 500, 'RES_004'));

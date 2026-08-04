@@ -132,7 +132,17 @@ export function useAuth(): UseAuthReturn {
     // No pousada found via API — needs onboarding
     if (!pousada) {
       const currentPath = window.location.pathname;
-      if (!currentPath.startsWith('/onboarding') && !currentPath.startsWith('/auth') && !currentPath.startsWith('/convite')) {
+      // Quem chegou por um link de convite NÃO pode ser mandado para o
+      // onboarding: ele não vem criar uma pousada, vem entrar na equipe de uma
+      // que já existe. Sem esta guarda, o convidado sem conta criava a própria
+      // pousada e o convite ficava para trás.
+      const temConvitePendente = new URLSearchParams(window.location.search).has('convite');
+      if (
+        !temConvitePendente &&
+        !currentPath.startsWith('/onboarding') &&
+        !currentPath.startsWith('/auth') &&
+        !currentPath.startsWith('/convite')
+      ) {
         router.push('/onboarding');
       }
     }

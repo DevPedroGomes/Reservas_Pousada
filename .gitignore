@@ -57,3 +57,6 @@ PLAN_IMPROVEMENTS.md
 
 # deploy control (VPS-local)
 .deploy-freeze
+
+# Artefato incremental do tsc
+frontend/tsconfig.tsbuildinfo

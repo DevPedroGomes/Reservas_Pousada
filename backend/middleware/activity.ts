@@ -14,12 +14,18 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
     path: req.path,
     ip: req.ip || req.socket.remoteAddress,
     userAgent: req.get('User-Agent') || 'Unknown',
-    userId: req.user?.id || 'anonymous',
   };
 
   // Log response after it's sent
   res.on('finish', () => {
     const duration = Date.now() - startTime;
+
+    // O usuário é lido AQUI, não na entrada. Este middleware é montado
+    // globalmente antes do authMiddleware (que é por rota), então na entrada
+    // `req.user` ainda não existe — capturá-lo ali fazia 100% dos logs de
+    // produção dizerem `user: anonymous`, inclusive os 4xx/5xx, e a
+    // rastreabilidade por usuário simplesmente não existia.
+    const userId = req.user?.id || 'anonymous';
 
     if (process.env.NODE_ENV === 'production') {
       // Structured JSON log - captured by Docker and queryable via `docker compose logs`
@@ -29,7 +35,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
         path: logEntry.path,
         status: res.statusCode,
         ms: duration,
-        user: logEntry.userId,
+        user: userId,
         ip: logEntry.ip,
       };
       if (res.statusCode >= 400) {
@@ -38,7 +44,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
         console.log(JSON.stringify(logData));
       }
     } else {
-      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${logEntry.userId}`;
+      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${userId}`;
       console.log(logMessage);
     }
   });

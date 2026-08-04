@@ -1,7 +1,24 @@
-import { eq, and, or, gte, lte, ne, ilike, sql, count, isNull, SQL } from 'drizzle-orm';
+import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, SQL } from 'drizzle-orm';
 import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
-import { encryptCpf, decryptCpf, hashCpf, isEncrypted } from '../utils/crypto.js';
+import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
+
+/** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
+const PG_EXCLUSION_VIOLATION = '23P01';
+
+export class ConflitoDeReserva extends Error {
+  readonly code = 'QUARTO_INDISPONIVEL';
+  conflitos: Reserva[];
+  constructor(conflitos: Reserva[] = []) {
+    super('Quarto não disponível para o período selecionado');
+    this.name = 'ConflitoDeReserva';
+    this.conflitos = conflitos;
+  }
+}
+
+function ehViolacaoDeExclusao(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === PG_EXCLUSION_VIOLATION;
+}
 
 interface ListarOptions {
   page?: number;
@@ -25,8 +42,15 @@ export class ReservaModel {
   private static decryptResult<T extends { cpf: string }>(result: T): T {
     try {
       return { ...result, cpf: decryptCpf(result.cpf) };
-    } catch {
-      return result; // Return as-is if decryption fails (unencrypted legacy data)
+    } catch (err) {
+      // Antes isto devolvia o ciphertext como se fosse o CPF e ninguém ficava
+      // sabendo. Agora falha de forma visível (na tela e no log) sem derrubar a
+      // listagem inteira por causa de uma linha ruim.
+      console.error(
+        `[Reserva] Falha ao decifrar CPF (id=${(result as { id?: number }).id ?? '?'}):`,
+        err instanceof Error ? err.message : err,
+      );
+      return { ...result, cpf: '[CPF ilegível — verifique CPF_ENCRYPTION_KEY]' };
     }
   }
 
@@ -35,15 +59,16 @@ export class ReservaModel {
   }
 
   /**
-   * Encrypt CPF and generate hash for storage
+   * Cifra o CPF e gera o hash de busca.
+   *
+   * Deliberadamente sem try/catch: se a chave não estiver configurada, isto
+   * LANÇA. Antes, o catch devolvia null e o insert seguia gravando o CPF em
+   * TEXTO PURO, em silêncio. O boot também valida a chave (assertCpfCrypto-
+   * Configurada), então este caminho só é alcançável se a chave for removida
+   * com o processo já no ar.
    */
-  private static encryptCpfData(cpf: string): { cpf: string; cpfHash: string } | null {
-    try {
-      return { cpf: encryptCpf(cpf), cpfHash: hashCpf(cpf) };
-    } catch {
-      // If encryption key not configured, store as-is
-      return null;
-    }
+  private static encryptCpfData(cpf: string): { cpf: string; cpfHash: string } {
+    return { cpf: encryptCpf(cpf), cpfHash: hashCpf(cpf) };
   }
 
   /**
@@ -81,26 +106,20 @@ export class ReservaModel {
 
     if (search) {
       const searchPattern = `%${search}%`;
-      // If search looks like a CPF (digits only, 11 chars), search by hash
       const searchDigits = search.replace(/[^\d]/g, '');
+
+      // CPF só é pesquisável por igualdade exata, via HMAC. Busca parcial é
+      // impossível por construção — a coluna guarda ciphertext, e o `ilike`
+      // que existia aqui nunca casava com nada (falhava em silêncio).
+      const alvos = [
+        ilike(reservas.nome, searchPattern),
+        sql`${reservas.quarto}::text = ${search}`,
+      ];
       if (searchDigits.length === 11) {
-        const cpfHashValue = hashCpf(searchDigits);
-        conditions.push(
-          or(
-            ilike(reservas.nome, searchPattern),
-            eq(reservas.cpfHash, cpfHashValue),
-            sql`${reservas.quarto}::text = ${search}`
-          )!
-        );
-      } else {
-        conditions.push(
-          or(
-            ilike(reservas.nome, searchPattern),
-            ilike(reservas.cpf, searchPattern), // Fallback for legacy unencrypted data or partial match
-            sql`${reservas.quarto}::text = ${search}`
-          )!
-        );
+        alvos.push(eq(reservas.cpfHash, hashCpf(searchDigits)));
       }
+
+      conditions.push(or(...alvos)!);
     }
 
     // Get total count
@@ -211,7 +230,16 @@ export class ReservaModel {
   }
 
   /**
-   * Check room availability
+   * Consulta de disponibilidade (informativa).
+   *
+   * Intervalo SEMIABERTO `[entrada, saída)`: a diária de saída não é ocupada,
+   * então quem sai dia 12 libera o quarto para quem entra dia 12. O predicado
+   * anterior era fechado dos dois lados e bloqueava exatamente o caso mais
+   * comum de uma pousada em alta temporada (troca de hóspede no mesmo dia).
+   *
+   * IMPORTANTE: isto NÃO é a garantia contra overbooking — é só a checagem
+   * amigável para dar mensagem boa ao usuário. A garantia real é a constraint
+   * EXCLUDE no banco (migration 009), que é imune a concorrência.
    */
   static async verificarDisponibilidade(
     quarto: number,
@@ -225,11 +253,9 @@ export class ReservaModel {
       eq(reservas.status, 'ativa'),
       eq(reservas.pousadaId, pousadaId),
       isNull(reservas.deletedAt),
-      or(
-        and(lte(reservas.dataEntrada, dataSaida), gte(reservas.dataSaida, dataEntrada)),
-        and(gte(reservas.dataEntrada, dataEntrada), lte(reservas.dataEntrada, dataSaida)),
-        and(gte(reservas.dataSaida, dataEntrada), lte(reservas.dataSaida, dataSaida))
-      )!
+      // Sobreposição de [a,b) com [c,d)  <=>  a < d AND b > c
+      lt(reservas.dataEntrada, dataSaida),
+      gt(reservas.dataSaida, dataEntrada),
     ];
 
     if (reservaIdExcluir) {
@@ -251,16 +277,14 @@ export class ReservaModel {
    * Create a new reservation (with idempotency guard + CPF encryption)
    */
   static async criar(reserva: NewReserva): Promise<Reserva> {
-    // Encrypt CPF for storage
     const cpfData = this.encryptCpfData(reserva.cpf);
-    const cpfHashForSearch = cpfData ? cpfData.cpfHash : hashCpf(reserva.cpf);
 
     // Idempotency guard: prevent duplicate from double-clicks (same cpf+quarto+dates within 30s)
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
       .where(and(
-        eq(reservas.cpfHash, cpfHashForSearch),
+        eq(reservas.cpfHash, cpfData.cpfHash),
         eq(reservas.quarto, reserva.quarto),
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
@@ -275,7 +299,7 @@ export class ReservaModel {
       return (await this.buscarPorId(duplicate.id))!;
     }
 
-    // Check availability
+    // Checagem prévia — só para devolver a lista de conflitos numa mensagem útil.
     const disponibilidade = await this.verificarDisponibilidade(
       reserva.quarto,
       reserva.dataEntrada,
@@ -285,21 +309,28 @@ export class ReservaModel {
     );
 
     if (!disponibilidade.disponivel) {
-      const error = new Error('Quarto não disponível para o período selecionado') as Error & { conflitos?: Reserva[] };
-      error.conflitos = disponibilidade.conflitos;
-      throw error;
+      throw new ConflitoDeReserva(disponibilidade.conflitos);
     }
 
-    const insertData = cpfData
-      ? { ...reserva, cpf: cpfData.cpf, cpfHash: cpfData.cpfHash }
-      : { ...reserva, cpfHash: cpfHashForSearch };
+    try {
+      const [created] = await db
+        .insert(reservas)
+        .values({ ...reserva, cpf: cpfData.cpf, cpfHash: cpfData.cpfHash })
+        .returning();
 
-    const [created] = await db
-      .insert(reservas)
-      .values(insertData)
-      .returning();
-
-    return this.decryptResult(created);
+      return this.decryptResult(created);
+    } catch (err) {
+      // Duas requisições simultâneas podem passar as duas pela checagem acima.
+      // Quem perde a corrida esbarra na constraint EXCLUDE e cai aqui — que é
+      // exatamente o ponto: o banco é a autoridade, não a aplicação.
+      if (ehViolacaoDeExclusao(err)) {
+        const { conflitos } = await this.verificarDisponibilidade(
+          reserva.quarto, reserva.dataEntrada, reserva.dataSaida, null, reserva.pousadaId,
+        );
+        throw new ConflitoDeReserva(conflitos);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -322,22 +353,16 @@ export class ReservaModel {
       );
 
       if (!disponibilidade.disponivel) {
-        const error = new Error('Quarto não disponível para o período selecionado') as Error & { conflitos?: Reserva[] };
-        error.conflitos = disponibilidade.conflitos;
-        throw error;
+        throw new ConflitoDeReserva(disponibilidade.conflitos);
       }
     }
 
     // Encrypt CPF if it's being updated
-    let updateData: Record<string, unknown> = { ...reserva };
+    const updateData: Record<string, unknown> = { ...reserva };
     if (reserva.cpf) {
       const cpfData = this.encryptCpfData(reserva.cpf);
-      if (cpfData) {
-        updateData.cpf = cpfData.cpf;
-        updateData.cpfHash = cpfData.cpfHash;
-      } else {
-        updateData.cpfHash = hashCpf(reserva.cpf);
-      }
+      updateData.cpf = cpfData.cpf;
+      updateData.cpfHash = cpfData.cpfHash;
     }
 
     const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
@@ -345,14 +370,30 @@ export class ReservaModel {
       conditions.push(eq(reservas.version, version));
     }
 
-    const result = await db
-      .update(reservas)
-      .set({
-        ...updateData,
-        version: sql`${reservas.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(and(...conditions));
+    let result;
+    try {
+      result = await db
+        .update(reservas)
+        .set({
+          ...updateData,
+          version: sql`${reservas.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(and(...conditions));
+    } catch (err) {
+      if (ehViolacaoDeExclusao(err)) {
+        const existente = await this.buscarPorIdEPousada(id, pousadaId);
+        const { conflitos } = await this.verificarDisponibilidade(
+          reserva.quarto ?? existente?.quarto ?? 0,
+          reserva.dataEntrada ?? existente?.dataEntrada ?? '',
+          reserva.dataSaida ?? existente?.dataSaida ?? '',
+          id,
+          pousadaId,
+        );
+        throw new ConflitoDeReserva(conflitos);
+      }
+      throw err;
+    }
 
     if (result.rowCount === 0 && version !== undefined) {
       // Check if the record exists to distinguish "not found" from "version conflict"
@@ -379,14 +420,30 @@ export class ReservaModel {
       conditions.push(eq(reservas.version, version));
     }
 
-    const result = await db
-      .update(reservas)
-      .set({
-        status,
-        version: sql`${reservas.version} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(and(...conditions));
+    let result;
+    try {
+      result = await db
+        .update(reservas)
+        .set({
+          status,
+          version: sql`${reservas.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(and(...conditions));
+    } catch (err) {
+      // Reativar uma reserva cancelada cujo período já foi ocupado por outra
+      // esbarra na constraint — é conflito legítimo, não erro interno.
+      if (ehViolacaoDeExclusao(err)) {
+        const existente = await this.buscarPorIdEPousada(id, pousadaId);
+        const { conflitos } = existente
+          ? await this.verificarDisponibilidade(
+              existente.quarto, existente.dataEntrada, existente.dataSaida, id, pousadaId,
+            )
+          : { conflitos: [] as Reserva[] };
+        throw new ConflitoDeReserva(conflitos);
+      }
+      throw err;
+    }
 
     if (result.rowCount === 0 && version !== undefined) {
       const exists = await this.buscarPorIdEPousada(id, pousadaId);

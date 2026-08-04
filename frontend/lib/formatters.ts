@@ -5,11 +5,20 @@
 import type { Auditoria } from "./types"
 
 /**
- * Formata uma data ISO para o formato brasileiro DD/MM/YYYY
+ * Formata uma data ISO para o formato brasileiro DD/MM/YYYY.
+ *
+ * `new Date("2026-08-03")` é interpretado como MEIA-NOITE UTC. Num navegador em
+ * UTC-3 isso vira 20:00 do dia 02, e `toLocaleDateString` imprimia 02/08/2026
+ * para uma reserva que o banco diz ser do dia 03 — um dia a menos em TODA data
+ * exibida no sistema.
+ *
+ * Acrescentar `T00:00:00` (sem `Z`) faz o JS interpretar no fuso local, que é o
+ * significado correto de uma data sem hora.
  */
 export function formatarData(data: string): string {
   if (!data) return "-"
-  return new Date(data).toLocaleDateString("pt-BR")
+  const somenteData = /^\d{4}-\d{2}-\d{2}$/.test(data)
+  return new Date(somenteData ? `${data}T00:00:00` : data).toLocaleDateString("pt-BR")
 }
 
 /**
@@ -62,12 +71,23 @@ export function isDataNoPassado(data: string): boolean {
 }
 
 /**
+ * Data de hoje no fuso do navegador, como YYYY-MM-DD.
+ * `toISOString()` daria a data em UTC — depois das 21h em Brasília, amanhã.
+ */
+export function hojeISO(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date())
+}
+
+/**
  * Verifica se uma data e hoje
  */
 export function isDataHoje(data: string): boolean {
   if (!data) return false
-  const hoje = new Date().toISOString().split("T")[0]
-  return data === hoje
+  return data === hojeISO()
 }
 
 /**

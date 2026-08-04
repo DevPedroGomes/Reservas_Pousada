@@ -120,6 +120,20 @@ export default function Home() {
     [dashReservas]
   )
 
+  // Retoma o convite depois do login.
+  //
+  // A página /convite/[token] manda quem não tem conta para `/?convite=<token>`,
+  // mas a home ignorava esse parâmetro: depois de criar a conta o usuário caía
+  // no onboarding e montava a PRÓPRIA pousada em vez de entrar na equipe que o
+  // convidou — e o convite ficava pendente para sempre.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const token = new URLSearchParams(window.location.search).get("convite")
+    if (token) {
+      window.location.replace(`/convite/${encodeURIComponent(token)}`)
+    }
+  }, [isAuthenticated])
+
   // Load data when authenticated and pousada is ready
   useEffect(() => {
     if (isAuthenticated && pousada?.id && !pousadaLoading) {
@@ -830,7 +844,6 @@ export default function Home() {
                       <option value="recepcao">Recepcionista</option>
                       <option value="admin">Administrador</option>
                       <option value="auditoria">Auditor</option>
-                      <option value="operacao">Operacional</option>
                     </select>
                     <Button type="submit" disabled={convitesLoading}>
                       {convitesLoading ? "Enviando..." : "Enviar"}
@@ -847,7 +860,7 @@ export default function Home() {
                         <div>
                           <p className="text-sm font-medium">{c.email}</p>
                           <p className="text-xs text-muted-foreground">
-                            {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : c.role === "auditoria" ? "Auditor" : "Operacional"}
+                            {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : "Auditor"}
                             {" - "}
                             <span className={cn(
                               "font-medium",

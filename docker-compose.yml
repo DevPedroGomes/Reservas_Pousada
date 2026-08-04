@@ -47,7 +47,10 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       CORS_ORIGIN: https://minhapousada.pgdev.com.br
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
+      # Sem default: se a chave nao estiver no .env o compose falha alto, em vez
+      # de passar string vazia e deixar o app decidir. O boot tambem valida.
+      CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:?defina CPF_ENCRYPTION_KEY no .env (openssl rand -hex 32)}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
     networks:
       - internal
       - proxy

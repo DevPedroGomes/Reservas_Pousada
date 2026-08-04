@@ -1,6 +1,7 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
+import { hojeLocal } from '../utils/datas.js';
 
 export class PousadaModel {
   /**
@@ -62,28 +63,35 @@ export class PousadaModel {
    * Create pousada and associate user as owner (junction table + active)
    */
   static async criarComOwner(pousadaData: Omit<NewPousada, 'slug'>, userId: string): Promise<Pousada> {
-    const pousada = await this.criar(pousadaData);
+    const slug = await this.gerarSlugUnico(pousadaData.nome);
 
-    // Insert into junction table
-    await db.insert(userPousadas).values({
-      userId,
-      pousadaId: pousada.id,
-      role: 'admin',
-      isOwner: true,
-    });
+    // As três escritas são uma coisa só. Sem transação, uma falha no meio
+    // deixava pousada órfã sem dono — estado que nenhuma tela sabe consertar.
+    return db.transaction(async (tx) => {
+      const [pousada] = await tx
+        .insert(pousadas)
+        .values({ ...pousadaData, slug })
+        .returning();
 
-    // Set as active pousada on user record
-    await db
-      .update(user)
-      .set({
+      await tx.insert(userPousadas).values({
+        userId,
         pousadaId: pousada.id,
-        isOwner: true,
         role: 'admin',
-        updatedAt: new Date(),
-      })
-      .where(eq(user.id, userId));
+        isOwner: true,
+      });
 
-    return pousada;
+      await tx
+        .update(user)
+        .set({
+          pousadaId: pousada.id,
+          isOwner: true,
+          role: 'admin',
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, userId));
+
+      return pousada;
+    });
   }
 
   /**
@@ -121,8 +129,15 @@ export class PousadaModel {
       updatedAt: new Date(),
     };
 
+    // Só regera o slug se o nome REALMENTE mudou. Antes, salvar a pousada sem
+    // mexer no nome já criava um slug novo: `gerarSlugUnico` encontrava a
+    // própria linha ocupando o slug e ia somando sufixo — pousada, pousada-1,
+    // pousada-2... a cada clique em Salvar.
     if (pousadaData.nome) {
-      updateData.slug = await this.gerarSlugUnico(pousadaData.nome);
+      const atual = await this.buscarPorId(id);
+      if (!atual || atual.nome !== pousadaData.nome) {
+        updateData.slug = await this.gerarSlugUnico(pousadaData.nome);
+      }
     }
 
     const [updated] = await db
@@ -155,15 +170,21 @@ export class PousadaModel {
     const pousada = await this.buscarPorId(pousadaId);
     if (!pousada) throw new Error('Pousada não encontrada');
 
-    const hoje = new Date().toISOString().split('T')[0];
+    // Fuso da operação, não UTC: com `toISOString()` o dashboard virava o dia
+    // às 21h de Brasília e mostrava os números de amanhã.
+    const hoje = hojeLocal();
 
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_reservas,
         COUNT(*) FILTER (WHERE status = 'ativa')::int AS reservas_ativas,
         COUNT(*) FILTER (WHERE status = 'ativa' AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
-        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida >= ${hoje})::int AS quartos_ocupados,
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true), 0)::numeric AS receita_total,
+        -- Ocupação usa intervalo semiaberto [entrada, saída): quem faz check-out
+        -- hoje já liberou o quarto e não conta como ocupado.
+        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
+        -- Receita realizada exclui cancelada: dinheiro de reserva cancelada foi
+        -- devolvido ou virou crédito, não é faturamento.
+        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true AND status <> 'cancelada'), 0)::numeric AS receita_total,
         COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status = 'ativa'), 0)::numeric AS receita_pendente
       FROM reservas
       WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
@@ -225,35 +246,42 @@ export class PousadaModel {
   /**
    * Add user to pousada (junction table + set as active)
    */
+  /**
+   * Adiciona um usuário à pousada.
+   *
+   * NÃO troca a pousada ativa do usuário nem mexe no papel dele em outros
+   * tenants. Antes, este método fazia `UPDATE user SET pousada_id, role,
+   * is_owner = false` no alvo — o que permitia a um admin da pousada A puxar
+   * para dentro dela o DONO da pousada B e, de quebra, rebaixá-lo. A troca de
+   * tenant ativo é decisão de quem entra (`trocarPousadaAtiva`), não de quem
+   * convida.
+   */
   static async adicionarUsuario(pousadaId: number, userId: string, role: string = 'recepcao'): Promise<{ success: boolean }> {
-    // Check if already a member
-    const [existing] = await db
-      .select({ id: userPousadas.id })
-      .from(userPousadas)
-      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
-      .limit(1);
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: userPousadas.id })
+        .from(userPousadas)
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
+        .limit(1);
 
-    if (existing) {
-      throw new Error('Usuário já é membro desta pousada');
-    }
+      if (existing) {
+        throw new Error('Usuário já é membro desta pousada');
+      }
 
-    await db.insert(userPousadas).values({
-      userId,
-      pousadaId,
-      role,
-      isOwner: false,
-    });
-
-    // Set as active pousada
-    await db
-      .update(user)
-      .set({
+      await tx.insert(userPousadas).values({
+        userId,
         pousadaId,
         role,
         isOwner: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(user.id, userId));
+      });
+
+      // Só define a pousada ativa se o usuário ainda não tiver nenhuma — é o
+      // caso de quem acabou de se cadastrar e foi adicionado a uma equipe.
+      await tx
+        .update(user)
+        .set({ pousadaId, role, isOwner: false, updatedAt: new Date() })
+        .where(and(eq(user.id, userId), sql`${user.pousadaId} IS NULL`));
+    });
 
     return { success: true };
   }

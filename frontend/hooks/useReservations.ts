@@ -194,6 +194,22 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
 
       const url = `${API_URL}/reservas/export${params.toString() ? `?${params.toString()}` : ""}`
       const response = await authenticatedFetch(url)
+
+      // Sem esta checagem, um 429 (limite de 5 exportações/hora) fazia o
+      // navegador BAIXAR o JSON de erro com o nome reservas.csv — o usuário
+      // abria a planilha e encontrava uma mensagem de erro dentro.
+      if (!response.ok) {
+        let mensagem = `Não foi possível exportar (erro ${response.status}).`
+        try {
+          const corpo = await response.json()
+          if (corpo?.mensagem) mensagem = corpo.mensagem
+        } catch {
+          /* corpo não era JSON — mantém a mensagem genérica */
+        }
+        setError(mensagem)
+        return
+      }
+
       const text = await response.text()
       const blob = new Blob([text], { type: "text/csv;charset=utf-8;" })
       const link = document.createElement("a")
@@ -203,6 +219,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       URL.revokeObjectURL(link.href)
     } catch (error) {
       console.error("Erro ao exportar CSV", error)
+      setError("Erro ao exportar CSV.")
     } finally {
       setExporting(false)
     }

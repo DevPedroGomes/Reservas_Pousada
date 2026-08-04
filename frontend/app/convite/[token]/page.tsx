@@ -85,7 +85,6 @@ export default function ConvitePage() {
       admin: 'Administrador',
       recepcao: 'Recepcao',
       auditoria: 'Auditoria',
-      operacao: 'Operacao',
     };
     return map[role] || role;
   };

@@ -27,6 +27,26 @@ declare global {
 }
 
 /**
+ * Papéis que podem ser atribuídos a um membro da equipe.
+ *
+ * Fonte única da verdade: convite, adição manual e `authorize()` referenciam
+ * esta lista. Antes, `operacao` era oferecido no formulário de convite e aceito
+ * pelo backend, mas não aparecia em nenhum `authorize([...])` — quem entrasse
+ * como Operacional logava e tomava 403 em toda tela do sistema. Um papel que
+ * não concede nada não é um papel; foi removido em vez de inventar permissões
+ * para ele.
+ *
+ * `owner` não está aqui de propósito: não é atribuível, decorre de ter criado a
+ * pousada (`user_pousadas.is_owner`).
+ */
+export const PAPEIS_ATRIBUIVEIS = ['admin', 'recepcao', 'auditoria'] as const;
+export type PapelAtribuivel = (typeof PAPEIS_ATRIBUIVEIS)[number];
+
+export function ehPapelValido(papel: unknown): papel is PapelAtribuivel {
+  return typeof papel === 'string' && (PAPEIS_ATRIBUIVEIS as readonly string[]).includes(papel);
+}
+
+/**
  * Authentication middleware using Better Auth
  * Validates session and attaches user to request
  */

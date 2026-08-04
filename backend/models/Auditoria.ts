@@ -1,6 +1,7 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, auditoria, user } from '../db/index.js';
 import type { Auditoria, NewAuditoria } from '../db/schema.js';
+import { redigirPII } from '../utils/pii.js';
 
 interface AuditoriaComUsuario extends Auditoria {
   userName?: string | null;
@@ -49,12 +50,30 @@ export class AuditoriaModel {
       conditions.push(eq(auditoria.entityId, entityId));
     }
 
-    // Tenant isolation: if entity is 'reserva' and pousadaId is provided,
-    // only return audit logs for reservations belonging to this pousada
-    if (pousadaId && entity === 'reserva') {
+    // Isolamento de tenant.
+    //
+    // Antes, o escopo por pousada só era aplicado quando `entity === 'reserva'`;
+    // para qualquer outra entidade (ou se o chamador esquecesse o pousadaId) a
+    // consulta devolvia auditoria de TODOS os tenants — e `details` pode conter
+    // dado sensível. Agora o escopo é obrigatório e entidade sem mapeamento
+    // conhecido falha alto, em vez de vazar em silêncio.
+    if (!pousadaId) {
+      throw new Error('AuditoriaModel.listar exige pousadaId (isolamento de tenant)');
+    }
+
+    if (entity === 'reserva') {
       conditions.push(
         sql`${auditoria.entityId} IN (SELECT id FROM reservas WHERE pousada_id = ${pousadaId})`
       );
+    } else if (entity === 'staff_invite') {
+      conditions.push(
+        sql`${auditoria.entityId} IN (SELECT id FROM staff_invites WHERE pousada_id = ${pousadaId})`
+      );
+    } else if (entity === 'pousada' || entity === 'user_pousada') {
+      // Nestas duas, o entityId gravado JÁ É o id da pousada.
+      conditions.push(eq(auditoria.entityId, pousadaId));
+    } else {
+      throw new Error(`AuditoriaModel.listar: entidade '${entity}' sem regra de isolamento definida`);
     }
 
     const results = await db
@@ -119,7 +138,7 @@ export class AuditoriaModel {
       action,
       entity,
       entityId,
-      details: details ?? null,
+      details: details ? (redigirPII(details) as Record<string, unknown>) : null,
       ip,
     });
   }

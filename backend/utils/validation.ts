@@ -2,6 +2,8 @@
  * Validation and sanitization module
  */
 
+import { eHojeOuFuturo } from './datas.js';
+
 /**
  * Validates Brazilian CPF
  */
@@ -68,14 +70,15 @@ export function validarPeriodo(dataEntrada: string, dataSaida: string): boolean 
 }
 
 /**
- * Validates if date is not in the past
+ * A data é hoje ou futura, no fuso da operação (não em UTC).
+ *
+ * Comparar contra a meia-noite UTC fazia toda reserva com check-in "hoje" ser
+ * rejeitada entre 21h e meia-noite de Brasília — exatamente o horário em que
+ * hóspede sem reserva bate na porta.
  */
 export function validarDataFuturaOuHoje(data: string): boolean {
   if (!validarData(data)) return false;
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const dataVerificada = new Date(data);
-  return dataVerificada >= hoje;
+  return eHojeOuFuturo(data);
 }
 
 /**
@@ -116,14 +119,18 @@ export function sanitizarString(str: string | null | undefined): string {
 }
 
 /**
- * Sanitizes name (allows only letters, spaces, and accents)
+ * Sanitizes name (letters, accents, spaces, apostrophe and hyphen).
+ *
+ * Apóstrofo e hífen são parte de nomes brasileiros legítimos ("Sant'Ana",
+ * "D'Ávila", "Costa-Silva") e estavam sendo removidos silenciosamente — o
+ * hóspede se cadastrava com um nome e o sistema gravava outro.
  */
 export function sanitizarNome(nome: string | null | undefined): string {
   if (!nome || typeof nome !== 'string') return '';
 
   return nome
     .trim()
-    .replace(/[^a-zA-ZÀ-ÿ\s]/g, '') // Only letters and spaces
+    .replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '')
     .replace(/\s+/g, ' ') // Remove duplicate spaces
     .substring(0, 100);
 }
@@ -145,10 +152,22 @@ interface ReservaData {
   observacoes?: string;
 }
 
+export interface OpcoesValidacaoReserva {
+  /**
+   * Permite datas no passado.
+   *
+   * Criar reserva retroativa não faz sentido, mas EDITAR uma reserva em
+   * andamento (corrigir o nome de quem já fez check-in, marcar como paga,
+   * finalizar) é operação corriqueira — e era rejeitada com 400 porque o PUT
+   * reusava a mesma validação do POST.
+   */
+  permitirDataPassada?: boolean;
+}
+
 /**
  * Validates complete reservation data
  */
-export function validarReserva(reserva: ReservaData): ValidacaoResult {
+export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoReserva = {}): ValidacaoResult {
   const erros: string[] = [];
 
   // Validate name
@@ -179,12 +198,14 @@ export function validarReserva(reserva: ReservaData): ValidacaoResult {
     erros.push('Data de entrada deve ser anterior à data de saída');
   }
 
-  if (reserva.data_entrada && !validarDataFuturaOuHoje(reserva.data_entrada)) {
-    erros.push('Data de entrada não pode estar no passado');
-  }
+  if (!opcoes.permitirDataPassada) {
+    if (reserva.data_entrada && !validarDataFuturaOuHoje(reserva.data_entrada)) {
+      erros.push('Data de entrada não pode estar no passado');
+    }
 
-  if (reserva.data_saida && !validarDataFuturaOuHoje(reserva.data_saida)) {
-    erros.push('Data de saída não pode estar no passado');
+    if (reserva.data_saida && !validarDataFuturaOuHoje(reserva.data_saida)) {
+      erros.push('Data de saída não pode estar no passado');
+    }
   }
 
   // Validate status
@@ -216,6 +237,16 @@ interface SanitizedReserva {
 }
 
 /**
+ * Converte o valor monetário para string numérica, preservando o zero.
+ * Retorna null para ausente, vazio ou não-numérico.
+ */
+function valorParaNumeroOuNulo(valor: number | string | null | undefined): string | null {
+  if (valor === null || valor === undefined || valor === '') return null;
+  const num = parseFloat(String(valor));
+  return Number.isFinite(num) ? String(num) : null;
+}
+
+/**
  * Sanitizes reservation data
  */
 export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
@@ -226,7 +257,8 @@ export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
     data_entrada: reserva.data_entrada || '',
     data_saida: reserva.data_saida || '',
     status: reserva.status,
-    valor: reserva.valor ? String(parseFloat(String(reserva.valor))) : null,
+    // `valor ? ... : null` descartava R$ 0,00 (diária cortesia) porque 0 é falsy.
+    valor: valorParaNumeroOuNulo(reserva.valor),
     pago: Boolean(reserva.pago),
     observacoes: sanitizarString(reserva.observacoes || '')
   };

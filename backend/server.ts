@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
-import { testConnection, pool } from './db/index.js';
+import { testConnection, pool, closeConnection } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
@@ -12,6 +12,9 @@ import conviteRoutes from './routes/convites.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { assertCpfCryptoConfigurada } from './utils/crypto.js';
+import { chaveDeRateLimit } from './utils/rede.js';
+import { TIMEZONE } from './utils/datas.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -54,6 +57,7 @@ app.use(cors({
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 300,
+  keyGenerator: (req) => chaveDeRateLimit(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
   message: { sucesso: false, mensagem: 'Muitas requisições deste IP, tente novamente após 15 minutos' }
@@ -66,10 +70,13 @@ app.use('/api/', limiter);
 // ==========================================
 // Tighter window for credential endpoints to slow brute-force attempts.
 // Successful sign-ins do not consume the budget.
+//
+// A chave é o prefixo /64 em IPv6 (ver utils/rede.ts): chavear pelo endereço
+// inteiro dava a qualquer atacante com IPv6 um orçamento praticamente infinito.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => chaveDeRateLimit(req.ip),
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
@@ -80,11 +87,26 @@ app.use(
   [
     '/api/auth/sign-in/email',
     '/api/auth/sign-in',
-    '/api/auth/sign-up/email',
     '/api/auth/forget-password',
   ],
   authLimiter,
 );
+
+// Cadastro tem limitador PRÓPRIO, sem `skipSuccessfulRequests`.
+//
+// No limitador acima, cadastro bem-sucedido não consumia orçamento — ou seja,
+// criar contas de verdade era ilimitado. Sem captcha e sem cobrança, isso é uma
+// fábrica de tenants grátis. Aqui todo cadastro conta, com ou sem sucesso.
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5,
+  keyGenerator: (req) => chaveDeRateLimit(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Limite de cadastros atingido. Tente novamente em 1 hora.' },
+});
+
+app.use('/api/auth/sign-up/email', signupLimiter);
 
 // ==========================================
 // Session Invalidation on Sensitive Auth Changes
@@ -145,7 +167,7 @@ app.use(activityLogger);
 const userLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 500,
-  keyGenerator: (req: any) => req.user?.id || req.ip || 'anonymous',
+  keyGenerator: (req: any) => req.user?.id || chaveDeRateLimit(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req: any) => !req.user,
@@ -195,6 +217,27 @@ app.use(errorHandler);
 // ==========================================
 async function iniciarServidor() {
   try {
+    // Configuração de cifra de CPF — fatal, igual ao BETTER_AUTH_SECRET.
+    //
+    // Antes não havia validação nenhuma: subir sem CPF_ENCRYPTION_KEY fazia o
+    // sistema funcionar normalmente e gravar TODOS os CPFs em texto puro, sem
+    // erro e sem log, porque o caminho de falha era engolido por um catch.
+    // Dado pessoal em claro é falha silenciosa cara demais para tolerar.
+    try {
+      assertCpfCryptoConfigurada();
+    } catch (err) {
+      console.error('ERRO CRÍTICO: cifra de CPF mal configurada —', err instanceof Error ? err.message : err);
+      console.error('Gere a chave com: openssl rand -hex 32  (e defina CPF_ENCRYPTION_KEY)');
+      process.exit(1);
+    }
+
+    // URL pública é obrigatória em produção: o fallback silencioso para
+    // http://localhost:4000 quebra OAuth e links de email sem avisar.
+    if (process.env.NODE_ENV === 'production' && !process.env.BETTER_AUTH_URL) {
+      console.error('ERRO CRÍTICO: BETTER_AUTH_URL não definida em produção');
+      process.exit(1);
+    }
+
     // Test database connection
     const dbOk = await testConnection();
     if (!dbOk) {
@@ -214,7 +257,7 @@ async function iniciarServidor() {
     }
 
     // Cleanup expired sessions every 6 hours
-    setInterval(async () => {
+    const limpezaDeSessoes = setInterval(async () => {
       try {
         const result = await pool.query('DELETE FROM session WHERE expires_at < NOW()');
         if (result.rowCount && result.rowCount > 0) {
@@ -224,13 +267,50 @@ async function iniciarServidor() {
         console.error('[Cleanup] Erro ao limpar sessões:', err);
       }
     }, 6 * 60 * 60 * 1000);
+    limpezaDeSessoes.unref();
 
     // Start server
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Servidor rodando na porta ${PORT}`);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Fuso da operação: ${TIMEZONE}`);
       console.log(`Auth URL: ${process.env.BETTER_AUTH_URL || 'http://localhost:4000'}`);
     });
+
+    // ==========================================
+    // Graceful shutdown
+    // ==========================================
+    // Sem isto, todo deploy matava as requisições em voo no meio (o Docker
+    // manda SIGTERM e o processo morria na hora) e o pool do Postgres nunca era
+    // drenado. Uma reserva sendo gravada no instante do redeploy simplesmente
+    // sumia, sem erro para o usuário.
+    let encerrando = false;
+    async function encerrar(sinal: string) {
+      if (encerrando) return;
+      encerrando = true;
+      console.log(`[Shutdown] ${sinal} recebido — parando de aceitar conexões`);
+
+      const prazo = setTimeout(() => {
+        console.error('[Shutdown] Prazo esgotado (15s) — encerrando à força');
+        process.exit(1);
+      }, 15_000);
+      prazo.unref();
+
+      clearInterval(limpezaDeSessoes);
+      server.close(async (err) => {
+        if (err) console.error('[Shutdown] Erro ao fechar o servidor HTTP:', err);
+        try {
+          await closeConnection();
+        } catch (e) {
+          console.error('[Shutdown] Erro ao fechar o pool:', e);
+        }
+        console.log('[Shutdown] Encerrado com sucesso');
+        process.exit(err ? 1 : 0);
+      });
+    }
+
+    process.on('SIGTERM', () => void encerrar('SIGTERM'));
+    process.on('SIGINT', () => void encerrar('SIGINT'));
   } catch (err) {
     console.error('Erro ao inicializar a aplicação:', err);
     process.exit(1);

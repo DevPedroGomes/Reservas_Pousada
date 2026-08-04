@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel from '../models/Pousada.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
-import { authorize, requireOwner } from '../middleware/auth.js';
+import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 
@@ -396,11 +396,10 @@ router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Resp
       });
     }
 
-    const rolesValidos = ['admin', 'recepcao', 'auditoria', 'operacao'];
-    if (role && !rolesValidos.includes(role)) {
+    if (role && !ehPapelValido(role)) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: `Role inválido. Use: ${rolesValidos.join(', ')}`
+        mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`
       });
     }
 
@@ -570,11 +569,10 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
       });
     }
 
-    const rolesValidos = ['admin', 'recepcao', 'auditoria', 'operacao'];
-    if (role && !rolesValidos.includes(role)) {
+    if (role && !ehPapelValido(role)) {
       return res.status(400).json({
         sucesso: false,
-        mensagem: `Role inválido. Use: ${rolesValidos.join(', ')}`,
+        mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`,
       });
     }
 

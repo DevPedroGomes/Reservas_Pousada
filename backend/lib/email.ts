@@ -133,7 +133,6 @@ export async function sendStaffInviteEmail(
     admin: 'Administrador',
     recepcao: 'Recepcionista',
     auditoria: 'Auditor',
-    operacao: 'Operacional',
   };
   const roleLabel = roleLabels[role] || role;
   const safeInviter = escapeHtml(inviterName);
