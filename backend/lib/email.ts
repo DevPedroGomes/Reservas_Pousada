@@ -1,7 +1,6 @@
 import { Resend } from 'resend';
 
 const resendApiKey = process.env.RESEND_API_KEY;
-const FRONTEND_URL = process.env.CORS_ORIGIN || 'http://localhost:3000';
 const FROM_EMAIL = process.env.NODE_ENV === 'production' && resendApiKey
   ? 'Diária <noreply@pgdev.com.br>'
   : 'Diária <onboarding@resend.dev>';

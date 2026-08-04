@@ -3,6 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
+import { origensPermitidas } from '../utils/origens.js';
 
 // Better Auth Secret (required)
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -112,10 +113,7 @@ export const auth = betterAuth({
   },
 
   // Trust host header for proper URL construction
-  trustedOrigins: [
-    process.env.CORS_ORIGIN || 'http://localhost:3000',
-    baseURL,
-  ],
+  trustedOrigins: [...origensPermitidas(), baseURL],
 
   // Rate limiting
   rateLimit: {

@@ -14,6 +14,7 @@ import { activityLogger } from './middleware/activity.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { assertCpfCryptoConfigurada } from './utils/crypto.js';
 import { chaveDeRateLimit } from './utils/rede.js';
+import { origensPermitidas } from './utils/origens.js';
 import { TIMEZONE } from './utils/datas.js';
 
 const app = express();
@@ -44,8 +45,10 @@ app.use((req, res, next) => {
 // ==========================================
 // CORS Configuration (MUST be before rate limiter)
 // ==========================================
+// Lista, nao valor unico: durante uma migracao de dominio o host antigo e o
+// novo precisam responder ao mesmo tempo. Ver utils/origens.ts.
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: origensPermitidas(),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

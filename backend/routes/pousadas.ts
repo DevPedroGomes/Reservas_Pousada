@@ -5,6 +5,7 @@ import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validat
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
+import { urlDoApp } from '../utils/origens.js';
 
 const router = Router();
 
@@ -551,7 +552,8 @@ router.post('/:id/reativar', requirePousadaOwner, async (req: Request, res: Resp
 // STAFF INVITE ROUTES
 // ============================================
 
-const FRONTEND_URL = process.env.CORS_ORIGIN || 'http://localhost:3000';
+// Endereco canonico, nao a lista de CORS: um link so pode apontar para um lugar.
+const FRONTEND_URL = urlDoApp();
 
 /**
  * POST /api/pousadas/:id/convites

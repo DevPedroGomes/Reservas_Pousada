@@ -2,8 +2,8 @@
 
 Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). Owners register, create their pousada, invite staff by email, and manage rooms, reservations, and guests. All data is tenant-isolated through a junction table with role-based access control.
 
-- Frontend: https://minhapousada.pgdev.com.br
-- API: https://api-pousada.pgdev.com.br
+- Frontend: https://diaria.pgdev.com.br
+- API: https://api.diaria.pgdev.com.br
 
 ## Overview
 
@@ -38,8 +38,8 @@ flowchart TD
     Resend[Resend API<br/>verification / reset / invite]
 
     Client -->|HTTPS| Traefik
-    Traefik -->|minhapousada.pgdev.com.br| Frontend
-    Traefik -->|api-pousada.pgdev.com.br| Backend
+    Traefik -->|diaria.pgdev.com.br| Frontend
+    Traefik -->|api.diaria.pgdev.com.br| Backend
     Frontend -->|fetch credentials: include| Backend
 
     Backend -->|/api/auth/*| BetterAuth[better-auth handler<br/>cookies + sessions]
@@ -331,7 +331,7 @@ The compose file expects:
 
 - Traefik on the external `proxy` network with an `https` entrypoint and a `letsencrypt` cert resolver.
 - Two Traefik file-provider middlewares available: `global-ratelimit@file` and `strip-server-header@file`.
-- DNS A records for `api-pousada.pgdev.com.br` and `minhapousada.pgdev.com.br`.
+- DNS A records for `api.diaria.pgdev.com.br` and `diaria.pgdev.com.br`.
 
 Database migrations under `backend/migrations/` are applied by a versioned runner (`db/migrate.ts`) at boot, inside a transaction per file, tracked in `schema_migrations` and serialized across instances with a Postgres advisory lock. A migration that fails aborts startup deliberately — the server never runs against a schema it does not expect.
 
@@ -341,12 +341,12 @@ Verification:
 
 ```bash
 # certificate
-echo | openssl s_client -connect minhapousada.pgdev.com.br:443 2>/dev/null \
+echo | openssl s_client -connect diaria.pgdev.com.br:443 2>/dev/null \
   | openssl x509 -noout -subject -issuer
 
 # headers
-curl -sI https://minhapousada.pgdev.com.br | grep -iE "strict-transport|x-frame|x-content"
-curl -sI https://api-pousada.pgdev.com.br | grep -iE "strict-transport|x-frame|x-content"
+curl -sI https://diaria.pgdev.com.br | grep -iE "strict-transport|x-frame|x-content"
+curl -sI https://api.diaria.pgdev.com.br | grep -iE "strict-transport|x-frame|x-content"
 ```
 
 ## API surface

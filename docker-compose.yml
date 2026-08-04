@@ -42,10 +42,15 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@central-db:5432/${POSTGRES_DB:-reservas_pousada}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      BETTER_AUTH_URL: https://api-pousada.pgdev.com.br
+      # Endereco canonico da API. E o que o better-auth usa para montar o
+      # callback do OAuth — mudar aqui exige a URI nova no Google Console.
+      BETTER_AUTH_URL: https://api.diaria.pgdev.com.br
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      CORS_ORIGIN: https://minhapousada.pgdev.com.br
+      # Lista: o host antigo continua aceito durante a migracao de dominio.
+      CORS_ORIGIN: https://diaria.pgdev.com.br,https://minhapousada.pgdev.com.br
+      # Endereco canonico do app — e o que vai nos links de convite e email.
+      APP_URL: https://diaria.pgdev.com.br
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       # Default vazio de proposito: o runner do GitHub builda SEM .env, e um
       # `${VAR:?}` faria o `docker compose build` falhar na interpolacao antes
@@ -61,7 +66,9 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.reservas-api.entrypoints=https"
-      - "traefik.http.routers.reservas-api.rule=Host(`api-pousada.pgdev.com.br`)"
+      # Dois hosts em paralelo: o novo e o antigo, para a migracao nao ter
+      # janela de queda e continuar tendo caminho de volta.
+      - "traefik.http.routers.reservas-api.rule=Host(`api.diaria.pgdev.com.br`) || Host(`api-pousada.pgdev.com.br`)"
       - "traefik.http.routers.reservas-api.tls=true"
       - "traefik.http.routers.reservas-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.reservas-api.middlewares=reservas-api-security@docker,global-ratelimit@file,strip-server-header@file"
@@ -89,8 +96,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://api-pousada.pgdev.com.br
-        NEXT_PUBLIC_APP_URL: https://minhapousada.pgdev.com.br
+        NEXT_PUBLIC_API_URL: https://api.diaria.pgdev.com.br
+        NEXT_PUBLIC_APP_URL: https://diaria.pgdev.com.br
     container_name: reservas-frontend
     restart: unless-stopped
     deploy:
@@ -106,7 +113,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pousada-frontend.entrypoints=https"
-      - "traefik.http.routers.pousada-frontend.rule=Host(`minhapousada.pgdev.com.br`)"
+      - "traefik.http.routers.pousada-frontend.rule=Host(`diaria.pgdev.com.br`) || Host(`minhapousada.pgdev.com.br`)"
       - "traefik.http.routers.pousada-frontend.tls=true"
       - "traefik.http.routers.pousada-frontend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.pousada-frontend.middlewares=pousada-frontend-security@docker,global-ratelimit@file,strip-server-header@file"
@@ -120,7 +127,7 @@ services:
       - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api-pousada.pgdev.com.br https://accounts.google.com; frame-ancestors 'none'"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com; frame-ancestors 'none'"
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
       interval: 30s
