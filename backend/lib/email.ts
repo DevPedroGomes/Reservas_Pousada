@@ -3,8 +3,8 @@ import { Resend } from 'resend';
 const resendApiKey = process.env.RESEND_API_KEY;
 const FRONTEND_URL = process.env.CORS_ORIGIN || 'http://localhost:3000';
 const FROM_EMAIL = process.env.NODE_ENV === 'production' && resendApiKey
-  ? 'Reservas Pousada <noreply@pgdev.com.br>'
-  : 'Reservas Pousada <onboarding@resend.dev>';
+  ? 'Diária <noreply@pgdev.com.br>'
+  : 'Diária <onboarding@resend.dev>';
 
 function escapeHtml(str: string): string {
   return str
@@ -49,7 +49,7 @@ function baseTemplate(content: string, title: string): string {
           <tr>
             <td style="background:linear-gradient(135deg,#4f46e5,#3b82f6);padding:32px;text-align:center;">
               <div style="display:inline-block;width:48px;height:48px;line-height:48px;background-color:rgba(255,255,255,0.2);border-radius:12px;color:#ffffff;font-size:18px;font-weight:700;text-align:center;">RP</div>
-              <h1 style="color:#ffffff;font-size:20px;font-weight:700;margin:12px 0 0;">Reservas Pousada</h1>
+              <h1 style="color:#ffffff;font-size:20px;font-weight:700;margin:12px 0 0;">Diária</h1>
             </td>
           </tr>
           <!-- Content -->
@@ -61,7 +61,7 @@ function baseTemplate(content: string, title: string): string {
           <!-- Footer -->
           <tr>
             <td style="padding:24px 40px;border-top:1px solid #e2e8f0;text-align:center;">
-              <p style="color:#94a3b8;font-size:12px;margin:0;">Reservas Pousada - Sistema de Gestao Hoteleira</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">Diária - Gestao para pousadas</p>
               <p style="color:#94a3b8;font-size:12px;margin:4px 0 0;">Este email foi enviado automaticamente, nao responda.</p>
             </td>
           </tr>
@@ -102,7 +102,7 @@ export async function sendPasswordResetEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao solicitou esta alteracao, ignore este email. Sua senha permanecera inalterada.</p>
   `, 'Redefinir Senha');
 
-  await sendEmail(email, 'Redefinir sua senha - Reservas Pousada', html);
+  await sendEmail(email, 'Redefinir sua senha - Diária', html);
 }
 
 export async function sendVerificationEmail(
@@ -119,7 +119,7 @@ export async function sendVerificationEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao criou uma conta, ignore este email.</p>
   `, 'Verificar Email');
 
-  await sendEmail(email, 'Verificar seu email - Reservas Pousada', html);
+  await sendEmail(email, 'Verificar seu email - Diária', html);
 }
 
 export async function sendStaffInviteEmail(
@@ -152,7 +152,7 @@ export async function sendStaffInviteEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:16px 0 0;">Se voce nao reconhece este convite, ignore este email.</p>
   `, 'Convite para Equipe');
 
-  await sendEmail(email, `Convite para ${pousadaNome} - Reservas Pousada`, html);
+  await sendEmail(email, `Convite para ${pousadaNome} - Diária`, html);
 }
 
 // ==========================================

@@ -1,4 +1,4 @@
-# Reservas Pousada
+# Diária
 
 Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). Owners register, create their pousada, invite staff by email, and manage rooms, reservations, and guests. All data is tenant-isolated through a junction table with role-based access control.
 

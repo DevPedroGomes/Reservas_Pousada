@@ -325,7 +325,7 @@ export default function Home() {
           <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <img src="/logo.png" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
-              <span className="text-sm font-semibold">Minha Pousada</span>
+              <span className="text-sm font-semibold">Diária</span>
             </div>
             <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
               <a href="#recursos" className="hover:text-foreground transition-colors">Recursos</a>
@@ -518,7 +518,7 @@ export default function Home() {
 
         <footer className="py-8 px-6 border-t border-border/40 bg-white">
           <div className="mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
-            <p>Minha Pousada — Sistema de gestão hoteleira</p>
+            <p>Diária — Gestão para pousadas</p>
             <p className="text-xs">Construído por Pedro Gomes</p>
           </div>
         </footer>

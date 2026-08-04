@@ -1,5 +1,5 @@
 {
-  "name": "pousada-reservas-backend",
+  "name": "diaria-backend",
   "version": "2.0.0",
   "description": "Sistema de Gerenciamento de Reservas para Pousada - PostgreSQL + Better Auth",
   "type": "module",
