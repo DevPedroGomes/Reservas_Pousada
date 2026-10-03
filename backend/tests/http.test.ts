@@ -707,6 +707,71 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('motor de reservas público', () => {
+    const SLUG = 'pousada-a-praia';
+    const visitante = () => new Cliente(base, `203.0.113.${ipSeq++}`);
+    const pedido = (extra: Record<string, unknown> = {}) => ({
+      quarto: 4, entrada: d(250), saida: d(252), adultos: 2, criancas: 0,
+      nome: 'Marta Visitante', telefone: '(48) 99123-4567', email: 'marta@example.com', aceite: true, ...extra,
+    });
+
+    it('fica fora do ar até o dono ligar; endereço próprio e único', async () => {
+      assert.equal((await visitante().req('GET', `/api/publico/${SLUG}`)).status, 404);
+      const lig = await donoA.req('PUT', `/api/pousadas/${pousadaA}/motor`, { ativo: true, prazo_horas: 12, sinal_percentual: 50, slug: SLUG, politicas: 'Cancelamento grátis até 7 dias antes.' });
+      assert.equal(lig.status, 200, JSON.stringify(lig.json));
+      assert.equal((await donoB.req('PUT', `/api/pousadas/${pousadaB}/motor`, { ativo: true, slug: SLUG })).status, 400, 'endereço já usado');
+      assert.equal((await recep.req('PUT', `/api/pousadas/${pousadaA}/motor`, { ativo: false })).status, 403);
+      const r = await visitante().req('GET', `/api/publico/${SLUG}`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.pousada.sinalPercentual, 50);
+      assert.ok(r.json.quartos.length > 0);
+      assert.ok(!JSON.stringify(r.json).includes('ical'), 'nada interno na vitrine');
+    });
+
+    it('renomear a pousada não muda o link; salvar outra configuração não desliga o motor', async () => {
+      assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}`, { nome: 'Pousada A da Praia' })).status, 200);
+      assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}`, { configuracoes: { retencao_hospedes_meses: 24 } })).status, 200);
+      assert.equal((await visitante().req('GET', `/api/publico/${SLUG}`)).status, 200);
+    });
+
+    it('disponibilidade traz só quarto livre, com preço, que cabe o grupo', async () => {
+      const r = await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(250)}&saida=${d(252)}&pessoas=2`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const q4 = r.json.quartos.find((q: { numero: number }) => q.numero === 4);
+      assert.equal(q4.totalCentavos, 40000, '2 noites a R$ 200 (preço base do quarto 4)');
+      assert.ok(r.json.quartos.every((q: { totalCentavos: number | null }) => q.totalCentavos !== null));
+      assert.equal((await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(-3)}&saida=${d(-1)}`)).status, 400);
+      assert.equal((await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(10)}&saida=${d(60)}`)).status, 400, 'mais de 30 noites');
+    });
+
+    it('pedido vira pré-reserva com prazo e sinal; o quarto sai da vitrine', async () => {
+      const v = visitante();
+      assert.equal((await v.req('POST', `/api/publico/${SLUG}/reservas`, pedido({ aceite: false }))).status, 400);
+      assert.equal((await v.req('POST', `/api/publico/${SLUG}/reservas`, pedido({ site: 'http://spam' }))).status, 400, 'campo isca');
+      const r = await v.req('POST', `/api/publico/${SLUG}/reservas`, pedido());
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.deepEqual([r.json.pedido.totalCentavos, r.json.pedido.sinalCentavos], [40000, 20000]);
+      const { rows: [res] } = await pool.query(
+        `SELECT r.status, r.canal, r.valor::float AS valor, extract(epoch FROM (r.expira_em - now())) / 3600 AS horas, h.telefone, h.email
+           FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [r.json.pedido.id]);
+      assert.equal(res.status, 'pre_reserva');
+      assert.equal(res.canal, 'site');
+      assert.equal(res.valor, 400);
+      assert.ok(res.horas > 11.9 && res.horas <= 12, `prazo de 12h (${res.horas})`);
+      assert.equal(res.telefone, '5548991234567');
+      const de_novo = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ nome: 'Outra Pessoa', telefone: '48990000000' }));
+      assert.equal(de_novo.status, 409, 'quarto não está mais livre');
+      const disp = await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(250)}&saida=${d(252)}&pessoas=2`);
+      assert.ok(!disp.json.quartos.some((q: { numero: number }) => q.numero === 4));
+    });
+
+    it('desligado, some do ar', async () => {
+      assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}/motor`, { ativo: false })).status, 200);
+      assert.equal((await visitante().req('GET', `/api/publico/${SLUG}`)).status, 404);
+      assert.equal((await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ entrada: d(260), saida: d(261) }))).status, 404);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

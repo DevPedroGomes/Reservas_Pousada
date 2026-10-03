@@ -270,6 +270,94 @@ function Seguranca() {
 }
 
 
+const URL_SITE = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "")
+
+/** Motor de reservas: a página pública /r/<endereço> onde o hóspede pede a reserva. */
+function ReservasPeloSite() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const podeEditar = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  const motor = (p.configuracoes?.motor ?? {}) as { ativo?: boolean; prazo_horas?: number; sinal_percentual?: number; politicas?: string }
+  const [form, setForm] = useState({
+    ativo: motor.ativo === true,
+    slug: p.slug ?? "",
+    prazo_horas: String(motor.prazo_horas ?? 24),
+    sinal_percentual: String(motor.sinal_percentual ?? 30),
+    politicas: motor.politicas ?? "",
+  })
+  const [msg, setMsg] = useState<Message | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const link = `${URL_SITE}/r/${form.slug}`
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/motor`, {
+      method: "PUT",
+      body: JSON.stringify({ ...form, prazo_horas: Number(form.prazo_horas), sinal_percentual: Number(form.sinal_percentual) }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? (form.ativo ? "Página de reservas no ar." : "Configuração salva.") : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reservas pelo site</CardTitle>
+        <CardDescription>
+          Uma página da sua pousada onde o hóspede vê os quartos livres com o preço do tarifário e pede a reserva — sem comissão.
+          O pedido entra como pré-reserva e você confirma pelo WhatsApp. Coloque o link no Instagram, no Google e no WhatsApp Business.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <Aviso m={msg} />
+          <fieldset disabled={!podeEditar} className="space-y-4">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={form.ativo} onChange={(e) => setForm((f) => ({ ...f, ativo: e.target.checked }))} className="h-4 w-4 accent-primary" />
+              Página de reservas no ar
+            </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="motor-slug">Endereço</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">{URL_SITE.replace(/^https?:\/\//, "")}/r/</span>
+                <Input id="motor-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") }))} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="motor-prazo">Prazo para você confirmar (horas)</Label>
+                <Input id="motor-prazo" type="number" min={1} max={168} value={form.prazo_horas} onChange={(e) => setForm((f) => ({ ...f, prazo_horas: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="motor-sinal">Sinal para confirmar (%)</Label>
+                <Input id="motor-sinal" type="number" min={0} max={100} value={form.sinal_percentual} onChange={(e) => setForm((f) => ({ ...f, sinal_percentual: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="motor-politicas">Políticas (cancelamento, horários, pets...)</Label>
+              <Textarea id="motor-politicas" rows={3} maxLength={1500} value={form.politicas} onChange={(e) => setForm((f) => ({ ...f, politicas: e.target.value }))} />
+            </div>
+          </fieldset>
+          <div className="flex flex-wrap items-center gap-2">
+            {podeEditar && <Button type="submit">Salvar</Button>}
+            {motor.ativo && p.slug && (
+              <>
+                <a href={`/r/${p.slug}`} target="_blank" rel="noreferrer"><Button type="button" variant="outline">Ver página</Button></a>
+                <Button type="button" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(link).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000) }) }}>
+                  {copiado ? "Link copiado" : "Copiar link"}
+                </Button>
+              </>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">Só aparecem quartos com preço (preço base ou tarifário). O quarto fica reservado até o prazo; sem confirmação, volta a ficar livre.</p>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** Por quanto tempo guardar nome, CPF e observações dos hóspedes após a saída. */
 function RetencaoDeHospedes() {
   const { auth } = useApp()
@@ -388,6 +476,7 @@ export default function Configuracoes() {
         <DadosDaPousada />
         {gerencia && <Equipe />}
       </div>
+      {gerencia && <ReservasPeloSite />}
       <div className="grid gap-5 lg:grid-cols-2">
         <Seguranca />
         <RetencaoDeHospedes />

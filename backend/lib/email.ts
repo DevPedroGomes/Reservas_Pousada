@@ -162,6 +162,61 @@ export async function sendStaffInviteEmail(
   await enfileirarEmail(email, `Convite para a equipe da ${pousadaNome} — Diária`, html, inviteUrl);
 }
 
+export interface DadosPedidoSite {
+  pousada: string;
+  reservaId: number;
+  hospede: string;
+  telefone: string;
+  quarto: string;
+  entrada: string; // dd/mm/aaaa
+  saida: string;
+  pessoas: number;
+  total: string; // "R$ 1.234,00"
+  sinal: string;
+  prazo: string; // "04/10 às 14:00"
+  linkReserva: string;
+}
+
+/** Aviso à pousada: chegou pedido pelo site, confirme antes do prazo. */
+export async function enviarPedidoParaPousada(para: string[], d: DadosPedidoSite): Promise<void> {
+  const linha = (rotulo: string, valor: string) =>
+    `<p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>${rotulo}:</strong> ${escapeHtml(valor)}</p>`;
+  const html = baseTemplate(`
+    ${titulo('Novo pedido de reserva pelo site')}
+    ${p(`<strong>${escapeHtml(d.hospede)}</strong> pediu uma reserva na <strong>${escapeHtml(d.pousada)}</strong>. Ela entrou como pré-reserva e segura o quarto até <strong>${escapeHtml(d.prazo)}</strong>.`)}
+    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0;">
+      ${linha('Quarto', d.quarto)}
+      ${linha('Datas', `${d.entrada} a ${d.saida}`)}
+      ${linha('Pessoas', String(d.pessoas))}
+      ${linha('Total pelo tarifário', d.total)}
+      ${linha('Sinal sugerido', d.sinal)}
+      ${linha('WhatsApp', d.telefone)}
+    </div>
+    ${ctaButton(d.linkReserva, 'Abrir a reserva')}
+    ${pequeno('Combine o sinal com o hóspede e confirme a reserva. Sem confirmação até o prazo, ela é cancelada e o quarto volta a ficar livre.')}
+  `, 'Novo pedido de reserva');
+  for (const email of para) {
+    await enfileirarEmail(email, `Pedido de reserva #${d.reservaId} — ${d.hospede}`, html);
+  }
+}
+
+/** Recibo ao hóspede: pedido recebido, a pousada vai confirmar. */
+export async function enviarPedidoRecebido(para: string, d: DadosPedidoSite): Promise<void> {
+  const html = baseTemplate(`
+    ${titulo('Recebemos seu pedido de reserva')}
+    ${p(`Olá, ${escapeHtml(d.hospede.split(' ')[0])}! Seu pedido na <strong>${escapeHtml(d.pousada)}</strong> foi recebido e o quarto está reservado para você até <strong>${escapeHtml(d.prazo)}</strong>, enquanto a pousada confirma.`)}
+    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0;">
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pedido:</strong> #${d.reservaId}</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Quarto:</strong> ${escapeHtml(d.quarto)}</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Datas:</strong> ${escapeHtml(d.entrada)} a ${escapeHtml(d.saida)}</p>
+      <p style="color:#64748b;font-size:13px;margin:0;"><strong>Total:</strong> ${escapeHtml(d.total)}</p>
+    </div>
+    ${p('A pousada vai falar com você pelo WhatsApp para combinar o sinal e confirmar.')}
+    ${pequeno('Você recebeu este e-mail porque fez um pedido de reserva. Se não foi você, ignore.')}
+  `, 'Pedido de reserva recebido');
+  await enfileirarEmail(para, `Pedido de reserva #${d.reservaId} recebido — ${d.pousada}`, html);
+}
+
 // ==========================================
 // Fila
 // ==========================================

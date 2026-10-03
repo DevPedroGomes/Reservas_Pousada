@@ -46,7 +46,10 @@ export interface Pousada {
   telefone?: string
   email?: string
   descricao?: string
-  configuracoes?: { retencao_hospedes_meses?: number }
+  configuracoes?: {
+    retencao_hospedes_meses?: number
+    motor?: { ativo?: boolean; prazo_horas?: number; sinal_percentual?: number; politicas?: string }
+  }
   ativa?: boolean
 }
 

@@ -7,6 +7,7 @@ import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
+import { lerConfigMotor } from '../models/Motor.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
@@ -313,6 +314,28 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
  * GET /api/pousadas/:id/dashboard
  * Get dashboard statistics
  */
+/**
+ * PUT /api/pousadas/:id/motor
+ * Motor de reservas pelo site: liga/desliga, prazo, sinal, políticas e endereço.
+ */
+router.put('/:id/motor', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(param(req, 'id'));
+    const { config, erros } = lerConfigMotor(req.body ?? {});
+    if (req.body?.slug !== undefined) {
+      const erroSlug = await PousadaModel.definirSlug(id, String(req.body.slug).trim().toLowerCase());
+      if (erroSlug) erros.push(erroSlug);
+    }
+    if (erros.length) return res.status(400).json({ sucesso: false, mensagem: erros[0], erros });
+    const pousada = await PousadaModel.atualizar(id, { configuracoes: { motor: config } });
+    await AuditoriaModel.log(req.user!.id, 'motor_reservas', 'pousada', id, { depois: config }, req.ip || null);
+    res.json({ sucesso: true, pousada });
+  } catch (error) {
+    console.error('Erro ao salvar o motor de reservas:', error);
+    res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
+  }
+});
+
 router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
     const id = param(req, 'id');

@@ -175,15 +175,15 @@ export class PousadaModel {
       updatedAt: new Date(),
     };
 
-    // Só regera o slug se o nome REALMENTE mudou. Antes, salvar a pousada sem
-    // mexer no nome já criava um slug novo: `gerarSlugUnico` encontrava a
-    // própria linha ocupando o slug e ia somando sufixo — pousada, pousada-1,
-    // pousada-2... a cada clique em Salvar.
-    if (pousadaData.nome) {
-      const atual = await this.buscarPorId(id);
-      if (!atual || atual.nome !== pousadaData.nome) {
-        updateData.slug = await this.gerarSlugUnico(pousadaData.nome);
-      }
+    // O slug NÃO acompanha o nome: ele é o endereço público da pousada
+    // (/r/<slug>, o motor de reservas) e mudar ao renomear quebraria o link
+    // já divulgado. Trocar o endereço é escolha explícita (definirSlug).
+    delete (updateData as Partial<NewPousada>).slug;
+    // Configurações se somam às existentes: salvar a retenção não apaga o
+    // motor de reservas, e vice-versa.
+    if (pousadaData.configuracoes) {
+      (updateData as Record<string, unknown>).configuracoes =
+        sql`COALESCE(${pousadas.configuracoes}, '{}'::jsonb) || ${JSON.stringify(pousadaData.configuracoes)}::jsonb`;
     }
 
     const [updated] = await db
@@ -193,6 +193,24 @@ export class PousadaModel {
       .returning();
 
     return updated || null;
+  }
+
+  /**
+   * Endereço público escolhido pelo dono. Devolve a mensagem de recusa, ou
+   * null se gravou.
+   */
+  static async definirSlug(id: number, slug: string): Promise<string | null> {
+    if (!/^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/.test(slug)) {
+      return 'Endereço deve ter de 3 a 60 letras minúsculas, números ou hífens (sem acento nem espaço).';
+    }
+    const [ocupado] = await db
+      .select({ id: pousadas.id })
+      .from(pousadas)
+      .where(and(eq(pousadas.slug, slug), sql`${pousadas.id} <> ${id}`))
+      .limit(1);
+    if (ocupado) return 'Este endereço já está em uso por outra pousada.';
+    await db.update(pousadas).set({ slug, updatedAt: new Date() }).where(eq(pousadas.id, id));
+    return null;
   }
 
   /**
