@@ -26,7 +26,7 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
 }) {
   const hoje = hojeNaPousada()
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center justify-between">
           {titulo}
@@ -39,15 +39,15 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
           const proximo = onMudarStatus ? acaoPrincipal(r.status, r.data_entrada, hoje) : null
           const aviso = avisoDeStatus(r, hoje)
           return (
-            <div key={`${titulo}-${r.id}`} className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
-              <Link href={`/reservas/${r.id}`} className="flex flex-1 items-center gap-2 min-w-0">
+            <div key={`${titulo}-${r.id}`} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
+              <Link href={`/reservas/${r.id}`} className="flex min-w-0 flex-1 basis-40 items-center gap-2">
                 <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">
                   {r.quarto}
                 </span>
                 <span className="truncate">{r.nome}</span>
                 {aviso && <span className={`rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap ${aviso.cor}`}>{aviso.texto}</span>}
               </Link>
-              <span className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
+              <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
                 {mostrarData === "entrada" && formatarData(r.data_entrada)}
                 {mostrarData === "saida" && `até ${formatarData(r.data_saida)}`}
                 {!r.pago && <span className="text-amber-600">a pagar</span>}

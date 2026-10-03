@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useApp } from "../../../components/app/ContextoApp"
 import { ReservationFilters } from "../../../components/reservations/ReservationFilters"
@@ -40,7 +41,12 @@ export default function ListaDeReservas() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-semibold tracking-tight">Reservas</h1>
+      <div className="flex items-end justify-between gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Reservas</h1>
+        {(auth.user?.is_owner || auth.user?.role === "admin" || auth.user?.role === "recepcao") && (
+          <Link href="/reservas/nova"><Button>Nova reserva</Button></Link>
+        )}
+      </div>
 
       {r.error && (
         <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">

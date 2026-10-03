@@ -15,6 +15,7 @@ import quartoRoutes from './routes/quartos.js';
 import hospedeRoutes from './routes/hospedes.js';
 import tarifaRoutes from './routes/tarifas.js';
 import icalRoutes from './routes/ical.js';
+import relatorioRoutes from './routes/relatorios.js';
 import { calendarioExportado } from './models/Ical.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
@@ -221,6 +222,7 @@ app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoute
 // Tarifário também é configuração (sem trava de assinatura).
 app.use('/api/tarifas', authMiddleware, userLimiter, requirePousada, tarifaRoutes);
 app.use('/api/ical', authMiddleware, userLimiter, requirePousada, icalRoutes);
+app.use('/api/relatorios', authMiddleware, userLimiter, requirePousada, relatorioRoutes);
 
 // Calendário exportado de um quarto: público, protegido pelo token secreto
 // do link. A OTA consulta de tempos em tempos; o limite segura varredura.

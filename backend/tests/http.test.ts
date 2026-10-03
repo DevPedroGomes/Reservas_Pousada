@@ -642,6 +642,19 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('relatórios', () => {
+    it('dono vê; recepção não vê faturamento; período invertido é recusado', async () => {
+      const r = await donoA.req('GET', `/api/relatorios?inicio=${d(0)}&fim=${d(30)}`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.relatorio.dias, 31);
+      assert.ok(r.json.relatorio.noitesVendidas >= 1);
+      assert.equal((await recep.req('GET', '/api/relatorios')).status, 403);
+      assert.equal((await donoA.req('GET', `/api/relatorios?inicio=${d(10)}&fim=${d(1)}`)).status, 400);
+      const b = await donoB.req('GET', `/api/relatorios?inicio=${d(0)}&fim=${d(30)}`);
+      assert.equal(b.json.relatorio.noitesVendidas, 0, 'cada pousada vê só os seus números');
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');
