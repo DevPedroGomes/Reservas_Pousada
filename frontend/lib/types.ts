@@ -43,6 +43,7 @@ export interface Pousada {
   telefone?: string
   email?: string
   descricao?: string
+  configuracoes?: { retencao_hospedes_meses?: number }
   ativa?: boolean
 }
 

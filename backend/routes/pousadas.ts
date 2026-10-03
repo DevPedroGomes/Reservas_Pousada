@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel, { LimiteDoPlano } from '../models/Pousada.js';
 import ReservaModel from '../models/Reserva.js';
+import { excluirPousada, ExclusaoRecusada } from '../models/Conta.js';
 import { hojeLocal } from '../utils/datas.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
@@ -504,6 +505,28 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
 // ============================================
 // ADMINISTRATION ROUTES
 // ============================================
+
+/**
+ * DELETE /api/pousadas/:id — exclusão definitiva a pedido do dono (LGPD).
+ * Corpo: { confirmacao: "<nome exato da pousada>" }.
+ */
+router.delete('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
+  if (!req.user!.isOwner) {
+    return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário pode excluir a pousada.' });
+  }
+  const pousadaId = parseInt(param(req, 'id'));
+  try {
+    await excluirPousada(pousadaId, String(req.body?.confirmacao ?? ''));
+  } catch (err) {
+    if (err instanceof ExclusaoRecusada) {
+      return res.status(409).json({ sucesso: false, mensagem: err.message });
+    }
+    throw err;
+  }
+  // Registro sem dado pessoal: a auditoria da pousada acabou de ser apagada.
+  await AuditoriaModel.log(req.user!.id, 'pousada_excluida', 'usuario', null, { pousadaId }, req.ip || null);
+  res.json({ sucesso: true, mensagem: 'Pousada excluída definitivamente.' });
+});
 
 /**
  * POST /api/pousadas/:id/desativar

@@ -441,7 +441,13 @@ export function sanitizarPousada(pousada: PousadaData): Partial<PousadaData> {
   }
 
   if (pousada.configuracoes !== undefined) {
-    sanitizado.configuracoes = pousada.configuracoes || {};
+    // Só chaves conhecidas: configuracoes é jsonb livre no banco, e aceitar
+    // qualquer objeto do cliente deixava gravar o que quisesse ali.
+    const entrada = (pousada.configuracoes || {}) as Record<string, unknown>;
+    const limpo: Record<string, unknown> = {};
+    const meses = Number(entrada.retencao_hospedes_meses);
+    if (Number.isInteger(meses) && meses >= 0 && meses <= 240) limpo.retencao_hospedes_meses = meses;
+    sanitizado.configuracoes = limpo;
   }
 
   return sanitizado;

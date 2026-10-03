@@ -11,6 +11,7 @@ import conviteRoutes from './routes/convites.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
 import telemetriaRoutes from './routes/telemetria.js';
+import contaRoutes from './routes/conta.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -214,6 +215,7 @@ app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 // conseguir ver o proprio estado e escolher um plano.
 app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);
 app.use('/api/admin', authMiddleware, userLimiter, adminRoutes);
+app.use('/api/conta', authMiddleware, userLimiter, contaRoutes);
 
 // ==========================================
 // Health Check & Status

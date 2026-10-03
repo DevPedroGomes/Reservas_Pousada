@@ -14,11 +14,13 @@ import { TIMEZONE } from '../utils/datas.js';
 import { reportarErro } from './observabilidade.js';
 import { limpeza } from '../jobs/limpeza.js';
 import { finalizarEstadiasVencidas } from '../jobs/estadias.js';
+import { anonimizarHospedesAntigos } from '../models/Conta.js';
 
 export const FILAS = {
   email: 'email',
   limpeza: 'limpeza',
   finalizarEstadias: 'finalizar-estadias',
+  anonimizarHospedes: 'anonimizar-hospedes',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
@@ -86,6 +88,10 @@ export async function iniciarFila(): Promise<void> {
   // Agendados: um disparo por cron no cluster inteiro, no fuso da operação.
   await boss.schedule(FILAS.limpeza, '17 * * * *', null, { tz: TIMEZONE });
   await boss.schedule(FILAS.finalizarEstadias, '30 3 * * *', null, { tz: TIMEZONE });
+  await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
+  await boss.work(FILAS.anonimizarHospedes, async () =>
+    executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),
+  );
   await boss.work(FILAS.limpeza, async () => executarAgendado('limpeza', limpeza));
   await boss.work(FILAS.finalizarEstadias, async () =>
     executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()),
@@ -97,7 +103,7 @@ export async function iniciarFila(): Promise<void> {
     });
   }
 
-  console.log(`[Fila] pg-boss iniciado (${trabalhadores.size + 2} filas)`);
+  console.log(`[Fila] pg-boss iniciado (${trabalhadores.size + 3} filas)`);
 }
 
 /**

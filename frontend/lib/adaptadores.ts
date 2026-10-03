@@ -66,6 +66,7 @@ export function pousadaDaApi(p: Bruto): Pousada {
     telefone: (p.telefone as string) ?? undefined,
     email: (p.email as string) ?? undefined,
     descricao: (p.descricao as string) ?? undefined,
+    configuracoes: (p.configuracoes as Pousada["configuracoes"]) ?? {},
     ativa: p.ativa as boolean | undefined,
   }
 }

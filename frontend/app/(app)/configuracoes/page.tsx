@@ -264,6 +264,115 @@ function Seguranca() {
   )
 }
 
+
+/** Por quanto tempo guardar nome, CPF e observações dos hóspedes após a saída. */
+function RetencaoDeHospedes() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const podeEditar = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  const atual = p.configuracoes?.retencao_hospedes_meses ?? 0
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  async function mudar(meses: number) {
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ configuracoes: { retencao_hospedes_meses: meses } }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? "Prazo de retenção atualizado." : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Dados dos hóspedes</CardTitle>
+        <CardDescription>
+          Depois do prazo, nome, CPF e observações das estadias encerradas são anonimizados automaticamente.
+          Datas e valores ficam para os relatórios. Confira o prazo que a sua atividade precisa guardar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Aviso m={msg} />
+        <select
+          aria-label="Prazo de retenção dos dados de hóspedes"
+          disabled={!podeEditar}
+          value={atual}
+          onChange={(e) => void mudar(Number(e.target.value))}
+          className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
+        >
+          <option value={0}>Não anonimizar automaticamente</option>
+          <option value={12}>Anonimizar após 12 meses</option>
+          <option value={24}>Anonimizar após 24 meses</option>
+          <option value={60}>Anonimizar após 5 anos</option>
+        </select>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Direitos do titular: exportar os próprios dados, excluir a conta, excluir a pousada. */
+function SuaConta() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  async function exportar() {
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/conta/exportar`)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      return setMsg({ type: "error", text: d.mensagem || "Não foi possível exportar agora." })
+    }
+    const blob = await r.blob()
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = "meus-dados-diaria.json"
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  async function excluirConta() {
+    const confirmacao = window.prompt("Isso apaga seu nome, e-mail e acesso a todas as pousadas. Digite EXCLUIR para confirmar.")
+    if (confirmacao !== "EXCLUIR") return
+    const r = await authenticatedFetch(`${API_URL}/conta`, { method: "DELETE", body: JSON.stringify({ confirmacao }) })
+    const d = await r.json()
+    if (d.sucesso) window.location.assign("/")
+    else setMsg({ type: "error", text: d.mensagem || "Não foi possível excluir a conta." })
+  }
+
+  async function excluirPousada() {
+    const confirmacao = window.prompt(
+      `Excluir "${p.nome}" apaga DEFINITIVAMENTE reservas, hóspedes, equipe e histórico. Exporte as reservas antes.\n\nDigite o nome da pousada para confirmar:`,
+    )
+    if (!confirmacao) return
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, { method: "DELETE", body: JSON.stringify({ confirmacao }) })
+    const d = await r.json()
+    if (d.sucesso) window.location.assign("/painel")
+    else setMsg({ type: "error", text: d.mensagem || "Não foi possível excluir a pousada." })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sua conta e seus dados</CardTitle>
+        <CardDescription>Exporte o que o Diária guarda sobre você ou encerre a conta (LGPD).</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Aviso m={msg} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void exportar()}>Exportar meus dados</Button>
+          <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirConta()}>Excluir minha conta</Button>
+          {auth.user?.is_owner && (
+            <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirPousada()}>Excluir esta pousada</Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Configuracoes() {
   const { auth } = useApp()
   const gerencia = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
@@ -274,7 +383,11 @@ export default function Configuracoes() {
         <DadosDaPousada />
         {gerencia && <Equipe />}
       </div>
-      <Seguranca />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Seguranca />
+        <RetencaoDeHospedes />
+      </div>
+      <SuaConta />
     </div>
   )
 }

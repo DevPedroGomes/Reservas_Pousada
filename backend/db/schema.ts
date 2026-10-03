@@ -74,6 +74,8 @@ export const pousadas = pgTable('pousadas', {
   descricao: text('descricao'),
   configuracoes: jsonb('configuracoes').default({}),
   ativa: boolean('ativa').default(true),
+  // Exclusão a pedido do dono (migration 014): dados apagados, linha anonimizada.
+  excluidaEm: timestamp('excluida_em', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({

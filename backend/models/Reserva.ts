@@ -3,6 +3,7 @@ import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
 import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
 import { mascararCpf } from '../utils/pii.js';
+import { CPF_ANONIMIZADO } from './Conta.js';
 
 /** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
 const PG_EXCLUSION_VIOLATION = '23P01';
@@ -61,6 +62,8 @@ export class ReservaModel {
    * Decrypt CPF in a reservation result (gracefully handles unencrypted CPFs)
    */
   private static decryptResult<T extends { cpf: string }>(result: T): T {
+    // Hóspede anonimizado pela política de retenção: não há CPF a decifrar.
+    if (result.cpf === CPF_ANONIMIZADO) return { ...result, cpf: '' };
     try {
       return { ...result, cpf: decryptCpf(result.cpf) };
     } catch (err) {
