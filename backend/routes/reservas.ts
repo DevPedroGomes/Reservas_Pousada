@@ -206,6 +206,25 @@ router.get('/agenda', authorize(['admin', 'recepcao', 'auditoria']), async (req:
   res.json({ sucesso: true, ...agenda });
 });
 
+// Mapa de ocupação: quartos x dias, com as reservas do período.
+router.get('/mapa', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const inicio = typeof req.query.inicio === 'string' && validarData(req.query.inicio) ? req.query.inicio : hojeLocal();
+    const dias = Math.min(Math.max(parseInt(String(req.query.dias ?? '14')) || 14, 7), 62);
+    const fim = new Date(Date.parse(`${inicio}T00:00:00Z`) + dias * 864e5).toISOString().slice(0, 10);
+    const pousadaId = req.user!.pousadaId!;
+    const [lista, todosQuartos] = await Promise.all([ReservaModel.mapa(pousadaId, inicio, fim), QuartoModel.listar(pousadaId)]);
+    // Quarto desativado só aparece se tiver reserva no período.
+    const comReserva = new Set(lista.map((r) => r.quarto));
+    const quartos = todosQuartos
+      .filter((q) => q.ativo || comReserva.has(q.numero))
+      .map((q) => ({ numero: q.numero, nome: q.nome, tipo: q.tipo, capacidade: q.capacidade, ativo: q.ativo }));
+    res.json({ sucesso: true, inicio, fim, dias, quartos, reservas: lista });
+  } catch (err) {
+    next(new AppError('Erro ao montar o mapa', 500, 'RES_011'));
+  }
+});
+
 // Get reservation audit history
 router.get('/:id/auditoria', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
   try {

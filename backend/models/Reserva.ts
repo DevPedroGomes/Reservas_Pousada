@@ -564,6 +564,36 @@ export class ReservaModel {
 
     return { dia, chegadas, saidas, hospedados, proximas };
   }
+
+  /**
+   * Mapa de ocupação: reservas que tocam o período [inicio, fim) — inclusive
+   * as já finalizadas, para ver a semana que passou. Cancelada e no-show não
+   * ocupam o quarto e ficam de fora.
+   */
+  static async mapa(pousadaId: number, inicio: string, fim: string) {
+    return db
+      .select({
+        id: reservas.id,
+        quarto: reservas.quarto,
+        nome: reservas.nome,
+        dataEntrada: reservas.dataEntrada,
+        dataSaida: reservas.dataSaida,
+        status: reservas.status,
+        pago: reservas.pago,
+        adultos: reservas.adultos,
+        criancas: reservas.criancas,
+        canal: reservas.canal,
+      })
+      .from(reservas)
+      .where(and(
+        eq(reservas.pousadaId, pousadaId),
+        isNull(reservas.deletedAt),
+        inArray(reservas.status, [...STATUS_QUE_OCUPAM, 'finalizada']),
+        lt(reservas.dataEntrada, fim),
+        gt(reservas.dataSaida, inicio),
+      ))
+      .orderBy(reservas.quarto, reservas.dataEntrada);
+  }
 }
 
 export default ReservaModel;

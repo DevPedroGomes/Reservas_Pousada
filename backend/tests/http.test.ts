@@ -508,6 +508,28 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('mapa de ocupação', () => {
+    it('traz os quartos e as reservas que tocam o período, sem canceladas', async () => {
+      const r = await recep.req('GET', `/api/reservas/mapa?inicio=${d(9)}&dias=7`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.inicio, d(9));
+      assert.equal(r.json.fim, d(16));
+      assert.ok(r.json.quartos.length >= 1);
+      assert.ok(r.json.reservas.some((x: { id: number }) => x.id === reservaA), 'reserva de d10 a d12 aparece');
+      assert.ok(r.json.reservas.every((x: { status: string }) => !['cancelada', 'no_show'].includes(x.status)));
+      const longe = await recep.req('GET', `/api/reservas/mapa?inicio=${d(300)}&dias=7`);
+      assert.equal(longe.json.reservas.length, 0);
+    });
+
+    it('cada pousada vê só o próprio mapa; parâmetros absurdos são contidos', async () => {
+      const b = await donoB.req('GET', `/api/reservas/mapa?inicio=${d(9)}&dias=7`);
+      assert.ok(!b.json.reservas.some((x: { id: number }) => x.id === reservaA));
+      const c = await recep.req('GET', '/api/reservas/mapa?inicio=ontem&dias=9999');
+      assert.equal(c.status, 200);
+      assert.equal(c.json.dias, 62);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');
