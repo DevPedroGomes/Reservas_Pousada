@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import AssinaturaModel from '../models/Assinatura.js';
+import StaffInviteModel from '../models/StaffInvite.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import { avaliarAcesso, limitesVigentes, mensagemDeBloqueio } from '../utils/assinatura.js';
 
@@ -77,19 +78,30 @@ export async function excedeLimiteDeQuartos(
 /**
  * Cabe mais um usuário na equipe?
  *
- * Conta os membros atuais da junction — é o número que o dono vê na tela, e
- * contar convites pendentes junto faria o limite parecer estourado antes de
- * alguém realmente entrar.
+ * Na hora de CONVIDAR, conta membros + convites pendentes válidos: contar só
+ * membros deixava o dono do Essencial (3 usuários) mandar 10 convites e ter
+ * 10 pessoas dentro quando todos aceitassem.
+ *
+ * Na hora de ACEITAR (`noAceite`), conta só membros — o convite que está
+ * sendo aceito já é uma das vagas reservadas.
  */
-export async function excedeLimiteDeUsuarios(pousadaId: number): Promise<string | null> {
+export async function excedeLimiteDeUsuarios(
+  pousadaId: number,
+  opcoes: { noAceite?: boolean } = {},
+): Promise<string | null> {
   if (!billingHabilitado()) return null;
 
   const situacao = await AssinaturaModel.situacao(pousadaId);
   if (!situacao) return null;
 
   const max = situacao.limites.maxUsuarios;
-  if (max !== null && situacao.usuarios >= max) {
-    return `Seu plano permite até ${max} usuários. Faça upgrade para adicionar mais.`;
+  if (max === null) return null;
+
+  const ocupadas = situacao.usuarios + (opcoes.noAceite ? 0 : await StaffInviteModel.contarPendentes(pousadaId));
+  if (ocupadas >= max) {
+    return opcoes.noAceite
+      ? 'A equipe desta pousada atingiu o limite de usuários do plano. Peça ao responsável para fazer upgrade.'
+      : `Seu plano permite até ${max} usuários (contando convites pendentes). Faça upgrade ou revogue um convite.`;
   }
   return null;
 }

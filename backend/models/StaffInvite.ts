@@ -182,6 +182,29 @@ export class StaffInviteModel {
     return updated;
   }
 
+  /** Convites pendentes e ainda válidos — cada um reserva uma vaga do plano. */
+  static async contarPendentes(pousadaId: number): Promise<number> {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(staffInvites)
+      .where(and(
+        eq(staffInvites.pousadaId, pousadaId),
+        eq(staffInvites.status, 'pending'),
+        sql`${staffInvites.expiresAt} > now()`,
+      ));
+    return Number(n) || 0;
+  }
+
+  /** Pousada de um convite pendente, sem validar nada além da existência. */
+  static async pousadaDoConvite(token: string): Promise<number | null> {
+    const [row] = await db
+      .select({ pousadaId: staffInvites.pousadaId })
+      .from(staffInvites)
+      .where(eq(staffInvites.token, token))
+      .limit(1);
+    return row?.pousadaId ?? null;
+  }
+
   /**
    * Check if there's already a pending invite for this email+pousada
    */

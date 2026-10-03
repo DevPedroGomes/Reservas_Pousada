@@ -290,49 +290,6 @@ export class PousadaModel {
   }
 
   /**
-   * Add user to pousada (junction table + set as active)
-   */
-  /**
-   * Adiciona um usuário à pousada.
-   *
-   * NÃO troca a pousada ativa do usuário nem mexe no papel dele em outros
-   * tenants. Antes, este método fazia `UPDATE user SET pousada_id, role,
-   * is_owner = false` no alvo — o que permitia a um admin da pousada A puxar
-   * para dentro dela o DONO da pousada B e, de quebra, rebaixá-lo. A troca de
-   * tenant ativo é decisão de quem entra (`trocarPousadaAtiva`), não de quem
-   * convida.
-   */
-  static async adicionarUsuario(pousadaId: number, userId: string, role: string = 'recepcao'): Promise<{ success: boolean }> {
-    await db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ id: userPousadas.id })
-        .from(userPousadas)
-        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
-        .limit(1);
-
-      if (existing) {
-        throw new Error('Usuário já é membro desta pousada');
-      }
-
-      await tx.insert(userPousadas).values({
-        userId,
-        pousadaId,
-        role,
-        isOwner: false,
-      });
-
-      // Só define a pousada ativa se o usuário ainda não tiver nenhuma — é o
-      // caso de quem acabou de se cadastrar e foi adicionado a uma equipe.
-      await tx
-        .update(user)
-        .set({ pousadaId, role, isOwner: false, updatedAt: new Date() })
-        .where(and(eq(user.id, userId), sql`${user.pousadaId} IS NULL`));
-    });
-
-    return { success: true };
-  }
-
-  /**
    * Remove user from pousada (junction table + auto-switch active)
    */
   static async removerUsuario(pousadaId: number, userId: string): Promise<{ success: boolean }> {

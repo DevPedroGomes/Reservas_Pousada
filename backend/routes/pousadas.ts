@@ -404,52 +404,10 @@ router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Respo
   }
 });
 
-/**
- * POST /api/pousadas/:id/usuarios
- * Add user to pousada (admin/owner only)
- */
-router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Response) => {
-  try {
-    const id = param(req, 'id');
-    const { user_id, role } = req.body;
-
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'ID da pousada inválido'
-      });
-    }
-
-    if (!user_id) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'ID do usuário é obrigatório'
-      });
-    }
-
-    if (role && !ehPapelValido(role)) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`
-      });
-    }
-
-    await PousadaModel.adicionarUsuario(parseInt(id), user_id, role || 'recepcao');
-
-    await AuditoriaModel.log(req.user!.id, 'user_add', 'user_pousada', parseInt(id), { userId: user_id, role: role || 'recepcao' }, req.ip || null);
-
-    res.json({
-      sucesso: true,
-      mensagem: 'Usuário adicionado à pousada'
-    });
-  } catch (error: any) {
-    console.error('Erro ao adicionar usuário:', error);
-    res.status(500).json({
-      sucesso: false,
-      mensagem: 'Erro ao adicionar usuário'
-    });
-  }
-});
+// POST /api/pousadas/:id/usuarios (vincular um usuário pelo id) foi REMOVIDO.
+// Ele puxava qualquer conta para dentro da pousada sem consentimento e sem
+// passar pelo limite de usuários do plano. Entrar numa equipe agora é só por
+// convite, que exige o e-mail do convidado e o aceite dele.
 
 /**
  * DELETE /api/pousadas/:id/usuarios/:userId
