@@ -18,12 +18,12 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { assertCpfCryptoConfigurada } from './utils/crypto.js';
 import { chaveDeRateLimit } from './utils/rede.js';
 import { criarLimitador } from './utils/limitadores.js';
-import { limparRateLimitsVencidos } from './utils/rateLimitStore.js';
 import { origensPermitidas } from './utils/origens.js';
 import { TIMEZONE } from './utils/datas.js';
 import { avisarEstadoDoBilling } from './lib/stripe.js';
 import { requerAssinaturaAtiva } from './middleware/assinatura.js';
 import { descarregarErros, iniciarObservabilidade, reportarErro, requestId } from './lib/observabilidade.js';
+import { iniciarFila, pararFila } from './lib/fila.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -315,19 +315,10 @@ async function iniciarServidor() {
       console.warn('⚠ RESEND_API_KEY não definida — emails (convites, reset senha, verificação) NÃO serão enviados');
     }
 
-    // Cleanup expired sessions (and stale rate-limit windows) every 6 hours
-    const limpezaDeSessoes = setInterval(async () => {
-      try {
-        const result = await pool.query('DELETE FROM session WHERE expires_at < NOW()');
-        if (result.rowCount && result.rowCount > 0) {
-          console.log(`[Cleanup] ${result.rowCount} sessões expiradas removidas`);
-        }
-        await limparRateLimitsVencidos(pool);
-      } catch (err) {
-        console.error('[Cleanup] Erro ao limpar sessões:', err);
-      }
-    }, 6 * 60 * 60 * 1000);
-    limpezaDeSessoes.unref();
+    // Jobs em background (limpeza, finalização de estadias, e-mails com
+    // retentativa). Antes era um setInterval por processo: com duas réplicas
+    // rodava em dobro, e e-mail que falhava não era reenviado.
+    await iniciarFila();
 
     // Start server
     const server = app.listen(PORT, () => {
@@ -356,10 +347,10 @@ async function iniciarServidor() {
       }, 15_000);
       prazo.unref();
 
-      clearInterval(limpezaDeSessoes);
       server.close(async (err) => {
         if (err) console.error('[Shutdown] Erro ao fechar o servidor HTTP:', err);
         try {
+          await pararFila();
           await closeConnection();
         } catch (e) {
           console.error('[Shutdown] Erro ao fechar o pool:', e);
