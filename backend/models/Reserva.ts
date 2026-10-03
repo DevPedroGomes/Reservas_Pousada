@@ -511,6 +511,43 @@ export class ReservaModel {
   }
 
   /**
+   * Agenda de um dia: chegadas, saídas, quem está hospedado e as próximas
+   * chegadas. É o que a recepção abre de manhã.
+   *
+   * Substitui o "próximas reservas" antigo, que era calculado no navegador a
+   * partir da primeira página da listagem (ordenada da mais antiga): passadas
+   * 50 reservas, o painel mostrava estadias do ano anterior.
+   */
+  static async agenda(pousadaId: number, dia: string, diasAFrente: number) {
+    const campos = {
+      id: reservas.id,
+      nome: reservas.nome,
+      quarto: reservas.quarto,
+      dataEntrada: reservas.dataEntrada,
+      dataSaida: reservas.dataSaida,
+      valor: reservas.valor,
+      pago: reservas.pago,
+      status: reservas.status,
+    };
+    const base = [eq(reservas.pousadaId, pousadaId), eq(reservas.status, 'ativa'), isNull(reservas.deletedAt)];
+    const ate = sql`(${dia}::date + ${diasAFrente}::int)`;
+
+    const [chegadas, saidas, hospedados, proximas] = await Promise.all([
+      db.select(campos).from(reservas).where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
+      db.select(campos).from(reservas).where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
+      db.select(campos).from(reservas)
+        .where(and(...base, lte(reservas.dataEntrada, dia), gt(reservas.dataSaida, dia)))
+        .orderBy(reservas.quarto),
+      db.select(campos).from(reservas)
+        .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))
+        .orderBy(reservas.dataEntrada, reservas.quarto)
+        .limit(50),
+    ]);
+
+    return { dia, chegadas, saidas, hospedados, proximas };
+  }
+
+  /**
    * Quartos acima de `limite` com reserva ativa que ainda não terminou.
    *
    * Usado antes de reduzir o número de quartos da pousada: sem isso, a

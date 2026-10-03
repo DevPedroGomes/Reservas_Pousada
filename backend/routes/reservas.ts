@@ -6,6 +6,7 @@ import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPe
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import PousadaModel from '../models/Pousada.js';
+import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
@@ -154,6 +155,14 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
   } catch (error) {
     next(new AppError('Erro ao exportar reservas', 500, 'RES_006'));
   }
+});
+
+// Agenda do dia (chegadas, saídas, hospedados, próximas)
+router.get('/agenda', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response) => {
+  const dia = typeof req.query.data === 'string' && validarData(req.query.data) ? req.query.data : hojeLocal();
+  const dias = Math.min(Math.max(parseInt(String(req.query.dias ?? '7')) || 7, 1), 60);
+  const agenda = await ReservaModel.agenda(req.user!.pousadaId!, dia, dias);
+  res.json({ sucesso: true, ...agenda });
 });
 
 // Get reservation audit history

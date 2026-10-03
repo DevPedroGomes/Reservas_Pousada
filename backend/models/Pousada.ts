@@ -289,6 +289,20 @@ export class PousadaModel {
     return rows;
   }
 
+  /** Troca o papel do vínculo (o papel vale por pousada). */
+  static async alterarPapel(pousadaId: number, userId: string, role: string): Promise<void> {
+    await db
+      .update(userPousadas)
+      .set({ role })
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
+    // Mantém a cópia legada na linha do usuário coerente quando esta é a
+    // pousada padrão dele (o authMiddleware já lê do vínculo).
+    await db
+      .update(user)
+      .set({ role, updatedAt: new Date() })
+      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)));
+  }
+
   /**
    * Remove user from pousada (junction table + auto-switch active)
    */

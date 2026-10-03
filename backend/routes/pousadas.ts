@@ -410,6 +410,44 @@ router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Respo
 // convite, que exige o e-mail do convidado e o aceite dele.
 
 /**
+ * PATCH /api/pousadas/:id/usuarios/:userId
+ * Troca o papel de um membro. Regras:
+ * - ninguém muda o próprio papel nem o do dono;
+ * - conceder ou retirar o papel de admin é só do dono (um admin não cria
+ *   outros admins nem rebaixa um colega).
+ * Vale na hora: o papel é lido do vínculo a cada requisição.
+ */
+router.patch('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request, res: Response) => {
+  const pousadaId = parseInt(param(req, 'id'));
+  const alvoId = param(req, 'userId');
+  const { role } = req.body ?? {};
+
+  if (!ehPapelValido(role)) {
+    return res.status(400).json({ sucesso: false, mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}` });
+  }
+  if (alvoId === req.user!.id) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Você não pode alterar o próprio papel.' });
+  }
+
+  const vinculo = await PousadaModel.verificarAcesso(pousadaId, alvoId);
+  if (!vinculo) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Usuário não é membro desta pousada.' });
+  }
+  if (vinculo.isOwner) {
+    return res.status(403).json({ sucesso: false, mensagem: 'O papel do proprietário não pode ser alterado.' });
+  }
+  if (!req.user!.isOwner && (role === 'admin' || vinculo.role === 'admin')) {
+    return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário concede ou retira o papel de administrador.' });
+  }
+
+  await PousadaModel.alterarPapel(pousadaId, alvoId, role);
+  await AuditoriaModel.log(req.user!.id, 'user_role_change', 'user_pousada', pousadaId,
+    { userId: alvoId, de: vinculo.role, para: role }, req.ip || null);
+
+  res.json({ sucesso: true, mensagem: 'Papel atualizado.' });
+});
+
+/**
  * DELETE /api/pousadas/:id/usuarios/:userId
  * Remove user from pousada (admin/owner only)
  */
@@ -438,6 +476,12 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
         sucesso: false,
         mensagem: 'Você não pode remover a si mesmo da pousada'
       });
+    }
+
+    // Admin não remove outro admin (só o dono decide sobre administradores).
+    const vinculoAlvo = await PousadaModel.verificarAcesso(parseInt(id), userId);
+    if (vinculoAlvo?.role === 'admin' && !req.user!.isOwner) {
+      return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário remove um administrador.' });
     }
 
     await PousadaModel.removerUsuario(parseInt(id), userId);
