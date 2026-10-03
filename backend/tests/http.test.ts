@@ -264,6 +264,21 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('onboarding', () => {
+    it('cria a pousada só com nome e quartos (endereço e contato depois)', async () => {
+      const c = await novoUsuario('minimo@teste.com', 'Dona Mínima');
+      const r = await c.req('POST', '/api/pousadas', { nome: "Pousada D'Água", num_quartos: 4 });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.equal(r.json.pousada.nome, "Pousada D'Água");
+    });
+
+    it('contato informado ainda é validado', async () => {
+      const c = await novoUsuario('contato.ruim@teste.com', 'Contato Ruim');
+      const r = await c.req('POST', '/api/pousadas', { nome: 'Pousada X', num_quartos: 4, telefone: '123' });
+      assert.equal(r.status, 400);
+    });
+  });
+
   describe('billing (com cobrança ligada)', () => {
     let antes: Record<string, string | undefined>;
     before(() => {

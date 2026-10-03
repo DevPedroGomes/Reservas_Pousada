@@ -340,27 +340,23 @@ export function validarPousada(pousada: PousadaData, parcial: boolean = false): 
     }
   }
 
-  // Address
-  if (!parcial || pousada.endereco !== undefined) {
-    if (!pousada.endereco || pousada.endereco.trim().length < 5) {
+  // Endereço, telefone e e-mail são OPCIONAIS (validados só quando vêm).
+  // Exigi-los na criação travava o onboarding: 3 etapas de formulário antes de
+  // a pessoa ver o produto. Completam-se depois em Configurações.
+  if (pousada.endereco) {
+    if (pousada.endereco.trim().length < 5) {
       erros.push('Endereço deve ter pelo menos 5 caracteres');
     } else if (pousada.endereco.length > 255) {
       erros.push('Endereço deve ter no máximo 255 caracteres');
     }
   }
 
-  // Phone
-  if (!parcial || pousada.telefone !== undefined) {
-    if (!validarTelefone(pousada.telefone)) {
-      erros.push('Telefone inválido. Use formato com DDD (10 ou 11 dígitos)');
-    }
+  if (pousada.telefone && !validarTelefone(pousada.telefone)) {
+    erros.push('Telefone inválido. Use formato com DDD (10 ou 11 dígitos)');
   }
 
-  // Email
-  if (!parcial || pousada.email !== undefined) {
-    if (!validarEmail(pousada.email)) {
-      erros.push('Email inválido');
-    }
+  if (pousada.email && !validarEmail(pousada.email)) {
+    erros.push('Email inválido');
   }
 
   // Optional fields with size validation
