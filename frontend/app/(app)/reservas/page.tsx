@@ -43,9 +43,14 @@ export default function ListaDeReservas() {
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Reservas</h1>
-        {(auth.user?.is_owner || auth.user?.role === "admin" || auth.user?.role === "recepcao") && (
-          <Link href="/reservas/nova"><Button>Nova reserva</Button></Link>
-        )}
+        <div className="flex gap-2">
+          {(auth.user?.is_owner || auth.user?.role === "admin") && (
+            <Link href="/reservas/importar"><Button variant="outline">Importar planilha</Button></Link>
+          )}
+          {(auth.user?.is_owner || auth.user?.role === "admin" || auth.user?.role === "recepcao") && (
+            <Link href="/reservas/nova"><Button>Nova reserva</Button></Link>
+          )}
+        </div>
       </div>
 
       {r.error && (

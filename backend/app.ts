@@ -186,6 +186,8 @@ app.use('/api/webhooks/stripe', stripeWebhookRoutes);
 // ==========================================
 // Body Parser (after Better Auth)
 // ==========================================
+// Importação de planilha manda até 2.000 linhas: limite próprio, antes do geral.
+app.use('/api/reservas/importar', express.json({ limit: '3mb' }));
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true, limit: '256kb' }));
 

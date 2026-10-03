@@ -10,6 +10,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
 import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
+import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -204,6 +205,28 @@ router.get('/agenda', authorize(['admin', 'recepcao', 'auditoria']), async (req:
   const dias = Math.min(Math.max(parseInt(String(req.query.dias ?? '7')) || 7, 1), 60);
   const agenda = await ReservaModel.agenda(req.user!.pousadaId!, dia, dias);
   res.json({ sucesso: true, ...agenda });
+});
+
+// Importação de planilha (dono/admin). `simular: true` devolve a prévia sem gravar.
+router.post('/importar', authorize(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const linhas = req.body?.linhas;
+    if (!Array.isArray(linhas) || linhas.length === 0) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Nenhuma linha para importar' });
+    }
+    if (linhas.length > MAX_LINHAS) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: `Máximo de ${MAX_LINHAS} linhas por vez — divida a planilha` });
+    }
+    const simular = req.body.simular !== false;
+    const r = await importarPlanilha(req.user!.pousadaId!, req.user!.id, linhas, simular);
+    if (!simular) {
+      AuditoriaModel.log(req.user!.id, 'importar_planilha', 'reserva', 0, { linhas: linhas.length, criadas: r.criadas, comErro: r.comErro }, req.ip || null)
+        .catch((e) => console.error('[Auditoria] importação:', e.message));
+    }
+    res.json({ sucesso: true, simulacao: simular, ...r });
+  } catch (err) {
+    next(new AppError('Erro ao importar planilha', 500, 'RES_012'));
+  }
 });
 
 // Mapa de ocupação: quartos x dias, com as reservas do período.

@@ -655,6 +655,58 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('importação de planilha', () => {
+    const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+    const linhas = () => [
+      { nome: 'Ana Planilha', cpf: '153.509.460-56', telefone: '(48) 99999-1111', quarto: 'quarto 1', data_entrada: '10/01/2025', data_saida: '12/01/2025', valor: 'R$ 1.234,56', pago: 'sim', canal: 'Booking.com' },
+      { nome: 'Bruno Futuro', quarto: '1', data_entrada: br(d(200)), data_saida: br(d(203)), telefone: '48988880000', status: 'ativa' },
+      { nome: 'Carla Choque', quarto: '1', data_entrada: br(d(201)), data_saida: br(d(202)), telefone: '48988880001' },
+      { nome: 'Data Ruim', quarto: '1', data_entrada: '31/02/2026', data_saida: '02/03/2026' },
+      { nome: 'Sem Quarto', quarto: 'Suíte Inexistente', data_entrada: br(d(210)), data_saida: br(d(211)) },
+      { nome: 'Cpf Errado', cpf: '123.456.789-00', quarto: '1', data_entrada: br(d(220)), data_saida: br(d(221)) },
+      { nome: 'Só Nome', quarto: '1', data_entrada: '01/02/2025', data_saida: '03/02/2025' },
+    ];
+
+    it('simular aponta o que entra e o porquê de cada recusa, sem gravar', async () => {
+      const r = await donoA.req('POST', '/api/reservas/importar', { linhas: linhas(), simular: true });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.simulacao, true);
+      const porLinha = Object.fromEntries(r.json.resultados.map((x: { linha: number; ok: boolean; erro?: string }) => [x.linha, x.ok ? 'ok' : x.erro]));
+      assert.equal(porLinha[2], 'ok');
+      assert.equal(porLinha[3], 'ok');
+      assert.match(porLinha[4], /Choca com a linha 3/);
+      assert.match(porLinha[5], /Data/);
+      assert.match(porLinha[6], /não existe/);
+      assert.match(porLinha[7], /CPF inválido/);
+      assert.equal(porLinha[8], 'ok');
+      assert.equal(r.json.resultados[0].resumo.status, 'finalizada', 'estadia passada entra como finalizada');
+      assert.equal((await pool.query(`SELECT 1 FROM reservas WHERE nome = 'Ana Planilha'`)).rowCount, 0);
+    });
+
+    it('importar grava as válidas, com hóspede, pagamento e canal; reimportar não duplica', async () => {
+      const r = await donoA.req('POST', '/api/reservas/importar', { linhas: linhas(), simular: false });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.deepEqual([r.json.criadas, r.json.comErro], [3, 4]);
+      const { rows: [ana] } = await pool.query(
+        `SELECT r.status, r.valor::float AS valor, r.pago, r.canal, h.telefone, (SELECT sum(valor_centavos) FROM pagamentos p WHERE p.reserva_id = r.id)::int AS pago_c
+           FROM reservas r LEFT JOIN hospedes h ON h.id = r.hospede_id WHERE r.nome = 'Ana Planilha' AND r.data_entrada = '2025-01-10'`);
+      assert.deepEqual(ana, { status: 'finalizada', valor: 1234.56, pago: true, canal: 'booking', telefone: '5548999991111', pago_c: 123456 });
+      const { rows: [bruno] } = await pool.query(`SELECT status FROM reservas WHERE nome = 'Bruno Futuro'`);
+      assert.equal(bruno.status, 'confirmada', '"ativa" da planilha vira confirmada');
+      const { rows: [so] } = await pool.query(`SELECT hospede_id FROM reservas WHERE nome = 'Só Nome'`);
+      assert.equal(so.hospede_id, null, 'sem documento nem telefone, sem cadastro de hóspede');
+      const de_novo = await donoA.req('POST', '/api/reservas/importar', { linhas: linhas().slice(0, 1), simular: false });
+      assert.equal(de_novo.json.criadas, 0);
+      assert.match(de_novo.json.resultados[0].aviso, /Já existe/);
+    });
+
+    it('só dono/admin importa; limite de linhas', async () => {
+      assert.equal((await recep.req('POST', '/api/reservas/importar', { linhas: linhas() })).status, 403);
+      const muitas = Array.from({ length: 2001 }, () => ({ nome: 'X' }));
+      assert.equal((await donoA.req('POST', '/api/reservas/importar', { linhas: muitas })).status, 400);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

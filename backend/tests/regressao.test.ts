@@ -269,3 +269,25 @@ describe('origem de marketing — o navegador não manda no banco', () => {
     assert.equal(sanearOrigem({ outra: 'coisa' }), null);
   });
 });
+
+describe('importação de planilha — leitura de célula', () => {
+  it('datas no formato brasileiro e ISO; data impossível é recusada', async () => {
+    const { lerData } = await import('../models/ImportacaoPlanilha.js');
+    assert.equal(lerData('20/11/2026'), '2026-11-20');
+    assert.equal(lerData('5/1/26'), '2026-01-05');
+    assert.equal(lerData('2026-11-20'), '2026-11-20');
+    assert.equal(lerData('2026-11-20T00:00:00'), '2026-11-20');
+    assert.equal(lerData('31/02/2026'), null);
+    assert.equal(lerData('amanhã'), null);
+  });
+
+  it('valores com R$, milhar e vírgula', async () => {
+    const { lerValor } = await import('../models/ImportacaoPlanilha.js');
+    assert.equal(lerValor('R$ 1.234,56'), 1234.56);
+    assert.equal(lerValor('350'), 350);
+    assert.equal(lerValor('99.90'), 99.9);
+    assert.equal(lerValor(''), null);
+    assert.equal(lerValor('abc'), null);
+    assert.equal(lerValor('-10'), null);
+  });
+});
