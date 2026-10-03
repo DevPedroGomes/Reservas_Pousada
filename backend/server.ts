@@ -157,7 +157,8 @@ app.use((req, res, next) => {
 // Better Auth Handler
 // ==========================================
 // Mount Better Auth BEFORE body parser (it handles its own parsing)
-app.all('/api/auth/*', toNodeHandler(auth));
+// Express 5: curinga nomeado (`{*caminho}`) — o `*` solto do Express 4 não casa mais.
+app.all('/api/auth/{*caminho}', toNodeHandler(auth));
 
 // ==========================================
 // Webhook do Stripe — ANTES do body parser
@@ -236,6 +237,25 @@ app.use(errorHandler);
 // ==========================================
 // Server Startup
 // ==========================================
+// ==========================================
+// Falhas fora do fluxo de requisição
+// ==========================================
+// O Express 5 entrega ao errorHandler as rejeições de handlers async, mas
+// promessas soltas (um `.then` sem `.catch`, um timer) ainda podem rejeitar
+// fora dele. No Node 22 isso encerra o processo por padrão — e com ele a API
+// de todos os clientes. Aqui a rejeição vira log alto e o processo segue.
+process.on('unhandledRejection', (motivo) => {
+  console.error('[Processo] Promessa rejeitada sem tratamento:', motivo);
+});
+
+// Exceção síncrona não capturada deixa o processo em estado desconhecido:
+// registra e encerra para o Docker reiniciar limpo, em vez de seguir servindo
+// com memória possivelmente corrompida.
+process.on('uncaughtException', (erro) => {
+  console.error('[Processo] Exceção não capturada — encerrando:', erro);
+  process.exit(1);
+});
+
 async function iniciarServidor() {
   try {
     // Configuração de cifra de CPF — fatal, igual ao BETTER_AUTH_SECRET.

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import FinanceiroModel from '../models/Financeiro.js';
 import { requireAdmin } from '../middleware/admin.js';
 import { ehCompetencia } from '../utils/margem.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/margem', async (req: Request, res: Response) => {
  * Os lançamentos que formam o número — a resposta para "de onde veio isso".
  */
 router.get('/margem/:pousadaId', async (req: Request, res: Response) => {
-  const pousadaId = parseInt(req.params.pousadaId, 10);
+  const pousadaId = parseInt(param(req, 'pousadaId'), 10);
   if (!Number.isInteger(pousadaId)) {
     return res.status(400).json({ sucesso: false, mensagem: 'ID inválido' });
   }

@@ -7,12 +7,13 @@ import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
 import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
 // Middleware to check if user has access to the pousada
 const requirePousadaAccess = (req: Request, res: Response, next: NextFunction) => {
-  const pousadaId = parseInt(req.params.id);
+  const pousadaId = parseInt(param(req, 'id'));
   if (!req.user?.pousadaId || req.user.pousadaId !== pousadaId) {
     return res.status(403).json({
       sucesso: false,
@@ -24,7 +25,7 @@ const requirePousadaAccess = (req: Request, res: Response, next: NextFunction) =
 
 // Middleware to verify owner access for specific pousada
 const requirePousadaOwner = (req: Request, res: Response, next: NextFunction) => {
-  const pousadaId = parseInt(req.params.id);
+  const pousadaId = parseInt(param(req, 'id'));
   if (!req.user?.pousadaId || req.user.pousadaId !== pousadaId) {
     return res.status(403).json({
       sucesso: false,
@@ -200,7 +201,7 @@ router.post('/trocar', async (req: Request, res: Response) => {
  */
 router.get('/:id', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -237,7 +238,7 @@ router.get('/:id', requirePousadaAccess, async (req: Request, res: Response) => 
  */
 router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -302,7 +303,7 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
  */
 router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -332,7 +333,7 @@ router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Res
  */
 router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -366,7 +367,7 @@ router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Respo
  */
 router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -396,7 +397,7 @@ router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Respo
  */
 router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
     const { user_id, role } = req.body;
 
     if (!id || isNaN(parseInt(id))) {
@@ -443,7 +444,8 @@ router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Resp
  */
 router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id, userId } = req.params;
+    const id = param(req, 'id');
+    const userId = param(req, 'userId');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -494,7 +496,7 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
  */
 router.post('/:id/desativar', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -532,7 +534,7 @@ router.post('/:id/desativar', requirePousadaOwner, async (req: Request, res: Res
  */
 router.post('/:id/reativar', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -577,7 +579,7 @@ const FRONTEND_URL = urlDoApp();
  */
 router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
+    const pousadaId = parseInt(param(req, 'id'));
     const { email, role } = req.body;
 
     if (!validarEmail(email)) {
@@ -662,7 +664,7 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
  */
 router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
+    const pousadaId = parseInt(param(req, 'id'));
     const convites = await StaffInviteModel.listarPorPousada(pousadaId);
 
     res.json({
@@ -684,8 +686,8 @@ router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Respo
  */
 router.delete('/:id/convites/:inviteId', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
-    const inviteId = parseInt(req.params.inviteId);
+    const pousadaId = parseInt(param(req, 'id'));
+    const inviteId = parseInt(param(req, 'inviteId'));
 
     if (isNaN(inviteId)) {
       return res.status(400).json({

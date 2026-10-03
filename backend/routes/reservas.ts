@@ -5,6 +5,7 @@ import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
@@ -148,7 +149,7 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
 // Get reservation audit history
 router.get('/:id/auditoria', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID inválido' });
     }
@@ -168,7 +169,7 @@ router.get('/:id/auditoria', authorize(['admin', 'recepcao', 'auditoria']), asyn
 // Get reservation by ID
 router.get('/:id', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID inválido' });
@@ -192,7 +193,7 @@ router.get('/:id', authorize(['admin', 'recepcao', 'auditoria']), async (req: Re
 // Check room availability
 router.get('/disponibilidade/:quarto', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { quarto } = req.params;
+    const quarto = param(req, 'quarto');
     const { data_entrada, data_saida, reserva_id } = req.query;
 
     if (!validarQuarto(quarto)) {
@@ -297,7 +298,7 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
 // Update reservation
 router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID inválido' });
@@ -383,7 +384,7 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
 // Update reservation status only
 router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
     const { status } = req.body;
 
     if (!id || isNaN(parseInt(id))) {
@@ -446,7 +447,7 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
 // Delete reservation
 router.delete('/:id', authorize(['admin']), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID inválido' });

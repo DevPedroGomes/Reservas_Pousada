@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { auth } from '../lib/auth.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
@@ -11,7 +12,7 @@ const router = Router();
  */
 router.get('/:token', async (req: Request, res: Response) => {
   try {
-    const { token } = req.params;
+    const token = param(req, 'token');
 
     if (!token || token.length < 32) {
       return res.status(400).json({
@@ -69,7 +70,7 @@ router.get('/:token', async (req: Request, res: Response) => {
  */
 router.post('/:token/aceitar', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { token } = req.params;
+    const token = param(req, 'token');
 
     if (!token || token.length < 32) {
       return res.status(400).json({
