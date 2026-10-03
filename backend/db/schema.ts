@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, smallint, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ==========================================
@@ -156,6 +156,23 @@ export const reservas = pgTable('reservas', {
   datasIdx: index('idx_reservas_datas').on(table.dataEntrada, table.dataSaida),
   pousadaIdx: index('idx_reservas_pousada').on(table.pousadaId),
 }));
+
+// Tarifário (migration 020): ajustes sobre o preço base do quarto.
+export const tarifas = pgTable('tarifas', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  nome: text('nome').notNull(),
+  quartoNumero: integer('quarto_numero'),
+  dataInicio: date('data_inicio'),
+  dataFim: date('data_fim'),
+  diasSemana: smallint('dias_semana').array(),
+  precoCentavos: integer('preco_centavos'),
+  ajustePercentual: integer('ajuste_percentual'),
+  minimoNoites: integer('minimo_noites'),
+  ativa: boolean('ativa').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Conta da reserva (migration 019). Valores em centavos.
 export const pagamentos = pgTable('pagamentos', {
@@ -368,6 +385,7 @@ export type StaffInvite = typeof staffInvites.$inferSelect;
 export type Quarto = typeof quartos.$inferSelect;
 export type Hospede = typeof hospedes.$inferSelect;
 export type Pagamento = typeof pagamentos.$inferSelect;
+export type Tarifa = typeof tarifas.$inferSelect;
 export type Consumo = typeof consumos.$inferSelect;
 export type NewHospede = typeof hospedes.$inferInsert;
 export type Assinatura = typeof assinaturas.$inferSelect;

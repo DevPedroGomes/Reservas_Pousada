@@ -13,6 +13,7 @@ import telemetriaRoutes from './routes/telemetria.js';
 import contaRoutes from './routes/conta.js';
 import quartoRoutes from './routes/quartos.js';
 import hospedeRoutes from './routes/hospedes.js';
+import tarifaRoutes from './routes/tarifas.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -215,6 +216,8 @@ app.use('/api/hospedes', authMiddleware, userLimiter, requirePousada, requerAssi
 app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 // Sem requerAssinaturaAtiva: cadastro de quartos é configuração.
 app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoutes);
+// Tarifário também é configuração (sem trava de assinatura).
+app.use('/api/tarifas', authMiddleware, userLimiter, requirePousada, tarifaRoutes);
 // Sem requerAssinaturaAtiva de proposito: quem esta bloqueado precisa
 // conseguir ver o proprio estado e escolher um plano.
 app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);

@@ -12,6 +12,8 @@ import { Textarea } from "../ui/textarea"
 import { formatarDataHora, renderResumoAuditoria } from "../../lib/formatters"
 import type { Reserva, Auditoria, Quarto } from "../../lib/types"
 import { SecaoHospede } from "./SecaoHospede"
+import { useCotacao } from "../../hooks/useCotacao"
+import { reais } from "../../lib/conta"
 import { CANAIS, formatarTelefone, mascaraCpf } from "../../lib/hospedes"
 import { proximosStatus, hojeNaPousada, ROTULO_STATUS, STATUS_INICIAIS, type StatusReserva } from "../../lib/status"
 
@@ -114,6 +116,17 @@ export function ReservationForm({
     : [...STATUS_INICIAIS]
   const mudouStatus = form.status !== statusSalvo
   const quartoEscolhido = quartos.find((q) => q.numero === Number(form.quarto))
+  const cotacao = useCotacao(form.quarto, form.data_entrada, form.data_saida)
+  // Valor que veio do tarifário (não digitado) acompanha mudança de quarto/datas.
+  const [valorSugerido, setValorSugerido] = useState(false)
+  useEffect(() => {
+    if (isEditing || !cotacao || cotacao.totalCentavos === null) return
+    setForm((prev) => {
+      if (prev.valor !== null && prev.valor !== undefined && prev.valor !== "" && !valorSugerido) return prev
+      return { ...prev, valor: cotacao.totalCentavos! / 100 }
+    })
+    setValorSugerido(true)
+  }, [cotacao]) // eslint-disable-line react-hooks/exhaustive-deps
   const pessoas = (form.adultos ?? 1) + (form.criancas ?? 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -236,14 +249,16 @@ export function ReservationForm({
                   type="number"
                   step="0.01"
                   value={form.valor ?? ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setValorSugerido(false)
                     setForm((prev) => ({
                       ...prev,
                       valor: e.target.value ? Number(e.target.value) : null,
                     }))
-                  }
+                  }}
                   className=""
                 />
+                {cotacao && <SugestaoDeValor cotacao={cotacao} valorAtual={form.valor} onUsar={(v) => { setValorSugerido(true); setForm((prev) => ({ ...prev, valor: v })) }} />}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="status" className="text-xs">
@@ -360,6 +375,40 @@ export function ReservationForm({
 
       {isEditing && auditLogs.length > 0 && (
         <AuditHistory logs={auditLogs} />
+      )}
+    </div>
+  )
+}
+
+/** Valor do tarifário: total, como foi composto e o mínimo de noites. */
+function SugestaoDeValor({ cotacao, valorAtual, onUsar }: {
+  cotacao: NonNullable<ReturnType<typeof useCotacao>>
+  valorAtual: Reserva["valor"]
+  onUsar: (valor: number) => void
+}) {
+  const noites = cotacao.noites.length
+  const porValor = new Map<string, number>()
+  for (const n of cotacao.noites) {
+    const chave = `${reais(n.valorCentavos ?? 0)}${n.regra ? ` (${n.regra})` : ""}`
+    porValor.set(chave, (porValor.get(chave) ?? 0) + 1)
+  }
+  const composicao = [...porValor].map(([k, qtd]) => `${qtd} × ${k}`).join(" + ")
+  const igual = cotacao.totalCentavos !== null && Math.round(Number(valorAtual || 0) * 100) === cotacao.totalCentavos
+  return (
+    <div className="space-y-1 text-xs">
+      {cotacao.semPreco ? (
+        <p className="text-muted-foreground">Sem preço base no quarto: cadastre em Quartos para ter o valor sugerido.</p>
+      ) : (
+        <p className="text-muted-foreground" title={composicao}>
+          Tarifário: <span className="font-medium text-foreground">{reais(cotacao.totalCentavos ?? 0)}</span> por {noites} noite{noites > 1 ? "s" : ""}
+          {porValor.size > 1 || [...porValor.keys()][0]?.includes("(") ? ` — ${composicao}` : ""}
+          {!igual && cotacao.totalCentavos !== null && (
+            <button type="button" className="ml-1 underline hover:text-foreground" onClick={() => onUsar(cotacao.totalCentavos! / 100)}>usar</button>
+          )}
+        </p>
+      )}
+      {!cotacao.atendeMinimo && (
+        <p className="text-amber-700">Mínimo de {cotacao.minimoNoites} noites neste período.</p>
       )}
     </div>
   )

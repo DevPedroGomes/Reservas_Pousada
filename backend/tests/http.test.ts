@@ -530,6 +530,44 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('tarifário', () => {
+    let regra: number;
+
+    it('dono cria regra; recepção vê mas não cria', async () => {
+      const q = (await donoA.req('GET', '/api/quartos')).json.quartos.find((x: { numero: number }) => x.numero === 4);
+      assert.equal((await donoA.req('PUT', `/api/quartos/${q.id}`, { preco_base: 200 })).status, 200);
+      const r = await donoA.req('POST', '/api/tarifas', { nome: 'Fim de semana', dias_semana: [5, 6], ajuste_percentual: 25 });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      regra = r.json.tarifa.id;
+      assert.equal((await recep.req('GET', '/api/tarifas')).json.tarifas.length, 1);
+      assert.equal((await recep.req('POST', '/api/tarifas', { nome: 'X', ajuste_percentual: 10 })).status, 403);
+    });
+
+    it('cotação soma as noites com a regra certa', async () => {
+      // Uma semana inteira: 5 noites a R$ 200 e 2 (sex, sáb) a R$ 250.
+      const r = await recep.req('GET', `/api/tarifas/cotacao?quarto=4&entrada=${d(140)}&saida=${d(147)}`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.cotacao.noites.length, 7);
+      assert.equal(r.json.cotacao.totalCentavos, 5 * 20000 + 2 * 25000);
+      assert.equal((await recep.req('GET', `/api/tarifas/cotacao?quarto=4&entrada=${d(5)}&saida=${d(3)}`)).status, 400);
+      assert.equal((await recep.req('GET', `/api/tarifas/cotacao?quarto=999&entrada=${d(5)}&saida=${d(6)}`)).status, 404);
+    });
+
+    it('validação: período pela metade, os dois ajustes, quarto de outra pousada', async () => {
+      const r = await donoA.req('POST', '/api/tarifas', { nome: 'Ruim', data_inicio: d(10), preco: 300, ajuste_percentual: 10, quarto: 999 });
+      assert.equal(r.status, 400);
+      assert.equal(r.json.erros.length, 3, JSON.stringify(r.json.erros));
+      assert.equal((await donoA.req('POST', '/api/tarifas', { nome: 'Nada' })).status, 400);
+    });
+
+    it('outra pousada não altera nem remove a regra; a cotação dela não usa a regra', async () => {
+      assert.equal((await donoB.req('PUT', `/api/tarifas/${regra}`, { nome: 'Invasão', ajuste_percentual: 90 })).status, 404);
+      assert.equal((await donoB.req('DELETE', `/api/tarifas/${regra}`)).status, 404);
+      assert.equal((await donoB.req('GET', '/api/tarifas')).json.tarifas.length, 0);
+      assert.equal((await donoA.req('DELETE', `/api/tarifas/${regra}`)).status, 200);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');
