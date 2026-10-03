@@ -78,7 +78,9 @@ export async function iniciarFila(): Promise<void> {
   await boss.start();
 
   for (const nome of Object.values(FILAS)) {
-    await boss.createQueue(nome);
+    // E-mail carrega link com token (convite, redefinição de senha): o job
+    // concluído é apagado em 1 dia em vez de ficar guardado por semanas.
+    await boss.createQueue(nome, nome === FILAS.email ? { deleteAfterSeconds: 24 * 60 * 60 } : undefined);
   }
 
   // Agendados: um disparo por cron no cluster inteiro, no fuso da operação.

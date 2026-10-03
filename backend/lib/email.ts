@@ -1,9 +1,23 @@
 import { Resend } from 'resend';
+import { enfileirar, FILAS, registrarTrabalhador } from './fila.js';
+
+/**
+ * E-mails transacionais (Resend), enviados pela fila com retentativa.
+ *
+ * Antes: envio direto, erro engolido num catch. Se o Resend oscilasse, o
+ * convite/confirmação simplesmente não chegava e a tela dizia "enviado".
+ * Agora cada e-mail é um job: falha do provedor = nova tentativa com backoff,
+ * e a falha definitiva fica no log (e no Sentry, se configurado).
+ */
 
 const resendApiKey = process.env.RESEND_API_KEY;
-const FROM_EMAIL = process.env.NODE_ENV === 'production' && resendApiKey
-  ? 'Diária <noreply@pgdev.com.br>'
-  : 'Diária <onboarding@resend.dev>';
+const producao = process.env.NODE_ENV === 'production';
+
+// Remetente e resposta configuráveis: o domínio de envio é da marca, e
+// responder a um e-mail transacional deve cair numa caixa que alguém lê.
+const FROM_EMAIL = process.env.EMAIL_FROM?.trim()
+  || (producao && resendApiKey ? 'Diária <noreply@pgdev.com.br>' : 'Diária <onboarding@resend.dev>');
+const REPLY_TO = process.env.EMAIL_REPLY_TO?.trim() || undefined;
 
 function escapeHtml(str: string): string {
   return str
@@ -28,40 +42,39 @@ export function isEmailConfigured(): boolean {
 }
 
 // ==========================================
-// Base HTML Template
+// Template
 // ==========================================
 
 function baseTemplate(content: string, title: string): string {
+  const rodape = REPLY_TO
+    ? 'Dúvidas? É só responder este e-mail.'
+    : 'Este e-mail foi enviado automaticamente.';
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;padding:40px 20px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
-          <!-- Header -->
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
           <tr>
-            <td style="background:linear-gradient(135deg,#4f46e5,#3b82f6);padding:32px;text-align:center;">
-              <div style="display:inline-block;width:48px;height:48px;line-height:48px;background-color:rgba(255,255,255,0.2);border-radius:12px;color:#ffffff;font-size:18px;font-weight:700;text-align:center;">RP</div>
-              <h1 style="color:#ffffff;font-size:20px;font-weight:700;margin:12px 0 0;">Diária</h1>
+            <td style="background:linear-gradient(135deg,#c2410c,#ea580c);padding:28px 32px;text-align:center;">
+              <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.2px;">Diária</span>
             </td>
           </tr>
-          <!-- Content -->
           <tr>
             <td style="padding:32px 40px;">
               ${content}
             </td>
           </tr>
-          <!-- Footer -->
           <tr>
             <td style="padding:24px 40px;border-top:1px solid #e2e8f0;text-align:center;">
-              <p style="color:#94a3b8;font-size:12px;margin:0;">Diária - Gestao para pousadas</p>
-              <p style="color:#94a3b8;font-size:12px;margin:4px 0 0;">Este email foi enviado automaticamente, nao responda.</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">Diária — gestão de reservas para pousadas</p>
+              <p style="color:#94a3b8;font-size:12px;margin:4px 0 0;">${rodape}</p>
             </td>
           </tr>
         </table>
@@ -75,114 +88,119 @@ function baseTemplate(content: string, title: string): string {
 function ctaButton(url: string, text: string): string {
   return `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
     <tr>
-      <td style="background:linear-gradient(135deg,#4f46e5,#3b82f6);border-radius:8px;text-align:center;">
-        <a href="${url}" target="_blank" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;">${text}</a>
+      <td style="background:#ea580c;border-radius:8px;text-align:center;">
+        <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;">${text}</a>
       </td>
     </tr>
-  </table>`;
+  </table>
+  <p style="color:#94a3b8;font-size:12px;line-height:1.5;margin:0 0 16px;word-break:break-all;">Se o botão não funcionar, copie e cole no navegador:<br>${escapeHtml(url)}</p>`;
 }
+
+const p = (texto: string) =>
+  `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 12px;">${texto}</p>`;
+const pequeno = (texto: string) =>
+  `<p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0 0 8px;">${texto}</p>`;
+const titulo = (texto: string) =>
+  `<h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">${texto}</h2>`;
 
 // ==========================================
-// Email Functions
+// E-mails
 // ==========================================
 
-export async function sendPasswordResetEmail(
-  email: string,
-  name: string,
-  resetUrl: string
-): Promise<void> {
-  const safeName = escapeHtml(name);
+export async function sendPasswordResetEmail(email: string, name: string, resetUrl: string): Promise<void> {
   const html = baseTemplate(`
-    <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Redefinir sua senha</h2>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${safeName}</strong>!</p>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">Recebemos uma solicitacao para redefinir a senha da sua conta. Clique no botao abaixo para criar uma nova senha:</p>
-    ${ctaButton(resetUrl, 'Redefinir Senha')}
-    <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0 0 8px;">Este link expira em <strong>1 hora</strong>.</p>
-    <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao solicitou esta alteracao, ignore este email. Sua senha permanecera inalterada.</p>
-  `, 'Redefinir Senha');
+    ${titulo('Redefinir sua senha')}
+    ${p(`Olá, <strong>${escapeHtml(name)}</strong>!`)}
+    ${p('Recebemos um pedido para redefinir a senha da sua conta. Clique no botão abaixo para criar uma nova senha:')}
+    ${ctaButton(resetUrl, 'Redefinir senha')}
+    ${pequeno('Este link expira em <strong>1 hora</strong>.')}
+    ${pequeno('Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.')}
+  `, 'Redefinir senha');
 
-  await sendEmail(email, 'Redefinir sua senha - Diária', html, resetUrl);
+  await enfileirarEmail(email, 'Redefinir sua senha — Diária', html, resetUrl);
 }
 
-export async function sendVerificationEmail(
-  email: string,
-  name: string,
-  verificationUrl: string
-): Promise<void> {
-  const safeName = escapeHtml(name);
+export async function sendVerificationEmail(email: string, name: string, verificationUrl: string): Promise<void> {
   const html = baseTemplate(`
-    <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Verificar seu email</h2>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 8px;">Ola, <strong>${safeName}</strong>!</p>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">Obrigado por criar sua conta. Para garantir a seguranca da sua conta, verifique seu email clicando no botao abaixo:</p>
-    ${ctaButton(verificationUrl, 'Verificar Email')}
-    <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao criou uma conta, ignore este email.</p>
-  `, 'Verificar Email');
+    ${titulo('Confirme seu e-mail')}
+    ${p(`Olá, <strong>${escapeHtml(name)}</strong>!`)}
+    ${p('Falta só um passo: confirme seu e-mail para ativar a conta e configurar sua pousada.')}
+    ${ctaButton(verificationUrl, 'Confirmar e-mail')}
+    ${pequeno('Se você não criou uma conta no Diária, ignore este e-mail.')}
+  `, 'Confirme seu e-mail');
 
-  await sendEmail(email, 'Verificar seu email - Diária', html, verificationUrl);
+  await enfileirarEmail(email, 'Confirme seu e-mail — Diária', html, verificationUrl);
 }
+
+const ROTULOS_PAPEL: Record<string, string> = {
+  admin: 'Administrador(a)',
+  recepcao: 'Recepção',
+  auditoria: 'Auditoria',
+};
 
 export async function sendStaffInviteEmail(
   email: string,
   pousadaNome: string,
   role: string,
   inviterName: string,
-  inviteUrl: string
+  inviteUrl: string,
 ): Promise<void> {
-  const roleLabels: Record<string, string> = {
-    admin: 'Administrador',
-    recepcao: 'Recepcionista',
-    auditoria: 'Auditor',
-  };
-  const roleLabel = roleLabels[role] || role;
-  const safeInviter = escapeHtml(inviterName);
-  const safePousada = escapeHtml(pousadaNome);
-
+  const papel = ROTULOS_PAPEL[role] || role;
+  const pousada = escapeHtml(pousadaNome);
   const html = baseTemplate(`
-    <h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">Voce foi convidado!</h2>
-    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
-      <strong>${safeInviter}</strong> convidou voce para fazer parte da equipe da pousada <strong>${safePousada}</strong> como <strong>${roleLabel}</strong>.
-    </p>
-    ${ctaButton(inviteUrl, 'Aceitar Convite')}
+    ${titulo('Você foi convidado(a)!')}
+    ${p(`<strong>${escapeHtml(inviterName)}</strong> convidou você para a equipe da <strong>${pousada}</strong>, como <strong>${papel}</strong>.`)}
+    ${ctaButton(inviteUrl, 'Aceitar convite')}
     <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0 0;">
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${safePousada}</p>
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Funcao:</strong> ${roleLabel}</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${pousada}</p>
+      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Função:</strong> ${papel}</p>
       <p style="color:#64748b;font-size:13px;margin:0;"><strong>Validade:</strong> 7 dias</p>
     </div>
-    <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:16px 0 0;">Se voce nao reconhece este convite, ignore este email.</p>
-  `, 'Convite para Equipe');
+    ${pequeno('<br>Se você não reconhece este convite, ignore este e-mail.')}
+  `, 'Convite para a equipe');
 
-  await sendEmail(email, `Convite para ${pousadaNome} - Diária`, html, inviteUrl);
+  await enfileirarEmail(email, `Convite para a equipe da ${pousadaNome} — Diária`, html, inviteUrl);
 }
 
 // ==========================================
-// Core Send Function
+// Fila
 // ==========================================
 
-async function sendEmail(to: string, subject: string, html: string, link?: string): Promise<void> {
+interface JobDeEmail {
+  para: string;
+  assunto: string;
+  html: string;
+  link?: string;
+}
+
+async function enfileirarEmail(para: string, assunto: string, html: string, link?: string): Promise<void> {
+  await enfileirar(FILAS.email, { para, assunto, html, link } satisfies JobDeEmail);
+}
+
+/**
+ * Entrega de fato. LANÇA em falha — é o que faz a fila tentar de novo.
+ * Exportado para os testes.
+ */
+export async function entregarEmail(job: JobDeEmail): Promise<void> {
   if (!resend) {
-    console.log(`[Email] (sem RESEND_API_KEY) Para: ${to} | Assunto: ${subject}`);
+    console.log(`[Email] (sem RESEND_API_KEY) Para: ${job.para} | Assunto: ${job.assunto}`);
     // Sem provedor, o link só existe aqui. Em desenvolvimento é o que permite
     // testar confirmação de e-mail e convite; em produção nunca vai para o log.
-    if (link && process.env.NODE_ENV !== 'production') {
-      console.log(`[Email] link: ${link}`);
-    }
+    if (job.link && !producao) console.log(`[Email] link: ${job.link}`);
     return;
   }
 
-  try {
-    const { error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to,
-      subject,
-      html,
-    });
-
-    if (error) {
-      console.error(`[Email] Erro ao enviar para ${to}:`, error);
-    } else {
-      console.log(`[Email] Enviado para ${to}: ${subject}`);
-    }
-  } catch (err) {
-    console.error(`[Email] Falha ao enviar para ${to}:`, err);
+  const { error } = await resend.emails.send({
+    from: FROM_EMAIL,
+    to: job.para,
+    subject: job.assunto,
+    html: job.html,
+    ...(REPLY_TO ? { replyTo: REPLY_TO } : {}),
+  });
+  if (error) {
+    throw new Error(`Resend recusou o envio para ${job.para}: ${error.message ?? JSON.stringify(error)}`);
   }
+  console.log(`[Email] Enviado para ${job.para}: ${job.assunto}`);
 }
+
+registrarTrabalhador(FILAS.email, (dados) => entregarEmail(dados as unknown as JobDeEmail));

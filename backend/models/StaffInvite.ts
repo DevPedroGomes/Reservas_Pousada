@@ -182,6 +182,22 @@ export class StaffInviteModel {
     return updated;
   }
 
+  /** Renova a validade de um convite pendente (reenvio). null se não houver. */
+  static async renovar(inviteId: number, pousadaId: number) {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    const [row] = await db
+      .update(staffInvites)
+      .set({ expiresAt, updatedAt: new Date() })
+      .where(and(
+        eq(staffInvites.id, inviteId),
+        eq(staffInvites.pousadaId, pousadaId),
+        eq(staffInvites.status, 'pending'),
+      ))
+      .returning();
+    return row ?? null;
+  }
+
   /** Convites pendentes e ainda válidos — cada um reserva uma vaga do plano. */
   static async contarPendentes(pousadaId: number): Promise<number> {
     const [{ n }] = await db

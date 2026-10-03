@@ -54,6 +54,8 @@ services:
       # Endereco canonico do app — e o que vai nos links de convite e email.
       APP_URL: https://diaria.pgdev.com.br
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
       # Default vazio de proposito: o runner do GitHub builda SEM .env, e um
       # `${VAR:?}` faria o `docker compose build` falhar na interpolacao antes
       # mesmo de comecar. Quem barra a chave ausente e o boot do servidor

@@ -599,19 +599,24 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
 
     await AuditoriaModel.log(req.user!.id, 'invite_create', 'staff_invite', invite.id, { email, role: role || 'recepcao', pousadaId }, req.ip || null);
 
-    // Send invite email (fire-and-forget)
+    // O e-mail vai para a fila (com retentativa). Se nem enfileirar der certo,
+    // o convite existe mas a tela precisa dizer que o e-mail não saiu — antes
+    // dizia "enviado" mesmo quando o envio falhava.
     const inviteUrl = `${FRONTEND_URL}/convite/${invite.token}`;
-    sendStaffInviteEmail(
-      email,
-      pousada.nome,
-      role || 'recepcao',
-      req.user!.name || 'Administrador',
-      inviteUrl,
-    ).catch(console.error);
+    let emailEnfileirado = true;
+    try {
+      await sendStaffInviteEmail(email, pousada.nome, role || 'recepcao', req.user!.name || 'Administrador', inviteUrl);
+    } catch (err) {
+      emailEnfileirado = false;
+      console.error('[Convite] falha ao enfileirar e-mail:', err);
+    }
 
     res.status(201).json({
       sucesso: true,
-      mensagem: 'Convite enviado com sucesso',
+      mensagem: emailEnfileirado
+        ? 'Convite criado — o e-mail chega em instantes.'
+        : 'Convite criado, mas o e-mail não pôde ser enviado agora. Use "Reenviar" em alguns minutos.',
+      emailEnviado: emailEnfileirado,
       convite: {
         id: invite.id,
         email: invite.email,
@@ -649,6 +654,36 @@ router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Respo
       mensagem: 'Erro ao listar convites',
     });
   }
+});
+
+/**
+ * POST /api/pousadas/:id/convites/:inviteId/reenviar
+ * Reenvia o e-mail de um convite pendente (o convidado perdeu, foi pro spam).
+ * Renova a validade por mais 7 dias.
+ */
+router.post('/:id/convites/:inviteId/reenviar', requirePousadaOwner, async (req: Request, res: Response) => {
+  const pousadaId = parseInt(param(req, 'id'));
+  const inviteId = parseInt(param(req, 'inviteId'));
+  if (isNaN(inviteId)) {
+    return res.status(400).json({ sucesso: false, mensagem: 'ID do convite inválido' });
+  }
+
+  const convite = await StaffInviteModel.renovar(inviteId, pousadaId);
+  if (!convite) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Convite pendente não encontrado' });
+  }
+  const pousada = await PousadaModel.buscarPorId(pousadaId);
+  await sendStaffInviteEmail(
+    convite.email,
+    pousada?.nome ?? 'sua pousada',
+    convite.role,
+    req.user!.name || 'Administrador',
+    `${FRONTEND_URL}/convite/${convite.token}`,
+  );
+  AuditoriaModel.log(req.user!.id, 'invite_resend', 'staff_invite', inviteId, { pousadaId }, req.ip || null)
+    .catch((e) => console.error('[Auditoria] reenvio de convite:', e.message));
+
+  res.json({ sucesso: true, mensagem: 'Convite reenviado.' });
 });
 
 /**
