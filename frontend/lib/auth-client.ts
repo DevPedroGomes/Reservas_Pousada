@@ -24,13 +24,30 @@ export const {
 } = authClient;
 
 /**
+ * Para onde o link de confirmação de e-mail leva.
+ *
+ * Precisa ser URL absoluta do APP: o link é aberto na API, e um caminho
+ * relativo ("/onboarding") era resolvido contra o domínio da API — 404.
+ * Quem chegou por convite volta para o convite, não para o onboarding.
+ */
+export function urlDepoisDaConfirmacao(): string {
+  if (typeof window !== 'undefined') {
+    const convite = new URLSearchParams(window.location.search).get('convite');
+    if (convite) return `${APP_URL}/convite/${encodeURIComponent(convite)}`;
+  }
+  return `${APP_URL}/onboarding`;
+}
+
+/**
  * Sign in with email and password
  */
 export async function signInWithEmail(email: string, password: string, options?: { callbackURL?: string }) {
   return authClient.signIn.email({
     email,
     password,
-    callbackURL: options?.callbackURL,
+    // Usado pelo e-mail de confirmação reenviado quando a conta ainda não foi
+    // verificada (sendOnSignIn no backend).
+    callbackURL: options?.callbackURL ?? urlDepoisDaConfirmacao(),
   });
 }
 
@@ -42,7 +59,7 @@ export async function signUpWithEmail(email: string, password: string, name: str
     email,
     password,
     name,
-    callbackURL: options?.callbackURL,
+    callbackURL: options?.callbackURL ?? urlDepoisDaConfirmacao(),
   });
 }
 

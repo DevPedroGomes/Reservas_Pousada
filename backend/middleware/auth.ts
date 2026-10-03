@@ -11,6 +11,7 @@ declare global {
         id: string;
         name: string;
         email: string;
+        emailVerified: boolean;
         image?: string | null;
         role: string;
         pousadaId: number | null;
@@ -85,6 +86,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       id: userData.id,
       name: userData.name,
       email: userData.email,
+      emailVerified: userData.emailVerified,
       image: userData.image,
       role: userData.role || 'recepcao',
       pousadaId: userData.pousadaId,

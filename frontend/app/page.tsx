@@ -149,13 +149,15 @@ export default function Home() {
     }
   }, [isAuthenticated, pousada?.id, pousadaLoading, carregarDashboard, carregarReservas])
 
-  // Auto-dismiss messages after 4 seconds
+  // Auto-dismiss messages after 4 seconds — só dentro do painel. Na tela de
+  // entrada a mensagem é instrução ("confirme seu e-mail"), e sumir em 4s
+  // deixava a pessoa sem saber o próximo passo.
   useEffect(() => {
-    if (message) {
+    if (message && isAuthenticated) {
       const timer = setTimeout(() => setMessage(null), 4000)
       return () => clearTimeout(timer)
     }
-  }, [message, setMessage])
+  }, [message, setMessage, isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated && heroRef.current) {

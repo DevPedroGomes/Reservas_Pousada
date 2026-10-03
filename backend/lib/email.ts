@@ -101,7 +101,7 @@ export async function sendPasswordResetEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao solicitou esta alteracao, ignore este email. Sua senha permanecera inalterada.</p>
   `, 'Redefinir Senha');
 
-  await sendEmail(email, 'Redefinir sua senha - Diária', html);
+  await sendEmail(email, 'Redefinir sua senha - Diária', html, resetUrl);
 }
 
 export async function sendVerificationEmail(
@@ -118,7 +118,7 @@ export async function sendVerificationEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">Se voce nao criou uma conta, ignore este email.</p>
   `, 'Verificar Email');
 
-  await sendEmail(email, 'Verificar seu email - Diária', html);
+  await sendEmail(email, 'Verificar seu email - Diária', html, verificationUrl);
 }
 
 export async function sendStaffInviteEmail(
@@ -151,16 +151,21 @@ export async function sendStaffInviteEmail(
     <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:16px 0 0;">Se voce nao reconhece este convite, ignore este email.</p>
   `, 'Convite para Equipe');
 
-  await sendEmail(email, `Convite para ${pousadaNome} - Diária`, html);
+  await sendEmail(email, `Convite para ${pousadaNome} - Diária`, html, inviteUrl);
 }
 
 // ==========================================
 // Core Send Function
 // ==========================================
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+async function sendEmail(to: string, subject: string, html: string, link?: string): Promise<void> {
   if (!resend) {
     console.log(`[Email] (sem RESEND_API_KEY) Para: ${to} | Assunto: ${subject}`);
+    // Sem provedor, o link só existe aqui. Em desenvolvimento é o que permite
+    // testar confirmação de e-mail e convite; em produção nunca vai para o log.
+    if (link && process.env.NODE_ENV !== 'production') {
+      console.log(`[Email] link: ${link}`);
+    }
     return;
   }
 

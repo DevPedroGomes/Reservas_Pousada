@@ -189,6 +189,14 @@ export function useAuth(): UseAuthReturn {
       const result = await signInWithEmail(email, password);
 
       if (result.error) {
+        // Conta ainda não confirmada: o backend já reenviou o link (sendOnSignIn).
+        if (result.error.code === "EMAIL_NOT_VERIFIED" || result.error.status === 403) {
+          setMessage({
+            type: "error",
+            text: "Confirme seu e-mail para entrar. Acabamos de enviar um novo link para " + email + ".",
+          });
+          return false;
+        }
         setMessage({ type: "error", text: result.error.message || "Falha ao autenticar." });
         return false;
       }
@@ -216,17 +224,19 @@ export function useAuth(): UseAuthReturn {
     }
 
     try {
-      const result = await signUpWithEmail(email, password, name, {
-        callbackURL: "/onboarding",
-      });
+      const result = await signUpWithEmail(email, password, name);
 
       if (result.error) {
         setMessage({ type: "error", text: result.error.message || "Erro ao criar conta." });
         return false;
       }
 
-      setMessage({ type: "success", text: "Conta criada! Configure sua pousada..." });
-      router.push("/onboarding");
+      // Sem sessão até confirmar o e-mail: o link leva direto ao onboarding
+      // (ou ao convite) já autenticado.
+      setMessage({
+        type: "success",
+        text: "Conta criada! Enviamos um link de confirmação para " + email + ". Abra o e-mail para continuar.",
+      });
       return true;
     } catch (error: any) {
       console.error("Erro ao criar conta", error);
@@ -235,7 +245,7 @@ export function useAuth(): UseAuthReturn {
     } finally {
       setSignupLoading(false);
     }
-  }, [router]);
+  }, []);
 
   // Logout
   const logout = useCallback(async () => {
