@@ -5,6 +5,7 @@ import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
+import PousadaModel from '../models/Pousada.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
@@ -41,6 +42,23 @@ const exportLimiter = rateLimit({
   legacyHeaders: false,
   message: { sucesso: false, mensagem: 'Limite de exportações excedido. Tente novamente em 1 hora.' },
 });
+
+
+/**
+ * O quarto existe nesta pousada?
+ *
+ * A validação genérica aceita 1..100. Sem esta checagem, uma pousada de 10
+ * quartos aceitava reserva no quarto 57 — que não aparece em nenhuma tela de
+ * ocupação e nunca conflita com nada.
+ */
+async function quartoInexistente(pousadaId: number, quarto: number): Promise<string | null> {
+  const pousada = await PousadaModel.buscarPorId(pousadaId);
+  if (!pousada) return 'Pousada não encontrada';
+  if (quarto > pousada.numQuartos) {
+    return `A pousada tem ${pousada.numQuartos} quartos; o quarto ${quarto} não existe.`;
+  }
+  return null;
+}
 
 // List all reservations
 router.get('/', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
@@ -212,6 +230,11 @@ router.get('/disponibilidade/:quarto', authorize(['admin', 'recepcao', 'auditori
       return res.status(400).json({ sucesso: false, codigo: 'VAL_004', mensagem: 'Data de entrada deve ser anterior à data de saída' });
     }
 
+    const semQuarto = await quartoInexistente(req.user!.pousadaId!, parseInt(quarto));
+    if (semQuarto) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_009', mensagem: semQuarto });
+    }
+
     if (reserva_id && isNaN(parseInt(reserva_id as string))) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID da reserva inválido' });
     }
@@ -247,6 +270,11 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
         mensagem: 'Dados inválidos',
         erros: validacao.erros
       });
+    }
+
+    const semQuarto = await quartoInexistente(req.user!.pousadaId!, dadosSanitizados.quarto);
+    if (semQuarto) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_009', mensagem: semQuarto, erros: [semQuarto] });
     }
 
     const novaReserva = {
@@ -325,6 +353,13 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     const reservaAntes = await ReservaModel.buscarPorIdEPousada(parseInt(id), req.user!.pousadaId!);
     if (!reservaAntes) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
+    }
+
+    if (dadosSanitizados.quarto !== reservaAntes.quarto) {
+      const semQuarto = await quartoInexistente(req.user!.pousadaId!, dadosSanitizados.quarto);
+      if (semQuarto) {
+        return res.status(400).json({ sucesso: false, codigo: 'VAL_009', mensagem: semQuarto, erros: [semQuarto] });
+      }
     }
 
     const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;

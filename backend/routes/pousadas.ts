@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel, { LimiteDoPlano } from '../models/Pousada.js';
+import ReservaModel from '../models/Reserva.js';
+import { hojeLocal } from '../utils/datas.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
@@ -261,6 +263,20 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
       const estouro = await excedeLimiteDeQuartos(parseInt(id), dadosSanitizados.num_quartos as number);
       if (estouro) {
         return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
+      }
+
+      // Reduzir quartos não pode deixar reserva vigente num quarto que deixa
+      // de existir.
+      const orfaos = await ReservaModel.quartosComReservaVigenteAcimaDe(
+        parseInt(id), dadosSanitizados.num_quartos as number, hojeLocal(),
+      );
+      if (orfaos.length > 0) {
+        return res.status(409).json({
+          sucesso: false,
+          codigo: 'POU_001',
+          mensagem: `Há reservas ativas nos quartos ${orfaos.join(', ')}. Mova ou finalize essas reservas antes de reduzir para ${dadosSanitizados.num_quartos} quartos.`,
+          quartos: orfaos,
+        });
       }
     }
 
