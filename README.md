@@ -10,12 +10,14 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 Three Docker services behind Traefik v3:
 
 - `postgres` (PostgreSQL 16-alpine) on the `internal` network only
-- `backend` (Express 4 + TypeScript, port 4000) on `internal` and `proxy`
-- `frontend` (Next.js 14 standalone, port 3000) on `proxy`
+- `backend` (Express 5 + TypeScript, port 4000) on `internal` and `proxy`
+- `frontend` (Next.js 15 standalone, port 3000) on `proxy`
 
 Traefik terminates TLS (Let's Encrypt), enforces security headers, applies a global rate-limit middleware, and strips the `Server` response header. The backend exits on startup if `BETTER_AUTH_SECRET` is missing and warns if `RESEND_API_KEY` is unset in production.
 
-Multi-tenancy uses a `user_pousadas` junction table. A user can belong to multiple pousadas, each with an independent role and an `is_owner` flag. The `user.pousada_id` column stores the user's currently active tenant; every domain query is scoped to that value, preventing cross-tenant reads at the query layer.
+Multi-tenancy uses a `user_pousadas` junction table. A user can belong to multiple pousadas, each with an independent role and an `is_owner` flag. The active tenant is chosen **per browser tab**: the frontend sends `X-Pousada-Id` on every request and `authMiddleware` validates it against `user_pousadas` (role and owner flag come from that membership row). Without the header, `user.pousada_id` (the last pousada chosen) is used. Every domain query is scoped to the resolved tenant.
+
+Background work (transactional e-mail with retries, session/rate-limit cleanup, automatic check-out of past stays, guest-data anonymization, ad conversions) runs on **pg-boss**, a job queue stored in the same Postgres (schema `pgboss`).
 
 ## Architecture
 
@@ -113,22 +115,23 @@ sequenceDiagram
 
 Backend (`backend/package.json`):
 
-- Node.js >=18, Express 4.21
+- Node.js 22, Express 5 (async errors reach the error handler)
 - TypeScript 5.5, ESM (`"type": "module"`)
-- `better-auth` 1.4.18 (lockfile) with `drizzle-adapter` and a node handler mounted at `/api/auth/*`
-- `drizzle-orm` 0.45 + `drizzle-kit` 0.31, Postgres provider
-- `pg` 8.13 (connection pool)
-- `express-rate-limit` 7.1
-- `resend` 6.9 for transactional email
-- Build: `tsc` to `dist/`, dev: `tsx watch`
+- `better-auth` 1.7 with `drizzle-adapter`, mounted at `/api/auth/{*caminho}`
+- `drizzle-orm` 0.45.3 + `drizzle-kit` 0.31, Postgres provider
+- `pg` (connection pool, size/timeouts via env, `statement_timeout`)
+- `pg-boss` 12 (job queue in Postgres)
+- `express-rate-limit` 7.5 with a shared Postgres store (`utils/rateLimitStore.ts`)
+- `stripe` 22 (billing), `resend` 6.9 (e-mail), `@sentry/node` 10 (optional)
+- Build: `tsc` to `dist/`, dev: `tsx watch`. `app.ts` builds the Express app; `server.ts` boots it (migrations, queue, listen)
 
 Frontend (`frontend/package.json`):
 
-- Next.js 14.2 (standalone output, `poweredByHeader: false`)
-- React 18.3
-- Tailwind 3.4, `tailwindcss-animate`, shadcn/ui via `@radix-ui/react-slot`, `class-variance-authority`, `clsx`, `tailwind-merge`
-- `better-auth` 1.4.18 client
-- `lucide-react` icons, `gsap` 3.14
+- Next.js 15.5 (App Router, standalone output, `poweredByHeader: false`), React 19
+- Public pages rendered on the server: `/` (landing), `/cadastro`, `/entrar`, `/privacidade`, `/termos`, plus `sitemap.xml`, `robots.txt` and a generated Open Graph image
+- Logged-in area under `app/(app)`: `/painel`, `/reservas`, `/reservas/nova`, `/reservas/[id]`, `/configuracoes` (shared session context, auth/onboarding guards, auto-refresh on focus and every 60s)
+- Tailwind 3.4, shadcn/ui primitives, `better-auth` 1.7 client
+- GA4 / Meta Pixel loaded only after cookie consent; first-touch UTM attribution sent on sign-up
 
 Infra:
 
@@ -181,14 +184,14 @@ Infra:
 Authentication (`backend/lib/auth.ts`)
 
 - `better-auth` with the Drizzle adapter against the `user`, `session`, `account`, `verification` tables.
-- Email + password (8..100 chars), email verification on sign-up, password reset emails sent via Resend.
-- Google OAuth (offline access, `prompt=select_account`) when `GOOGLE_CLIENT_*` are set.
+- Email + password (8..100 chars). **E-mail must be verified before the first sign-in** (`requireEmailVerification`); signing in unverified re-sends the link. Password reset via Resend.
+- Google OAuth (`prompt=select_account`, no offline token) only registered when `GOOGLE_CLIENT_*` are set.
 - Session: 12h absolute lifetime, 1h sliding refresh (`updateAge`), 5-minute cookie cache.
 - HTTPOnly secure cookies in production, no JWTs in headers, no client-side tokens.
 
 Authorization (`backend/middleware/auth.ts`)
 
-- `authMiddleware` calls `auth.api.getSession()` and re-loads the user row to attach role / `pousadaId` / `isOwner` to `req.user`.
+- `authMiddleware` calls `auth.api.getSession()`, then in one query loads the user and the `user_pousadas` row for the requested tenant (`X-Pousada-Id`, or the default). A tenant the user does not belong to → 403 `pousadaInvalida`; malformed header → 400. Role and `isOwner` come from the membership row.
 - `requirePousada` enforces an active tenant; otherwise 403 with `needsOnboarding: true`.
 - `requireOwner` blocks non-owners.
 - `authorize(allowedRoles)` is a factory that **throws on construction** if `allowedRoles` is empty or not an array (footgun removal). Owners always pass.
@@ -379,36 +382,31 @@ curl -sI https://api.diaria.pgdev.com.br | grep -iE "strict-transport|x-frame|x-
 
 ## API surface
 
-Mounted in `backend/server.ts`:
-
-- `app.all('/api/auth/*', toNodeHandler(auth))` — better-auth handles its own routing
-- `app.use('/api/convites', conviteRoutes)` — public token validation + authenticated accept
-- `app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, reservaRoutes)`
-- `app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes)`
+Mounted in `backend/app.ts`. Every authenticated route accepts `X-Pousada-Id`.
 
 ### Auth (better-auth)
 
 ```
-POST   /api/auth/sign-up/email          register, sends verification email
-POST   /api/auth/sign-in/email          login (HTTPOnly cookie)
+POST   /api/auth/sign-up/email          register (no session until the e-mail is verified); accepts `origem` (UTM attribution)
+POST   /api/auth/sign-in/email          login (HTTPOnly cookie); 403 EMAIL_NOT_VERIFIED re-sends the link
 POST   /api/auth/sign-out               logout
-GET    /api/auth/session                current session
+GET    /api/auth/get-session            current session
 POST   /api/auth/forget-password        request password reset
 POST   /api/auth/reset-password         consume reset token
 POST   /api/auth/change-password        evicts other sessions on success
-POST   /api/auth/change-email           evicts other sessions on success
 GET    /api/auth/sign-in/google         Google OAuth start (when configured)
 ```
 
-### Reservations (auth + active pousada)
+### Reservations (auth + active pousada + subscription in good standing)
 
 ```
-GET    /api/reservas                          list, paginated, max 200/page
-GET    /api/reservas/export                   CSV, max 5000 rows, 5/hour, masked CPF for non-admin/owner
-GET    /api/reservas/:id                      tenant-scoped fetch
-GET    /api/reservas/:id/auditoria            audit history for one reserva
-GET    /api/reservas/disponibilidade/:quarto  room availability
-POST   /api/reservas                          create, idempotency guard, encrypts CPF
+GET    /api/reservas                          list, paginated (max 200/page), CPF always masked
+GET    /api/reservas/agenda?data=&dias=       arrivals, departures, in-house and upcoming arrivals
+GET    /api/reservas/export                   CSV (max 5000 rows, 5/hour); full CPF only for admin/owner
+GET    /api/reservas/:id                      detail; full CPF for owner/admin/reception (audited), masked for auditoria
+GET    /api/reservas/:id/auditoria            audit history
+GET    /api/reservas/disponibilidade/:quarto  availability (conflicts return only id/name/room/dates/status)
+POST   /api/reservas                          create (room must exist in the pousada)
 PUT    /api/reservas/:id                      update, optimistic locking (409 on conflict)
 PATCH  /api/reservas/:id/status               status change, optimistic locking
 DELETE /api/reservas/:id                      soft delete, admin or owner
@@ -417,39 +415,66 @@ DELETE /api/reservas/:id                      soft delete, admin or owner
 ### Pousadas (auth)
 
 ```
-POST   /api/pousadas                          create new pousada (becomes owner)
-GET    /api/pousadas/minha                    active pousada
+POST   /api/pousadas                          create (name + rooms; plan limits and Rede coverage decided in-transaction)
+GET    /api/pousadas/minha                    active pousada (for this tab)
 GET    /api/pousadas/minhas                   all memberships
-POST   /api/pousadas/trocar                   switch active pousada
-GET    /api/pousadas/:id                      details (member only)
-PUT    /api/pousadas/:id                      update (owner)
-GET    /api/pousadas/:id/dashboard            occupancy, revenue, check-ins (SQL-aggregated)
-GET    /api/pousadas/:id/quartos              rooms
-GET    /api/pousadas/:id/usuarios             staff list (owner)
-POST   /api/pousadas/:id/usuarios             attach existing user (owner)
-DELETE /api/pousadas/:id/usuarios/:userId     detach staff (owner)
-POST   /api/pousadas/:id/desativar            deactivate (owner)
-POST   /api/pousadas/:id/reativar             reactivate (owner)
-POST   /api/pousadas/:id/convites             send invite email (owner)
-GET    /api/pousadas/:id/convites             pending invites (owner)
-DELETE /api/pousadas/:id/convites/:inviteId   revoke invite (owner)
+POST   /api/pousadas/trocar                   set the default pousada for new tabs
+GET    /api/pousadas/:id                      details (member)
+PUT    /api/pousadas/:id                      update (owner/admin); refuses removing rooms with current reservations
+DELETE /api/pousadas/:id                      definitive deletion (owner, body {confirmacao: <exact name>})
+GET    /api/pousadas/:id/dashboard            today's occupancy, revenue, receivables
+GET    /api/pousadas/:id/usuarios             team (owner/admin)
+PATCH  /api/pousadas/:id/usuarios/:userId     change role (only the owner grants/revokes admin)
+DELETE /api/pousadas/:id/usuarios/:userId     remove member (access ends immediately)
+POST   /api/pousadas/:id/convites             invite (plan limit counts pending invites)
+GET    /api/pousadas/:id/convites             invites
+POST   /api/pousadas/:id/convites/:id/reenviar resend (renews 7 days)
+DELETE /api/pousadas/:id/convites/:inviteId   revoke
 ```
+
+Joining a team is invite-only (the old "attach user by id" route was removed).
 
 ### Invites
 
 ```
-GET    /api/convites/:token                   public, validates token (404 / 410 for missing / used / expired)
-POST   /api/convites/:token/aceitar           auth required, email must match recipient, revokes other sessions
+GET    /api/convites/:token                   public, validates token (404 / 410)
+POST   /api/convites/:token/aceitar           auth + verified e-mail matching the invite; checks the plan's user limit
+```
+
+### Billing (auth)
+
+```
+GET    /api/billing/situacao                  subscription state (effective one, for pousadas covered by a Rede plan)
+GET    /api/billing/planos                    sellable plans
+POST   /api/billing/checkout                  owner; refused when a live Stripe subscription exists
+POST   /api/billing/trocar-plano              owner; updates the existing subscription with proration
+POST   /api/billing/portal                    owner; Stripe customer portal
+POST   /api/webhooks/stripe                   signed webhook; event record and effects in one transaction
+```
+
+### Account (LGPD) and misc
+
+```
+GET    /api/conta/exportar                    the user's own data as JSON
+DELETE /api/conta                             anonymize own account (body {confirmacao: "EXCLUIR"})
+POST   /api/telemetria/erro                   browser error reports (public, rate-limited)
+GET    /api/admin/margem                      margin per tenant (ADMIN_EMAILS + verified e-mail)
+GET    /api/admin/aquisicao?dias=             sign-ups → pousadas → paying, per acquisition channel
 ```
 
 ### Health
 
 ```
-GET    /                                      API status
-GET    /health                                DB connectivity probe
+GET    /health/live                           process is up (Docker healthcheck)
+GET    /health                                also checks Postgres; 503 when unreachable (uptime monitor)
 ```
 
 ## Planned work
+
+- [`docs/plano-de-correcao.md`](docs/plano-de-correcao.md) — the fix/evolution
+  plan from the Oct/2026 audit (Phase 0 done; Phase 1: rooms, availability map,
+  guests, payments, status cycle, rates, iCal, reports, import; Phase 2: booking
+  engine, Pix, WhatsApp, online pre-check-in, PWA).
 
 Design decisions recorded before implementation, so the reasoning survives the
 conversation that produced it:
