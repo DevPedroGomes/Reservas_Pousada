@@ -27,7 +27,9 @@ services:
 
   # Backend API (Express + TypeScript)
   backend:
-    image: ghcr.io/devpedrogomes/reservas_pousada/backend:latest
+    # IMAGE_TAG=<sha do commit> no .env da VPS fixa uma versão (rollback).
+    # Sem ele, segue o latest que o auto-pull da VPS já consome.
+    image: ghcr.io/devpedrogomes/reservas_pousada/backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -123,7 +125,7 @@ services:
 
   # Frontend (Next.js)
   frontend:
-    image: ghcr.io/devpedrogomes/reservas_pousada/frontend:latest
+    image: ghcr.io/devpedrogomes/reservas_pousada/frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile

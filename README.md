@@ -337,6 +337,34 @@ Database migrations under `backend/migrations/` are applied by a versioned runne
 
 A clean `001` → `009` run against an empty database is exercised on every CI build (`tests/banco.test.ts`), so "deploy from scratch" is a tested path rather than an assumption.
 
+### Release and rollback
+
+Every push to `main` that passes CI publishes both images twice: tagged with the
+first 12 characters of the commit SHA (immutable) and as `latest` (what the VPS
+auto-pull consumes).
+
+Roll back to a known-good version on the VPS:
+
+```bash
+# pick the SHA from the GitHub Actions run summary ("Publicado: <sha>")
+echo "IMAGE_TAG=<sha>" >> .env
+docker compose pull backend frontend && docker compose up -d backend frontend
+```
+
+Remove the `IMAGE_TAG` line to go back to following `latest`. Migrations are
+forward-only: rolling back the code does not undo a migration, so a release that
+changes the schema must stay compatible with the previous code for one version.
+
+Health endpoints: `/health/live` (process up — used by the Docker healthcheck)
+and `/health` (also checks Postgres; returns 503 when the database is
+unreachable — point the external uptime monitor here).
+
+Scaling the API to more than one replica: rate-limit counters already live in
+Postgres (shared), and the migration runner is serialized by an advisory lock.
+Remove `container_name` from the `backend` service, size `DB_POOL_MAX` so that
+replicas × pool fits in the shared database's `max_connections`, then
+`docker compose up -d --scale backend=2`.
+
 Verification:
 
 ```bash
