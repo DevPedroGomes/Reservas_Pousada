@@ -13,7 +13,7 @@ import { PgBoss } from 'pg-boss';
 import { TIMEZONE } from '../utils/datas.js';
 import { reportarErro } from './observabilidade.js';
 import { limpeza } from '../jobs/limpeza.js';
-import { finalizarEstadiasVencidas } from '../jobs/estadias.js';
+import { expirarPreReservas, finalizarEstadiasVencidas } from '../jobs/estadias.js';
 import { anonimizarHospedesAntigos } from '../models/Conta.js';
 
 export const FILAS = {
@@ -22,6 +22,7 @@ export const FILAS = {
   finalizarEstadias: 'finalizar-estadias',
   anonimizarHospedes: 'anonimizar-hospedes',
   conversao: 'conversao',
+  expirarPreReservas: 'expirar-pre-reservas',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
@@ -63,6 +64,7 @@ export async function iniciarFila(): Promise<void> {
     intervaloLocal = setInterval(() => {
       void executarAgendado('limpeza', limpeza).catch(() => {});
       void executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()).catch(() => {});
+      void executarAgendado('expirar-pre-reservas', expirarPreReservas).catch(() => {});
     }, 6 * 60 * 60 * 1000);
     intervaloLocal.unref();
     return;
@@ -89,6 +91,8 @@ export async function iniciarFila(): Promise<void> {
   // Agendados: um disparo por cron no cluster inteiro, no fuso da operação.
   await boss.schedule(FILAS.limpeza, '17 * * * *', null, { tz: TIMEZONE });
   await boss.schedule(FILAS.finalizarEstadias, '30 3 * * *', null, { tz: TIMEZONE });
+  await boss.schedule(FILAS.expirarPreReservas, '*/10 * * * *', null, { tz: TIMEZONE });
+  await boss.work(FILAS.expirarPreReservas, async () => executarAgendado('expirar-pre-reservas', expirarPreReservas));
   await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.anonimizarHospedes, async () =>
     executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),
@@ -104,7 +108,7 @@ export async function iniciarFila(): Promise<void> {
     });
   }
 
-  console.log(`[Fila] pg-boss iniciado (${trabalhadores.size + 3} filas)`);
+  console.log(`[Fila] pg-boss iniciado (${trabalhadores.size + 4} filas)`);
 }
 
 /**

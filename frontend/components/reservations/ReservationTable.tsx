@@ -5,7 +5,8 @@ import { Badge } from "../ui/badge"
 import { Card } from "../ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table"
 import { Pagination } from "../pagination"
-import { formatarData, formatarValor, getStatusBadgeVariant } from "../../lib/formatters"
+import { formatarData, formatarValor, getStatusBadgeVariant, getStatusLabel } from "../../lib/formatters"
+import { acaoPrincipal, hojeNaPousada, ROTULO_ACAO, type StatusReserva } from "../../lib/status"
 import type { Reserva, PaginationMeta } from "../../lib/types"
 
 interface ReservationTableProps {
@@ -14,6 +15,10 @@ interface ReservationTableProps {
   onPageChange: (page: number) => void
   onEdit: (id: number) => void
   onDelete: (id: number) => void
+  /** Ação de um clique (confirmar, check-in, check-out). */
+  onMudarStatus?: (id: number, status: StatusReserva) => void
+  /** Reserva com mudança de status em andamento. */
+  mudando?: number | null
   loading?: boolean
   userRole?: string
 }
@@ -24,9 +29,12 @@ export function ReservationTable({
   onPageChange,
   onEdit,
   onDelete,
+  onMudarStatus,
+  mudando = null,
   loading = false,
   userRole,
 }: ReservationTableProps) {
+  const hoje = hojeNaPousada()
   return (
     <Card className="p-0 overflow-hidden">
       <div className="overflow-x-auto">
@@ -78,11 +86,24 @@ export function ReservationTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant={getStatusBadgeVariant(reserva.status)}>
-                      {reserva.status}
+                      {getStatusLabel(reserva.status)}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      {(() => {
+                        const proximo = onMudarStatus && acaoPrincipal(reserva.status, reserva.data_entrada, hoje)
+                        return proximo ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={mudando === reserva.id}
+                            onClick={() => onMudarStatus(Number(reserva.id), proximo)}
+                          >
+                            {ROTULO_ACAO[proximo]}
+                          </Button>
+                        ) : null
+                      })()}
                       <Button variant="ghost" size="sm" onClick={() => onEdit(Number(reserva.id))}>
                         Editar
                       </Button>

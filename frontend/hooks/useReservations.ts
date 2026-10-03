@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
+import { STATUS_QUE_OCUPAM } from "../lib/status"
 import { auditoriaDaApi, reservaDaApi } from "../lib/adaptadores"
 import { rastrear } from "../lib/medicao"
 
@@ -92,7 +93,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
 
   // Computed values — prefer SQL stats when available
   const reservasAtivas = useMemo(
-    () => dashboardStats?.reservas_ativas ?? dashReservas.filter((r) => r.status === "ativa").length,
+    () => dashboardStats?.reservas_ativas ?? dashReservas.filter((r) => STATUS_QUE_OCUPAM.includes(r.status)).length,
     [dashboardStats, dashReservas]
   )
 
@@ -287,6 +288,12 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       cpf: cpfNormalizado,
       valor: form.valor ? Number(form.valor) : null,
       pago: Boolean(form.pago),
+    }
+
+    // Datas do ciclo (check-in, expiração...) são do servidor; vão só o status
+    // e, se for o caso, o prazo da pré-reserva e o motivo do cancelamento.
+    for (const campo of ["expira_em", "check_in_em", "check_out_em", "cancelada_em", "motivo_cancelamento"]) {
+      delete payload[campo]
     }
 
     // Include version for optimistic locking on updates

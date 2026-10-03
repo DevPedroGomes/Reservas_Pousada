@@ -230,3 +230,22 @@ describe('nova pousada — plano Rede e fim do trial infinito', () => {
     );
   });
 });
+
+describe('ciclo de status da reserva', () => {
+  it('segue o caminho normal e permite desfazer o último passo', async () => {
+    const { podeTransitar } = await import('../utils/status.js');
+    assert.ok(podeTransitar('pre_reserva', 'confirmada'));
+    assert.ok(podeTransitar('confirmada', 'hospedada'));
+    assert.ok(podeTransitar('hospedada', 'finalizada'));
+    assert.ok(podeTransitar('finalizada', 'hospedada'), 'desfazer check-out');
+    assert.ok(podeTransitar('cancelada', 'confirmada'), 'reativar');
+  });
+
+  it('recusa saltos sem sentido', async () => {
+    const { podeTransitar } = await import('../utils/status.js');
+    assert.equal(podeTransitar('pre_reserva', 'hospedada'), false);
+    assert.equal(podeTransitar('finalizada', 'cancelada'), false);
+    assert.equal(podeTransitar('cancelada', 'hospedada'), false);
+    assert.equal(podeTransitar('confirmada', 'inventado'), false);
+  });
+});

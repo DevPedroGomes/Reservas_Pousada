@@ -1,9 +1,10 @@
-import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, SQL } from 'drizzle-orm';
+import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, inArray, SQL } from 'drizzle-orm';
 import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
 import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
 import { mascararCpf } from '../utils/pii.js';
 import { CPF_ANONIMIZADO } from './Conta.js';
+import { STATUS_QUE_OCUPAM } from '../utils/status.js';
 
 /** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
 const PG_EXCLUSION_VIOLATION = '23P01';
@@ -56,6 +57,59 @@ interface ListarOptions {
 interface ReservaComCriador extends Reserva {
   criadoPorNome?: string | null;
 }
+
+/**
+ * Carimbos de cada transição: quando entrou, saiu, foi cancelada. Voltar um
+ * passo (desfazer check-out, reativar) limpa o carimbo correspondente.
+ */
+export function camposDaTransicao(status: string, extra: { motivo?: string | null; expiraEm?: Date | null } = {}) {
+  const agora = new Date();
+  switch (status) {
+    case 'pre_reserva':
+      return { expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null };
+    case 'confirmada':
+      return { expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null };
+    case 'hospedada':
+      return { expiraEm: null, checkInEm: sql`COALESCE(${reservas.checkInEm}, now())`, checkOutEm: null };
+    case 'finalizada':
+      return { checkOutEm: agora };
+    case 'cancelada':
+      return { canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Colunas devolvidas pelas consultas de reserva (com o nome de quem criou).
+ * Uma lista só: antes eram três cópias, e campo novo esquecido numa delas
+ * sumia daquela tela.
+ */
+const CAMPOS_RESERVA = {
+  id: reservas.id,
+  pousadaId: reservas.pousadaId,
+  nome: reservas.nome,
+  cpf: reservas.cpf,
+  cpfHash: reservas.cpfHash,
+  quarto: reservas.quarto,
+  dataEntrada: reservas.dataEntrada,
+  dataSaida: reservas.dataSaida,
+  status: reservas.status,
+  valor: reservas.valor,
+  pago: reservas.pago,
+  observacoes: reservas.observacoes,
+  criadoPor: reservas.criadoPor,
+  version: reservas.version,
+  expiraEm: reservas.expiraEm,
+  checkInEm: reservas.checkInEm,
+  checkOutEm: reservas.checkOutEm,
+  canceladaEm: reservas.canceladaEm,
+  motivoCancelamento: reservas.motivoCancelamento,
+  deletedAt: reservas.deletedAt,
+  createdAt: reservas.createdAt,
+  updatedAt: reservas.updatedAt,
+  criadoPorNome: user.name,
+};
 
 export class ReservaModel {
   /**
@@ -163,26 +217,7 @@ export class ReservaModel {
 
     // Get data with creator name
     const data = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
+      .select(CAMPOS_RESERVA)
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
       .where(and(...conditions))
@@ -201,26 +236,7 @@ export class ReservaModel {
    */
   static async buscarPorId(id: number): Promise<ReservaComCriador | null> {
     const [result] = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
+      .select(CAMPOS_RESERVA)
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
       .where(and(eq(reservas.id, id), isNull(reservas.deletedAt)))
@@ -234,26 +250,7 @@ export class ReservaModel {
    */
   static async buscarPorIdEPousada(id: number, pousadaId: number): Promise<ReservaComCriador | null> {
     const [result] = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
+      .select(CAMPOS_RESERVA)
       .from(reservas)
       .leftJoin(user, eq(reservas.criadoPor, user.id))
       .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)))
@@ -283,7 +280,7 @@ export class ReservaModel {
   ): Promise<{ disponivel: boolean; conflitos: ConflitoResumo[] }> {
     const conditions = [
       eq(reservas.quarto, quarto),
-      eq(reservas.status, 'ativa'),
+      inArray(reservas.status, [...STATUS_QUE_OCUPAM]),
       eq(reservas.pousadaId, pousadaId),
       isNull(reservas.deletedAt),
       // Sobreposição de [a,b) com [c,d)  <=>  a < d AND b > c
@@ -454,7 +451,13 @@ export class ReservaModel {
   /**
    * Update reservation status (with optimistic locking)
    */
-  static async atualizarStatus(id: number, status: string, pousadaId: number, version?: number): Promise<{ changes: number; id: number; status: string }> {
+  static async atualizarStatus(
+    id: number,
+    status: string,
+    pousadaId: number,
+    version?: number,
+    extra: { motivo?: string | null; expiraEm?: Date | null } = {},
+  ): Promise<{ changes: number; id: number; status: string }> {
     const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
     if (version !== undefined) {
       conditions.push(eq(reservas.version, version));
@@ -466,6 +469,7 @@ export class ReservaModel {
         .update(reservas)
         .set({
           status,
+          ...camposDaTransicao(status, extra),
           version: sql`${reservas.version} + 1`,
           updatedAt: new Date(),
         })
@@ -532,14 +536,15 @@ export class ReservaModel {
       pago: reservas.pago,
       status: reservas.status,
     };
-    const base = [eq(reservas.pousadaId, pousadaId), eq(reservas.status, 'ativa'), isNull(reservas.deletedAt)];
+    const base = [eq(reservas.pousadaId, pousadaId), inArray(reservas.status, [...STATUS_QUE_OCUPAM]), isNull(reservas.deletedAt)];
     const ate = sql`(${dia}::date + ${diasAFrente}::int)`;
 
     const [chegadas, saidas, hospedados, proximas] = await Promise.all([
       db.select(campos).from(reservas).where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
       db.select(campos).from(reservas).where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
       db.select(campos).from(reservas)
-        .where(and(...base, lte(reservas.dataEntrada, dia), gt(reservas.dataSaida, dia)))
+        // Pré-reserva segura o quarto, mas ninguém está hospedado nela.
+        .where(and(...base, ne(reservas.status, 'pre_reserva'), lte(reservas.dataEntrada, dia), gt(reservas.dataSaida, dia)))
         .orderBy(reservas.quarto),
       db.select(campos).from(reservas)
         .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))

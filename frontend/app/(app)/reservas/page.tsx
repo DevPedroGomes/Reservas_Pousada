@@ -8,13 +8,16 @@ import { ReservationTable } from "../../../components/reservations/ReservationTa
 import { ConfirmDialog } from "../../../components/confirm-dialog"
 import { Button } from "../../../components/ui/button"
 import { useReservations } from "../../../hooks/useReservations"
+import { useStatusReserva } from "../../../hooks/useStatusReserva"
 import { useAtualizacaoAutomatica } from "../../../hooks/useAtualizacaoAutomatica"
+import type { StatusReserva } from "../../../lib/status"
 
 export default function ListaDeReservas() {
   const router = useRouter()
   const { auth } = useApp()
   const r = useReservations(true, auth.pousada?.id)
   const [excluindo, setExcluindo] = useState<number | null>(null)
+  const { mudarStatus, mudando } = useStatusReserva()
 
   useEffect(() => { void r.carregarReservas() }, [auth.pousada?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   useAtualizacaoAutomatica(() => { void r.carregarReservas() }, 60_000)
@@ -27,6 +30,12 @@ export default function ListaDeReservas() {
       : { type: "error", text: "Não foi possível excluir a reserva." })
     setExcluindo(null)
     if (ok) void r.carregarReservas()
+  }
+
+  async function mudar(id: number, status: StatusReserva) {
+    const res = await mudarStatus(id, status)
+    auth.setMessage({ type: res.sucesso ? "success" : "error", text: res.mensagem })
+    if (res.sucesso) void r.carregarReservas(r.meta.pagina || 1)
   }
 
   return (
@@ -57,6 +66,8 @@ export default function ListaDeReservas() {
         onPageChange={r.carregarReservas}
         onEdit={(id) => router.push(`/reservas/${id}`)}
         onDelete={(id) => setExcluindo(id)}
+        onMudarStatus={auth.user?.role === "auditoria" && !auth.user?.is_owner ? undefined : (id, status) => void mudar(id, status)}
+        mudando={mudando}
         loading={r.loading}
         userRole={auth.user?.is_owner ? "admin" : auth.user?.role}
       />

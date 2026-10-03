@@ -8,11 +8,21 @@ import { AgendaDoDia } from "../../../components/dashboard/Agenda"
 import { Button } from "../../../components/ui/button"
 import { usePainel } from "../../../hooks/usePainel"
 import { useAtualizacaoAutomatica } from "../../../hooks/useAtualizacaoAutomatica"
+import { useStatusReserva } from "../../../hooks/useStatusReserva"
+import type { StatusReserva } from "../../../lib/status"
 
 export default function Painel() {
   const { auth } = useApp()
   const pousada = auth.pousada!
   const { estatisticas, agenda, erro, carregar } = usePainel(pousada.id)
+  const { mudarStatus, mudando } = useStatusReserva()
+  const somenteLeitura = auth.user?.role === "auditoria" && !auth.user?.is_owner
+
+  async function mudar(id: number, status: StatusReserva) {
+    const res = await mudarStatus(id, status)
+    auth.setMessage({ type: res.sucesso ? "success" : "error", text: res.mensagem })
+    if (res.sucesso) void carregar()
+  }
 
   useEffect(() => { void carregar() }, [carregar])
   useAtualizacaoAutomatica(carregar, 60_000)
@@ -46,7 +56,13 @@ export default function Painel() {
         aReceber={estatisticas?.receita_pendente ?? 0}
       />
 
-      {agenda && <AgendaDoDia {...agenda} />}
+      {agenda && (
+        <AgendaDoDia
+          {...agenda}
+          onMudarStatus={somenteLeitura ? undefined : (id, status) => void mudar(id, status)}
+          mudando={mudando}
+        />
+      )}
     </div>
   )
 }

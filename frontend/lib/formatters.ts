@@ -3,6 +3,7 @@
  */
 
 import type { Auditoria } from "./types"
+import { COR_STATUS, ehStatusReserva, rotuloStatus } from "./status"
 
 /**
  * Formata uma data ISO para o formato brasileiro DD/MM/YYYY.
@@ -110,7 +111,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   const depoisStatus = log.details?.depois?.status
 
   if (antesStatus && depoisStatus && antesStatus !== depoisStatus) {
-    return `Status: ${antesStatus} -> ${depoisStatus}`
+    return `Status: ${rotuloStatus(antesStatus)} → ${rotuloStatus(depoisStatus)}`
   }
 
   if (log.details?.antes && log.details?.depois) {
@@ -121,6 +122,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   if (log.action === "excluir") return "Reserva removida."
   if (log.action === "visualizar_cpf") return "CPF completo visualizado."
   if (log.action === "finalizacao_automatica") return "Estadia finalizada automaticamente (saída vencida)."
+  if (log.action === "pre_reserva_expirada") return "Pré-reserva cancelada automaticamente (prazo vencido)."
 
   return "Atualizacao registrada."
 }
@@ -130,33 +132,15 @@ export function renderResumoAuditoria(log: Auditoria): string {
  */
 export function getStatusBadgeVariant(
   status: string
-): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "ativa":
-      return "default"
-    case "finalizada":
-      return "secondary"
-    case "cancelada":
-      return "destructive"
-    default:
-      return "outline"
-  }
+): "default" | "secondary" | "success" | "warning" | "destructive" | "outline" {
+  return ehStatusReserva(status) ? COR_STATUS[status] : "outline"
 }
 
 /**
  * Retorna o label traduzido do status
  */
 export function getStatusLabel(status: string): string {
-  switch (status) {
-    case "ativa":
-      return "Ativa"
-    case "finalizada":
-      return "Finalizada"
-    case "cancelada":
-      return "Cancelada"
-    default:
-      return status
-  }
+  return rotuloStatus(status)
 }
 
 /**

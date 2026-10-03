@@ -1,8 +1,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { criarLimitador } from '../utils/limitadores.js';
-import ReservaModel, { ConflitoDeReserva } from '../models/Reserva.js';
+import ReservaModel, { ConflitoDeReserva, camposDaTransicao } from '../models/Reserva.js';
+import type { NewReserva } from '../db/schema.js';
+import { podeTransitar, ROTULO_STATUS, STATUS_RESERVA } from '../utils/status.js';
 import AuditoriaModel from '../models/Auditoria.js';
-import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
+import { sanitizarString, validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
@@ -48,6 +50,30 @@ const exportLimiter = criarLimitador('export', {
 async function quartoInexistente(pousadaId: number, quarto: number): Promise<string | null> {
   if (await QuartoModel.existeAtivo(pousadaId, quarto)) return null;
   return `O quarto ${quarto} não existe ou está desativado nesta pousada.`;
+}
+
+
+/** Prazo da pré-reserva: horas pedidas (1 a 720), padrão 48h. */
+function prazoDaPreReserva(horas: unknown): Date {
+  const h = Number(horas);
+  const valido = Number.isFinite(h) && h >= 1 && h <= 720 ? h : 48;
+  return new Date(Date.now() + valido * 60 * 60 * 1000);
+}
+
+/**
+ * A transição de status é permitida? Devolve o motivo da recusa, ou null.
+ * No-show só depois do dia de entrada; check-in não antes do dia de entrada.
+ */
+function recusaDeTransicao(antes: { status: string; dataEntrada: string }, para: string): string | null {
+  if (!podeTransitar(antes.status, para)) {
+    const de = ROTULO_STATUS[antes.status as keyof typeof ROTULO_STATUS] ?? antes.status;
+    const ate = ROTULO_STATUS[para as keyof typeof ROTULO_STATUS] ?? para;
+    return `Uma reserva ${de} não pode passar para ${ate}.`;
+  }
+  const hoje = hojeLocal();
+  if (para === 'no_show' && antes.dataEntrada > hoje) return 'Não comparecimento só pode ser marcado a partir do dia da entrada.';
+  if (para === 'hospedada' && antes.status !== 'hospedada' && antes.dataEntrada > hoje) return 'Check-in só a partir do dia da entrada.';
+  return null;
 }
 
 // List all reservations
@@ -281,13 +307,25 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
       return res.status(400).json({ sucesso: false, codigo: 'VAL_009', mensagem: semQuarto, erros: [semQuarto] });
     }
 
+    // Na criação: pré-reserva (aguarda sinal, com prazo), confirmada, ou
+    // hospedada (hóspede chegando agora, sem reserva prévia).
+    const statusInicial = dadosSanitizados.status || 'confirmada';
+    if (!['pre_reserva', 'confirmada', 'hospedada'].includes(statusInicial)) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Reserva nova deve ser pré-reserva, confirmada ou hospedada.' });
+    }
+    if (statusInicial === 'hospedada' && dadosSanitizados.data_entrada > hojeLocal()) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Check-in só a partir do dia da entrada.' });
+    }
+
     const novaReserva = {
       nome: dadosSanitizados.nome,
       cpf: dadosSanitizados.cpf,
       quarto: dadosSanitizados.quarto,
       dataEntrada: dadosSanitizados.data_entrada,
       dataSaida: dadosSanitizados.data_saida,
-      status: dadosSanitizados.status || 'ativa',
+      status: statusInicial,
+      expiraEm: statusInicial === 'pre_reserva' ? prazoDaPreReserva(req.body.prazo_horas) : null,
+      checkInEm: statusInicial === 'hospedada' ? new Date() : null,
       valor: dadosSanitizados.valor,
       pago: dadosSanitizados.pago,
       observacoes: dadosSanitizados.observacoes,
@@ -341,10 +379,7 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     // Edição permite data no passado: corrigir o nome de quem já fez check-in,
     // marcar como paga ou finalizar uma estadia em andamento são operações do
     // dia a dia, e reusar a validação do POST as rejeitava com 400.
-    const validacao = validarReserva(
-      { ...dadosSanitizados, status: dadosSanitizados.status || 'ativa' },
-      { permitirDataPassada: true },
-    );
+    const validacao = validarReserva(dadosSanitizados, { permitirDataPassada: true });
     if (!validacao.valido) {
       return res.status(400).json({
         sucesso: false,
@@ -357,6 +392,13 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     const reservaAntes = await ReservaModel.buscarPorIdEPousada(parseInt(id), req.user!.pousadaId!);
     if (!reservaAntes) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
+    }
+
+    // Status pelo formulário de edição segue as mesmas regras do PATCH.
+    const statusNovo = dadosSanitizados.status || reservaAntes.status;
+    if (statusNovo !== reservaAntes.status) {
+      const recusa = recusaDeTransicao(reservaAntes, statusNovo);
+      if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
     }
 
     if (dadosSanitizados.quarto !== reservaAntes.quarto) {
@@ -374,11 +416,15 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       quarto: dadosSanitizados.quarto,
       dataEntrada: dadosSanitizados.data_entrada,
       dataSaida: dadosSanitizados.data_saida,
-      status: dadosSanitizados.status,
+      status: statusNovo,
+      ...(statusNovo !== reservaAntes.status ? camposDaTransicao(statusNovo, {
+        expiraEm: statusNovo === 'pre_reserva' ? prazoDaPreReserva(req.body.prazo_horas) : null,
+        motivo: typeof req.body.motivo === 'string' ? sanitizarString(req.body.motivo, 300) || null : null,
+      }) : {}),
       valor: dadosSanitizados.valor,
       pago: dadosSanitizados.pago,
       observacoes: dadosSanitizados.observacoes,
-    }, req.user!.pousadaId!, version);
+    } as Partial<NewReserva>, req.user!.pousadaId!, version);
 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
@@ -431,7 +477,7 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
     }
 
     if (!status || !validarStatus(status)) {
-      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Status inválido. Use: ativa, finalizada ou cancelada' });
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: `Status inválido. Use: ${STATUS_RESERVA.join(', ')}` });
     }
 
     const reservaAntes = await ReservaModel.buscarPorIdEPousada(parseInt(id), req.user!.pousadaId!);
@@ -439,8 +485,14 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    const recusa = recusaDeTransicao(reservaAntes, status);
+    if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
+
     const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
-    const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!, version);
+    const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!, version, {
+      motivo: typeof req.body.motivo === 'string' ? sanitizarString(req.body.motivo, 300) || null : null,
+      expiraEm: status === 'pre_reserva' ? prazoDaPreReserva(req.body.prazo_horas) : null,
+    });
 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
@@ -448,7 +500,7 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
 
     res.json({
       sucesso: true,
-      mensagem: `Reserva marcada como ${status}`,
+      mensagem: `Reserva marcada como ${ROTULO_STATUS[status as keyof typeof ROTULO_STATUS]}`,
       id,
       status
     });

@@ -3,6 +3,7 @@
  */
 
 import { eHojeOuFuturo } from './datas.js';
+import { ehStatusReserva, STATUS_RESERVA } from './status.js';
 
 /**
  * Validates Brazilian CPF
@@ -93,8 +94,7 @@ export function validarQuarto(quarto: number | string, maxQuartos: number = 100)
  * Validates reservation status
  */
 export function validarStatus(status: string): boolean {
-  const statusValidos = ['ativa', 'finalizada', 'cancelada'];
-  return statusValidos.includes(status);
+  return ehStatusReserva(status);
 }
 
 /**
@@ -223,7 +223,7 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
 
   // Validate status
   if (reserva.status && !validarStatus(reserva.status)) {
-    erros.push('Status inválido. Use: ativa, finalizada ou cancelada');
+    erros.push(`Status inválido. Use: ${STATUS_RESERVA.join(', ')}`);
   }
 
   // Validate value

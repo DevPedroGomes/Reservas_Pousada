@@ -264,6 +264,47 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('ciclo de status', () => {
+    it('pré-reserva com prazo -> confirmada -> check-in -> check-out', async () => {
+      const hoje = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const amanha = new Date(Date.now() + 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Ciclo', cpf: CPF, quarto: 6, data_entrada: hoje, data_saida: amanha, status: 'pre_reserva', prazo_horas: 24,
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.equal(r.json.reserva.status, 'pre_reserva');
+      assert.ok(r.json.reserva.expiraEm);
+      const id = r.json.reserva.id;
+      const ag = await recep.req('GET', '/api/reservas/agenda');
+      assert.ok(ag.json.chegadas.some((x: { id: number }) => x.id === id), 'chega hoje');
+      assert.ok(!ag.json.hospedados.some((x: { id: number }) => x.id === id), 'pré-reserva não é hóspede');
+      // pré-reserva não faz check-in direto
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'hospedada' })).status, 409);
+      for (const status of ['confirmada', 'hospedada', 'finalizada']) {
+        const t = await recep.req('PATCH', `/api/reservas/${id}/status`, { status });
+        assert.equal(t.status, 200, `${status}: ${JSON.stringify(t.json)}`);
+      }
+      const det = await donoA.req('GET', `/api/reservas/${id}`);
+      assert.equal(det.json.reserva.status, 'finalizada');
+      assert.ok(det.json.reserva.checkInEm && det.json.reserva.checkOutEm);
+    });
+
+    it('check-in antes do dia da entrada e no-show antecipado são recusados', async () => {
+      assert.equal((await recep.req('PATCH', `/api/reservas/${reservaA}/status`, { status: 'hospedada' })).status, 409);
+      assert.equal((await recep.req('PATCH', `/api/reservas/${reservaA}/status`, { status: 'no_show' })).status, 409);
+    });
+
+    it('cancelamento guarda o motivo e libera o quarto', async () => {
+      const r = await recep.req('POST', '/api/reservas', { nome: 'Vai cancelar', cpf: CPF, quarto: 7, data_entrada: d(70), data_saida: d(72) });
+      const c = await recep.req('PATCH', `/api/reservas/${r.json.reserva.id}/status`, { status: 'cancelada', motivo: 'Hóspede desistiu' });
+      assert.equal(c.status, 200);
+      const det = await donoA.req('GET', `/api/reservas/${r.json.reserva.id}`);
+      assert.equal(det.json.reserva.motivoCancelamento, 'Hóspede desistiu');
+      const outra = await recep.req('POST', '/api/reservas', { nome: 'Pegou a vaga', cpf: CPF, quarto: 7, data_entrada: d(70), data_saida: d(72) });
+      assert.equal(outra.status, 201);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

@@ -209,15 +209,15 @@ export class PousadaModel {
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_reservas,
-        COUNT(*) FILTER (WHERE status = 'ativa')::int AS reservas_ativas,
-        COUNT(*) FILTER (WHERE status = 'ativa' AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
+        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada'))::int AS reservas_ativas,
+        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada') AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
         -- Ocupação usa intervalo semiaberto [entrada, saída): quem faz check-out
         -- hoje já liberou o quarto e não conta como ocupado.
-        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
+        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status IN ('pre_reserva', 'confirmada', 'hospedada') AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
         -- Receita realizada exclui cancelada: dinheiro de reserva cancelada foi
         -- devolvido ou virou crédito, não é faturamento.
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true AND status <> 'cancelada'), 0)::numeric AS receita_total,
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status = 'ativa'), 0)::numeric AS receita_pendente
+        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true AND status NOT IN ('cancelada', 'no_show')), 0)::numeric AS receita_total,
+        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')), 0)::numeric AS receita_pendente
       FROM reservas
       WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
     `);

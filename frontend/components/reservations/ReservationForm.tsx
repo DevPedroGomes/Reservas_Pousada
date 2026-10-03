@@ -11,6 +11,14 @@ import { Select } from "../ui/select"
 import { Textarea } from "../ui/textarea"
 import { formatarDataHora, renderResumoAuditoria } from "../../lib/formatters"
 import type { Reserva, Auditoria, Quarto } from "../../lib/types"
+import { proximosStatus, hojeNaPousada, ROTULO_STATUS, STATUS_INICIAIS, type StatusReserva } from "../../lib/status"
+
+/** Como cada status aparece na criação, onde o significado precisa ficar claro. */
+const ROTULO_NA_CRIACAO: Partial<Record<StatusReserva, string>> = {
+  confirmada: "Confirmada",
+  pre_reserva: "Pré-reserva (aguardando sinal)",
+  hospedada: "Hospedada (check-in agora)",
+}
 
 interface ReservationFormProps {
   initialData?: Reserva | null
@@ -29,7 +37,7 @@ const emptyForm: Reserva = {
   quarto: 1,
   data_entrada: "",
   data_saida: "",
-  status: "ativa",
+  status: "confirmada",
   valor: null,
   pago: false,
   observacoes: "",
@@ -78,6 +86,13 @@ export function ReservationForm({
       [field]: field === "quarto" ? Number(value) : value,
     }))
   }
+
+  // Na edição, só as transições válidas a partir do status salvo.
+  const statusSalvo = isEditing ? initialData?.status : undefined
+  const opcoesStatus: StatusReserva[] = statusSalvo
+    ? [statusSalvo, ...proximosStatus(statusSalvo, initialData?.data_entrada ?? "", hojeNaPousada())]
+    : [...STATUS_INICIAIS]
+  const mudouStatus = form.status !== statusSalvo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -217,9 +232,11 @@ export function ReservationForm({
                   required
                   className=""
                 >
-                  <option value="ativa">Ativa</option>
-                  <option value="finalizada">Finalizada</option>
-                  <option value="cancelada">Cancelada</option>
+                  {opcoesStatus.map((s) => (
+                    <option key={s} value={s}>
+                      {(!statusSalvo && ROTULO_NA_CRIACAO[s]) || ROTULO_STATUS[s]}
+                    </option>
+                  ))}
                 </Select>
               </div>
               <div className="space-y-2">
@@ -241,6 +258,42 @@ export function ReservationForm({
                 </label>
               </div>
             </div>
+
+            {form.status === "pre_reserva" && mudouStatus && (
+              <div className="space-y-2 md:w-1/3">
+                <Label htmlFor="prazo_horas" className="text-xs">
+                  Prazo para confirmar (horas)
+                </Label>
+                <Input
+                  id="prazo_horas"
+                  type="number"
+                  min={1}
+                  max={720}
+                  value={form.prazo_horas ?? 48}
+                  onChange={(e) => setForm((prev) => ({ ...prev, prazo_horas: Number(e.target.value) }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Sem confirmação até lá, a pré-reserva é cancelada e o quarto volta a ficar livre.
+                </p>
+              </div>
+            )}
+
+            {form.status === "cancelada" && mudouStatus && (
+              <div className="space-y-2">
+                <Label htmlFor="motivo" className="text-xs">
+                  Motivo do cancelamento
+                </Label>
+                <Input
+                  id="motivo"
+                  maxLength={300}
+                  value={form.motivo ?? ""}
+                  onChange={(e) => setForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                  placeholder="Ex.: hóspede desistiu, sinal não pago"
+                />
+              </div>
+            )}
+
+            {isEditing && initialData && <LinhaDoTempo reserva={initialData} />}
 
             <div className="space-y-2">
               <Label htmlFor="observacoes" className="text-xs">
@@ -279,6 +332,24 @@ export function ReservationForm({
         <AuditHistory logs={auditLogs} />
       )}
     </div>
+  )
+}
+
+/** Datas do ciclo da reserva, quando houver. */
+function LinhaDoTempo({ reserva }: { reserva: Reserva }) {
+  const itens = [
+    reserva.status === "pre_reserva" && reserva.expira_em ? `Segura o quarto até ${formatarDataHora(reserva.expira_em)}` : null,
+    reserva.check_in_em ? `Check-in em ${formatarDataHora(reserva.check_in_em)}` : null,
+    reserva.check_out_em ? `Check-out em ${formatarDataHora(reserva.check_out_em)}` : null,
+    reserva.status === "cancelada" && reserva.cancelada_em
+      ? `Cancelada em ${formatarDataHora(reserva.cancelada_em)}${reserva.motivo_cancelamento ? ` — ${reserva.motivo_cancelamento}` : ""}`
+      : null,
+  ].filter(Boolean)
+  if (itens.length === 0) return null
+  return (
+    <ul className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+      {itens.map((t) => <li key={t as string}>{t}</li>)}
+    </ul>
   )
 }
 

@@ -23,7 +23,7 @@ export function reservaDaApi(r: Bruto): Reserva {
     quarto: (r.quarto as number) ?? "",
     data_entrada: texto(r.data_entrada ?? r.dataEntrada),
     data_saida: texto(r.data_saida ?? r.dataSaida),
-    status: (r.status as Reserva["status"]) ?? "ativa",
+    status: (r.status as Reserva["status"]) ?? "confirmada",
     valor: (r.valor as Reserva["valor"]) ?? null,
     pago: Boolean(r.pago),
     observacoes: texto(r.observacoes),
@@ -31,6 +31,11 @@ export function reservaDaApi(r: Bruto): Reserva {
     criado_por_nome: (r.criado_por_nome ?? r.criadoPorNome) as string | undefined,
     pousada_id: (r.pousada_id ?? r.pousadaId) as number | undefined,
     version: r.version as number | undefined,
+    expira_em: (r.expira_em ?? r.expiraEm ?? null) as string | null,
+    check_in_em: (r.check_in_em ?? r.checkInEm ?? null) as string | null,
+    check_out_em: (r.check_out_em ?? r.checkOutEm ?? null) as string | null,
+    cancelada_em: (r.cancelada_em ?? r.canceladaEm ?? null) as string | null,
+    motivo_cancelamento: (r.motivo_cancelamento ?? r.motivoCancelamento ?? null) as string | null,
   }
 }
 

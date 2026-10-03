@@ -54,7 +54,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
   async function reservar(quarto: number, entrada: string, saida: string, nome = 'Hospede') {
     return pool.query(
       `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status)
-       VALUES (1, $1, 'cifrado', $2, $3, $4, 'ativa')`,
+       VALUES (1, $1, 'cifrado', $2, $3, $4, 'confirmada')`,
       [nome, quarto, entrada, saida],
     );
   }
@@ -104,7 +104,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     await limparQuarto(10);
     await pool.query(
       `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, deleted_at)
-       VALUES (1, 'apagada', 'cifrado', 10, $1, $2, 'ativa', NOW())`,
+       VALUES (1, 'apagada', 'cifrado', 10, $1, $2, 'confirmada', NOW())`,
       [NATAL_ENTRADA, NATAL_SAIDA],
     );
     await assert.doesNotReject(() => reservar(10, NATAL_ENTRADA, NATAL_SAIDA));
@@ -177,7 +177,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
         await cliente.query('BEGIN');
         const { rows } = await cliente.query(
           `SELECT id FROM reservas
-           WHERE pousada_id = 1 AND quarto = 7 AND status = 'ativa' AND deleted_at IS NULL
+           WHERE pousada_id = 1 AND quarto = 7 AND status = 'confirmada' AND deleted_at IS NULL
              AND data_entrada < $2 AND data_saida > $1`,
           [NATAL_ENTRADA, NATAL_SAIDA],
         );
@@ -188,7 +188,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
         await new Promise((r) => setTimeout(r, 200));
         await cliente.query(
           `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status)
-           VALUES (1, $1, 'cifrado', 7, $2, $3, 'ativa')`,
+           VALUES (1, $1, 'cifrado', 7, $2, $3, 'confirmada')`,
           [nome, NATAL_ENTRADA, NATAL_SAIDA],
         );
         await cliente.query('COMMIT');
@@ -204,7 +204,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     const resultados = await Promise.all([tentativa('familia-1'), tentativa('familia-2')]);
 
     const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM reservas WHERE quarto = 7 AND status = 'ativa'`,
+      `SELECT count(*)::int AS n FROM reservas WHERE quarto = 7 AND status = 'confirmada'`,
     );
     assert.equal(
       rows[0].n,

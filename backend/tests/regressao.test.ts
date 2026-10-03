@@ -57,7 +57,7 @@ describe('reserva — validação de criação vs edição', () => {
     quarto: 3,
     data_entrada: '2020-01-10',
     data_saida: '2020-01-12',
-    status: 'ativa',
+    status: 'confirmada',
   };
 
   it('recusa criar reserva com data no passado', () => {

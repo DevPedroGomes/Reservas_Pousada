@@ -1,3 +1,5 @@
+import type { StatusReserva } from "./status"
+
 /**
  * Tipos compartilhados da aplicacao
  */
@@ -106,7 +108,7 @@ export interface Reserva {
   quarto: number | string
   data_entrada: string
   data_saida: string
-  status: "ativa" | "finalizada" | "cancelada"
+  status: StatusReserva
   valor?: number | string | null
   pago: boolean
   observacoes?: string
@@ -114,6 +116,15 @@ export interface Reserva {
   criado_por_nome?: string
   pousada_id?: number
   version?: number
+  /** Pré-reserva: até quando segura o quarto sem confirmação. */
+  expira_em?: string | null
+  check_in_em?: string | null
+  check_out_em?: string | null
+  cancelada_em?: string | null
+  motivo_cancelamento?: string | null
+  /** Só no formulário: prazo da pré-reserva e motivo do cancelamento enviados à API. */
+  prazo_horas?: number
+  motivo?: string
 }
 
 export interface Auditoria {
@@ -191,7 +202,7 @@ export const initialReservaForm: Reserva = {
   quarto: 1,
   data_entrada: "",
   data_saida: "",
-  status: "ativa",
+  status: "confirmada",
   valor: null,
   pago: false,
   observacoes: "",
