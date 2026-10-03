@@ -41,6 +41,11 @@ COPY --from=builder /app/migrations ./migrations
 # um path relativo ao modulo cairia em /app/dist/migrations (inexistente).
 ENV MIGRATIONS_DIR=/app/migrations
 
+# Heap coerente com o limite de 256 MB do container. Sem isto o V8 dimensiona o
+# heap pela memória do HOST e o kernel mata o processo (OOM) antes de o GC
+# reagir — reinício sem nenhuma mensagem útil no log.
+ENV NODE_OPTIONS=--max-old-space-size=192
+
 # Set ownership
 RUN chown -R nodejs:nodejs /app
 

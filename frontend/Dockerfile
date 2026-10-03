@@ -47,6 +47,8 @@ EXPOSE 3000
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=3000
+# Heap coerente com o limite de 256 MB do container (ver backend/Dockerfile).
+ENV NODE_OPTIONS=--max-old-space-size=192
 ENV HOSTNAME="0.0.0.0"
 
 # Health check

@@ -10,12 +10,28 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-// Create PostgreSQL connection pool
+function inteiroDoAmbiente(nome: string, padrao: number): number {
+  const v = Number(process.env[nome]);
+  return Number.isInteger(v) && v > 0 ? v : padrao;
+}
+
+// Pool de conexões.
+//
+// - Tamanho configurável: a central-db é compartilhada com outros projetos,
+//   então o teto de conexões desta API precisa caber no max_connections dela.
+// - Espera por conexão de 5s (era 2s): num pico curto de requisições, 2s
+//   transformavam fila em erro 500 antes de qualquer conexão liberar.
+// - statement_timeout: uma consulta presa não segura a conexão para sempre e
+//   derruba o pool em cascata. As migrations desligam o limite (db/migrate.ts).
+// - application_name: identifica a API no pg_stat_activity do banco compartilhado.
 const pool = new Pool({
   connectionString: databaseUrl,
-  max: 10, // Maximum number of connections in the pool
-  idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-  connectionTimeoutMillis: 2000, // Return error after 2 seconds if no connection available
+  max: inteiroDoAmbiente('DB_POOL_MAX', 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: inteiroDoAmbiente('DB_POOL_TIMEOUT_MS', 5000),
+  statement_timeout: inteiroDoAmbiente('DB_STATEMENT_TIMEOUT_MS', 15000),
+  idle_in_transaction_session_timeout: inteiroDoAmbiente('DB_IDLE_TX_TIMEOUT_MS', 30000),
+  application_name: 'diaria-api',
 });
 
 // Handle pool errors
