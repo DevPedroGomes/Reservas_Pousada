@@ -10,6 +10,7 @@ import pousadaRoutes from './routes/pousadas.js';
 import conviteRoutes from './routes/convites.js';
 import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
+import telemetriaRoutes from './routes/telemetria.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -22,12 +23,16 @@ import { origensPermitidas } from './utils/origens.js';
 import { TIMEZONE } from './utils/datas.js';
 import { avisarEstadoDoBilling } from './lib/stripe.js';
 import { requerAssinaturaAtiva } from './middleware/assinatura.js';
+import { descarregarErros, iniciarObservabilidade, reportarErro, requestId } from './lib/observabilidade.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Trust proxy (Traefik reverse proxy)
 app.set('trust proxy', 1);
+
+// Primeiro de tudo: todo log e toda resposta de erro carregam o mesmo id.
+app.use(requestId);
 
 // ==========================================
 // Security Headers
@@ -201,6 +206,7 @@ const userLimiter = criarLimitador('usuario', {
 // ==========================================
 // API Routes
 // ==========================================
+app.use('/api/telemetria', telemetriaRoutes);
 app.use('/api/convites', conviteRoutes);
 app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, reservaRoutes);
 app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
@@ -253,6 +259,7 @@ app.use(errorHandler);
 // de todos os clientes. Aqui a rejeição vira log alto e o processo segue.
 process.on('unhandledRejection', (motivo) => {
   console.error('[Processo] Promessa rejeitada sem tratamento:', motivo);
+  reportarErro(motivo, { origem: 'unhandledRejection' });
 });
 
 // Exceção síncrona não capturada deixa o processo em estado desconhecido:
@@ -260,7 +267,8 @@ process.on('unhandledRejection', (motivo) => {
 // com memória possivelmente corrompida.
 process.on('uncaughtException', (erro) => {
   console.error('[Processo] Exceção não capturada — encerrando:', erro);
-  process.exit(1);
+  reportarErro(erro, { origem: 'uncaughtException' });
+  void descarregarErros().finally(() => process.exit(1));
 });
 
 async function iniciarServidor() {
@@ -287,6 +295,7 @@ async function iniciarServidor() {
     }
 
     avisarEstadoDoBilling();
+    await iniciarObservabilidade();
 
     // Test database connection
     const dbOk = await testConnection();

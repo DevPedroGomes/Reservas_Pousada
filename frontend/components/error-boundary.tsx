@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { instalarCapturaGlobal, reportarErroDoNavegador } from "../lib/telemetria"
 
 interface ErrorBoundaryProps {
   children: React.ReactNode
@@ -20,8 +21,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return { hasError: true }
   }
 
+  componentDidMount() {
+    instalarCapturaGlobal()
+  }
+
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[ErrorBoundary]", error, errorInfo)
+    // Antes o erro morria no console do cliente: ninguém ficava sabendo que
+    // a tela tinha quebrado.
+    reportarErroDoNavegador(error, errorInfo.componentStack ?? undefined)
   }
 
   render() {

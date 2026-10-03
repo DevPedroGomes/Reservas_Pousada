@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { reportarErro } from '../lib/observabilidade.js';
 
 /**
  * Custom error class with status code
@@ -32,6 +33,7 @@ export function notFoundHandler(req: Request, res: Response, next: NextFunction)
 export function errorHandler(err: Error | AppError, req: Request, res: Response, next: NextFunction) {
   // Log error for debugging
   console.error('Error:', {
+    requestId: req.id,
     message: err.message,
     // Stack sempre no log do servidor (é onde se investiga um 500); só a
     // resposta ao cliente é que nunca o carrega fora de desenvolvimento.
@@ -50,10 +52,16 @@ export function errorHandler(err: Error | AppError, req: Request, res: Response,
   const statusCode = err instanceof AppError ? err.statusCode : erroDoCliente ? (statusDoExpress as number) : 500;
   const codigo = err instanceof AppError ? err.codigo : erroDoCliente ? 'ERR_REQUEST' : 'ERR_INTERNAL';
 
+  if (statusCode >= 500) {
+    reportarErro(err, { requestId: req.id, rota: `${req.method} ${req.path}` });
+  }
+
   // Send error response
   res.status(statusCode).json({
     sucesso: false,
     codigo,
+    // Número para o suporte achar este erro no log.
+    requestId: req.id,
     mensagem: statusCode >= 500
       ? 'Erro interno do servidor'
       : erroDoCliente && !(err instanceof AppError)

@@ -61,6 +61,7 @@ services:
       # mais forte, porque valida o formato e faz round-trip da cifra.
       CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      SENTRY_DSN: ${SENTRY_DSN:-}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}
       DB_POOL_TIMEOUT_MS: ${DB_POOL_TIMEOUT_MS:-5000}
       DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-15000}
