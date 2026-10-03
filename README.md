@@ -5,6 +5,18 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 - Frontend: https://diaria.pgdev.com.br
 - API: https://api.diaria.pgdev.com.br
 
+## Features
+
+- **Occupancy map**: rooms × days grid (half-day columns so same-day turnover sits side by side), click an empty slot to book.
+- **Reservation lifecycle**: pre-reservation with a deadline (auto-cancelled by a job when it lapses) → confirmed → checked in → checked out, plus cancelled (with reason) and no-show. Transitions validated server-side; check-in requires the guest's document.
+- **Guests as records**: CPF, passport or other document (encrypted + HMAC), WhatsApp with country code, e-mail, nationality, stay history; deduplicated by document (or name + phone).
+- **Reservation account**: deposit, partial payments, refunds and extra consumption; balance always derived, `pago` kept in sync.
+- **Rates**: season / weekday / per-room rules (fixed price or percentage) with minimum stay; the reservation form suggests the price night by night.
+- **iCal sync** with Booking/Airbnb: per-room secret export feed (no guest data), imported OTA calendars every 30 min become reservations (so the DB overbooking guard covers them too); SSRF-guarded fetch.
+- **Reports**: occupancy, ADR, RevPAR, revenue by channel (accrual), cash received by payment method, receivables.
+- **CSV import** from Excel/Google Sheets with dry-run preview, per-row errors, idempotent re-import.
+- Team roles (owner/admin, front desk, auditor), multi-property (Rede plan), Stripe billing, LGPD tooling (export, deletion, retention).
+
 ## Overview
 
 Three Docker services behind Traefik v3:
@@ -17,7 +29,7 @@ Traefik terminates TLS (Let's Encrypt), enforces security headers, applies a glo
 
 Multi-tenancy uses a `user_pousadas` junction table. A user can belong to multiple pousadas, each with an independent role and an `is_owner` flag. The active tenant is chosen **per browser tab**: the frontend sends `X-Pousada-Id` on every request and `authMiddleware` validates it against `user_pousadas` (role and owner flag come from that membership row). Without the header, `user.pousada_id` (the last pousada chosen) is used. Every domain query is scoped to the resolved tenant.
 
-Background work (transactional e-mail with retries, session/rate-limit cleanup, automatic check-out of past stays, guest-data anonymization, ad conversions) runs on **pg-boss**, a job queue stored in the same Postgres (schema `pgboss`).
+Background work (transactional e-mail with retries, session/rate-limit cleanup, automatic check-out of past stays, pre-reservation expiry, iCal sync, guest-data anonymization, ad conversions) runs on **pg-boss**, a job queue stored in the same Postgres (schema `pgboss`).
 
 ## Architecture
 
@@ -129,7 +141,7 @@ Frontend (`frontend/package.json`):
 
 - Next.js 15.5 (App Router, standalone output, `poweredByHeader: false`), React 19
 - Public pages rendered on the server: `/` (landing), `/cadastro`, `/entrar`, `/privacidade`, `/termos`, plus `sitemap.xml`, `robots.txt` and a generated Open Graph image
-- Logged-in area under `app/(app)`: `/painel`, `/reservas`, `/reservas/nova`, `/reservas/[id]`, `/configuracoes` (shared session context, auth/onboarding guards, auto-refresh on focus and every 60s)
+- Logged-in area under `app/(app)`: `/painel`, `/mapa`, `/reservas`, `/reservas/nova`, `/reservas/[id]` (with the account panel), `/reservas/importar`, `/hospedes`, `/hospedes/[id]`, `/quartos` (rooms, rates, iCal), `/relatorios`, `/configuracoes` (shared session context, auth/onboarding guards, auto-refresh on focus and every 60s)
 - Tailwind 3.4, shadcn/ui primitives, `better-auth` 1.7 client
 - GA4 / Meta Pixel loaded only after cookie consent; first-touch UTM attribution sent on sign-up
 
@@ -229,17 +241,17 @@ Invite acceptance (`backend/models/StaffInvite.ts`, `backend/routes/convites.ts`
 
 Reservations
 
-- **No overbooking, guaranteed by the database**: `EXCLUDE USING gist (pousada_id WITH =, quarto WITH =, daterange(data_entrada, data_saida, '[)') WITH &&) WHERE (status = 'ativa' AND deleted_at IS NULL)`. Concurrent bookings for the same room cannot both land; the loser gets HTTP 409. The application-level availability check remains only to produce a helpful message.
+- **No overbooking, guaranteed by the database**: `EXCLUDE USING gist (pousada_id WITH =, quarto WITH =, daterange(data_entrada, data_saida, '[)') WITH &&) WHERE (status IN ('pre_reserva', 'confirmada', 'hospedada') AND deleted_at IS NULL)`. Reservations imported from OTA calendars go through the same constraint; a clash is reported as possible overbooking instead of being written. Concurrent bookings for the same room cannot both land; the loser gets HTTP 409. The application-level availability check remains only to produce a helpful message.
 - Date ranges are **half-open** `[check-in, check-out)`: a guest leaving on the 12th frees the room for a guest arriving on the 12th.
 - Optimistic locking via a `version` column on `reservas`. Updates and status changes return HTTP 409 on stale writes.
-- Idempotency guard: identical (CPF + room + dates) within 30s rejects duplicates from double-clicks.
+- Idempotency guard: identical (guest + room + dates) within 30s returns the existing reservation (double-click).
 - Soft delete (`deleted_at`); `DELETE` requires `admin` or owner.
 
 CSV export (`backend/routes/reservas.ts`)
 
 - Authorized to `admin`, `recepcao`, `auditoria`, plus owner. Limit 5000 rows.
 - Customer-supplied fields (`nome`, `observacoes`) are prefixed with `'` when starting with `=`, `+`, `-`, `@`, tab, or CR — blocks formula injection in Excel / LibreOffice / Sheets.
-- CPF is masked (`***.***.***-NN`) for everyone except admins and owner.
+- Guest document is masked (`***.***.***-NN` for CPF, last 3 characters otherwise) for everyone except admins and owner.
 - CRLF line endings (Excel-friendly).
 - Each export inserts an audit log row (`export_reservas`, with `rowCount` and `masked` flag).
 

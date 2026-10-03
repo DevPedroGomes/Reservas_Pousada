@@ -36,41 +36,53 @@ export const metadata: Metadata = {
 
 const recursos = [
   {
-    titulo: "Reservas sem overbooking",
-    texto: "O sistema recusa duas reservas no mesmo quarto e período — mesmo quando duas pessoas lançam no mesmo segundo.",
+    titulo: "Mapa de ocupação",
+    texto: "Todos os quartos e os próximos dias numa grade: responda “tem vaga?” em segundos e clique no espaço livre para reservar.",
+  },
+  {
+    titulo: "Booking e Airbnb sem overbooking",
+    texto: "O sistema recusa duas reservas no mesmo quarto e período. Com o calendário das OTAs ligado, o que entra por lá também bloqueia o quarto.",
   },
   {
     titulo: "O dia na primeira tela",
-    texto: "Chegadas, saídas, quem está hospedado e quanto falta receber, assim que você abre o painel.",
+    texto: "Chegadas, saídas e hospedados, com check-in e check-out em um clique e pré-reserva que se cancela sozinha se o sinal não vier.",
   },
   {
-    titulo: "Equipe com permissões",
-    texto: "Recepção, administração e auditoria: cada pessoa vê e faz só o que precisa, com histórico de quem mudou o quê.",
+    titulo: "Hóspedes com histórico",
+    texto: "CPF ou passaporte, WhatsApp a um clique e todas as estadias de cada cliente — para atender bem quem volta.",
   },
   {
-    titulo: "Funciona no celular",
-    texto: "Pelo navegador, sem instalar nada. A recepção lança do computador, você acompanha do celular.",
+    titulo: "Sinal, pagamentos e saldo",
+    texto: "Lance o sinal, pagamentos parciais e o consumo; o saldo de cada reserva e o total a receber aparecem sozinhos.",
   },
   {
-    titulo: "Mais de uma pousada",
-    texto: "No plano Rede você administra até 3 propriedades e troca entre elas em um clique.",
+    titulo: "Tarifário automático",
+    texto: "Preço de temporada, fim de semana e pacote com mínimo de noites: o valor da reserva já vem calculado.",
   },
   {
-    titulo: "Dados dos hóspedes protegidos",
-    texto: "CPF cifrado, acesso por papel e registro de cada visualização. Planilha para o contador quando precisar.",
+    titulo: "Relatórios que ajudam a decidir",
+    texto: "Ocupação, diária média, RevPAR e receita por canal no período que você escolher.",
+  },
+  {
+    titulo: "Equipe junta, até no celular",
+    texto: "Recepção, administração e auditoria com permissões e histórico de quem mudou o quê. No plano Rede, até 3 pousadas.",
+  },
+  {
+    titulo: "Sua planilha entra em minutos",
+    texto: "Importe as reservas do Excel: o sistema confere cada linha antes de gravar. E exporte quando quiser.",
   },
 ]
 
 const dores = [
-  ["Duas reservas no mesmo quarto", "Choque de datas é bloqueado na hora, com o nome de quem já está no quarto."],
-  ["Caderno que só uma pessoa entende", "Toda a equipe vê a mesma agenda, atualizada sozinha, de qualquer aparelho."],
-  ["Não saber quanto falta receber", "O painel soma o que está pendente das reservas ativas."],
+  ["Duas reservas no mesmo quarto", "Choque de datas é bloqueado na hora — inclusive com o que entra pelo Booking e pelo Airbnb."],
+  ["Caderno que só uma pessoa entende", "Toda a equipe vê o mesmo mapa e a mesma agenda, atualizados sozinhos, de qualquer aparelho."],
+  ["Não saber quanto falta receber", "Cada sinal e pagamento fica lançado: o saldo de cada hóspede e o total a receber estão sempre à vista."],
 ]
 
 const passos = [
   ["Crie sua conta", "Com e-mail ou Google, em menos de um minuto."],
   ["Cadastre a pousada", "Nome e número de quartos — o resto pode ficar para depois."],
-  ["Lance reservas e chame a equipe", "Convide a recepção por e-mail, cada uma com seu acesso."],
+  ["Lance ou importe suas reservas", "Digite ou traga a planilha, ligue o Booking e o Airbnb e convide a equipe."],
 ]
 
 const faq = [
@@ -78,6 +90,8 @@ const faq = [
   ["Minha equipe pode usar ao mesmo tempo?", "Pode. As telas se atualizam sozinhas e o sistema impede duas reservas no mesmo quarto e período, mesmo lançadas ao mesmo tempo."],
   ["Quantos quartos posso cadastrar?", "Até 10 no Essencial, 25 no Pousada e 100 no Rede (em até 3 propriedades)."],
   ["Funciona no celular?", "Sim, pelo navegador do celular ou do tablet, sem instalar nada."],
+  ["Funciona com Booking e Airbnb?", "Sim, pela sincronização de calendário (iCal) de cada quarto: o que é vendido lá bloqueia aqui, e o que é vendido aqui bloqueia lá. As OTAs atualizam o calendário a cada 30 minutos, em média."],
+  ["Consigo trazer minhas reservas do Excel?", "Sim. Salve a planilha como CSV e importe: o sistema mostra uma prévia, aponta as linhas com problema e só grava depois da sua conferência."],
   ["E os dados dos meus hóspedes?", "O CPF é guardado cifrado, cada pessoa da equipe só acessa o que o papel dela permite, e cada visualização fica registrada."],
   ["Posso cancelar quando quiser?", "Sim, sem fidelidade. E você exporta suas reservas em planilha a qualquer momento."],
 ]
@@ -134,8 +148,8 @@ export default function Home() {
               A recepção da sua pousada, <span className="text-primary">organizada</span>.
             </h1>
             <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
-              Reservas sem overbooking, chegadas e saídas do dia na primeira tela e a equipe trabalhando junta —
-              do computador ou do celular. Sem planilha, sem caderno.
+              Mapa de ocupação, reservas sem overbooking (inclusive Booking e Airbnb), sinal e saldo de cada hóspede
+              e a equipe trabalhando junta — do computador ou do celular. Sem planilha, sem caderno.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link href="/cadastro" className="inline-flex h-12 items-center justify-center rounded-lg bg-primary px-6 text-base font-semibold text-primary-foreground hover:bg-primary/90">
