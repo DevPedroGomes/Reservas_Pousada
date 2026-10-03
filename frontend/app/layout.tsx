@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { DM_Sans } from 'next/font/google';
 import { cn } from '../lib/utils';
 import { ErrorBoundary } from '../components/error-boundary';
+import { AvisoDeCookies } from '../components/legal/AvisoDeCookies';
 
 const font = DM_Sans({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -34,6 +35,7 @@ export default function RootLayout({
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
+        <AvisoDeCookies />
       </body>
     </html>
   );
