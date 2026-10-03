@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
@@ -54,11 +55,11 @@ function VerifyEmailContent() {
           </div>
         )}
 
-        <a href="/">
+        <Link href="/">
           <Button className="w-full h-11 font-semibold">
             {status === 'success' ? 'Ir para o Dashboard' : 'Voltar ao inicio'}
           </Button>
-        </a>
+        </Link>
       </CardContent>
     </Card>
   );
