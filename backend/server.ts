@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
-import { testConnection, pool, closeConnection } from './db/index.js';
+import { testConnection, bancoResponde, pool, closeConnection } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
@@ -210,22 +210,23 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', mensagem: 'API de Reservas online' });
 });
 
+// Liveness: o processo está de pé e o event loop responde. É o que o Docker
+// consulta — uma oscilação do banco não deve tirar o container do Traefik.
+app.get('/health/live', (req, res) => {
+  res.json({ status: 'alive', timestamp: new Date().toISOString() });
+});
+
+// Readiness: a API consegue servir de verdade (inclui o banco). É o que o
+// monitor de uptime deve consultar. Antes respondia 200 "degraded" com o banco
+// fora — nenhum monitor alertava.
 app.get('/health', async (req, res) => {
-  try {
-    const dbOk = await testConnection();
-    res.json({
-      status: dbOk ? 'healthy' : 'degraded',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      database: dbOk ? 'connected' : 'disconnected'
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      database: 'error'
-    });
-  }
+  const dbOk = await bancoResponde();
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    database: dbOk ? 'connected' : 'disconnected',
+  });
 });
 
 // ==========================================

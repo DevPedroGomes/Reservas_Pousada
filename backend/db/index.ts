@@ -39,6 +39,19 @@ export { pool };
 export * from './schema.js';
 
 /**
+ * Banco responde? Versão silenciosa para o healthcheck, que roda a cada 30s
+ * e não pode encher o log de "conexão estabelecida".
+ */
+export async function bancoResponde(): Promise<boolean> {
+  try {
+    await pool.query('SELECT 1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Test database connection
  */
 export async function testConnection(): Promise<boolean> {

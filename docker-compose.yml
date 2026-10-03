@@ -110,7 +110,10 @@ services:
       - "traefik.http.middlewares.reservas-api-security.headers.frameDeny=true"
       - "traefik.http.middlewares.reservas-api-security.headers.contentSecurityPolicy=default-src 'none'; frame-ancestors 'none'"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      # Liveness (processo de pé). O /health inclui o banco e é o endpoint do
+      # monitor de uptime externo — usar ele aqui faria uma oscilação do banco
+      # tirar a API do Traefik.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
