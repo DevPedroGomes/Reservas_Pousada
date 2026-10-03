@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
+import { criarLimitador } from '../utils/limitadores.js';
 import ReservaModel, { ConflitoDeReserva } from '../models/Reserva.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
@@ -27,7 +27,7 @@ function podeVerCpfCompleto(user: NonNullable<Request['user']>): boolean {
 
 // Narrow rate-limit for CSV export: 5 exports/hour per user (prevents bulk
 // PII exfiltration). Falls back to IP if user is somehow missing.
-const exportLimiter = rateLimit({
+const exportLimiter = criarLimitador('export', {
   windowMs: 60 * 60 * 1000,
   max: 5,
   keyGenerator: (req: any) => req.user?.id || req.ip || 'anonymous',

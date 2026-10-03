@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { testConnection, bancoResponde, pool, closeConnection } from './db/index.js';
@@ -17,6 +16,8 @@ import { activityLogger } from './middleware/activity.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { assertCpfCryptoConfigurada } from './utils/crypto.js';
 import { chaveDeRateLimit } from './utils/rede.js';
+import { criarLimitador } from './utils/limitadores.js';
+import { limparRateLimitsVencidos } from './utils/rateLimitStore.js';
 import { origensPermitidas } from './utils/origens.js';
 import { TIMEZONE } from './utils/datas.js';
 import { avisarEstadoDoBilling } from './lib/stripe.js';
@@ -62,9 +63,12 @@ app.use(cors({
 // ==========================================
 // Rate Limiting
 // ==========================================
-const limiter = rateLimit({
+// Teto por IP folgado de propósito: uma pousada inteira (recepção, dono,
+// tablet do café) costuma sair por UM IP, e cada carga de tela faz várias
+// chamadas. O controle fino é por usuário (userLimiter, abaixo).
+const limiter = criarLimitador('global', {
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300,
+  max: 1500,
   keyGenerator: (req) => chaveDeRateLimit(req.ip),
   skip: (req) => req.originalUrl.startsWith('/api/webhooks/stripe'),
   standardHeaders: true,
@@ -82,7 +86,7 @@ app.use('/api/', limiter);
 //
 // A chave é o prefixo /64 em IPv6 (ver utils/rede.ts): chavear pelo endereço
 // inteiro dava a qualquer atacante com IPv6 um orçamento praticamente infinito.
-const authLimiter = rateLimit({
+const authLimiter = criarLimitador('auth', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10,
   keyGenerator: (req) => chaveDeRateLimit(req.ip),
@@ -106,7 +110,7 @@ app.use(
 // No limitador acima, cadastro bem-sucedido não consumia orçamento — ou seja,
 // criar contas de verdade era ilimitado. Sem captcha e sem cobrança, isso é uma
 // fábrica de tenants grátis. Aqui todo cadastro conta, com ou sem sucesso.
-const signupLimiter = rateLimit({
+const signupLimiter = criarLimitador('cadastro', {
   windowMs: 60 * 60 * 1000, // 1 hora
   max: 5,
   keyGenerator: (req) => chaveDeRateLimit(req.ip),
@@ -182,9 +186,11 @@ app.use(activityLogger);
 // ==========================================
 // Per-user rate limiter (after auth, before routes)
 // ==========================================
-const userLimiter = rateLimit({
+const userLimiter = criarLimitador('usuario', {
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 500,
+  // ~33/min sustentado por usuário: comporta várias abas abertas com a
+  // atualização automática das telas, e ainda corta automação abusiva.
+  max: 2000,
   keyGenerator: (req: any) => req.user?.id || chaveDeRateLimit(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
@@ -300,13 +306,14 @@ async function iniciarServidor() {
       console.warn('⚠ RESEND_API_KEY não definida — emails (convites, reset senha, verificação) NÃO serão enviados');
     }
 
-    // Cleanup expired sessions every 6 hours
+    // Cleanup expired sessions (and stale rate-limit windows) every 6 hours
     const limpezaDeSessoes = setInterval(async () => {
       try {
         const result = await pool.query('DELETE FROM session WHERE expires_at < NOW()');
         if (result.rowCount && result.rowCount > 0) {
           console.log(`[Cleanup] ${result.rowCount} sessões expiradas removidas`);
         }
+        await limparRateLimitsVencidos(pool);
       } catch (err) {
         console.error('[Cleanup] Erro ao limpar sessões:', err);
       }

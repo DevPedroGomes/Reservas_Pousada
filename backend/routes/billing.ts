@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import { criarLimitador } from '../utils/limitadores.js';
 import AssinaturaModel from '../models/Assinatura.js';
 import PousadaModel from '../models/Pousada.js';
 import AuditoriaModel from '../models/Auditoria.js';
@@ -15,7 +15,7 @@ const router = Router();
 
 // Criar sessão no Stripe custa uma chamada externa. Limite estreito para que um
 // clique repetido não vire dezenas de sessões abertas nem uma conta inflada.
-const limiteDeSessao = rateLimit({
+const limiteDeSessao = criarLimitador('checkout', {
   windowMs: 60 * 60 * 1000,
   max: 20,
   keyGenerator: (req: any) => req.user?.id || chaveDeRateLimit(req.ip),
