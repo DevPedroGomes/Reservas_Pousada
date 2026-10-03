@@ -9,7 +9,7 @@
  *
  * Aceita os dois formatos para não quebrar se um endpoint já vier em snake_case.
  */
-import type { Auditoria, Reserva } from "./types"
+import type { Agenda, Auditoria, ItemAgenda, MembroEquipe, Pousada, Reserva } from "./types"
 
 type Bruto = Record<string, unknown>
 
@@ -48,5 +48,59 @@ export function auditoriaDaApi(a: Bruto): Auditoria {
           depois: detalhes.depois ? reservaDaApi(detalhes.depois) : undefined,
         }
       : undefined,
+  }
+}
+
+export function pousadaDaApi(p: Bruto): Pousada {
+  return {
+    id: p.id as number,
+    nome: texto(p.nome),
+    slug: p.slug as string | undefined,
+    // Era lido como `num_quartos` com a API mandando `numQuartos`: o
+    // formulário oferecia sempre 25 quartos e a configuração mostrava vazio.
+    num_quartos: Number(p.num_quartos ?? p.numQuartos) || 0,
+    endereco: (p.endereco as string) ?? undefined,
+    cidade: (p.cidade as string) ?? undefined,
+    estado: (p.estado as string) ?? undefined,
+    cep: (p.cep as string) ?? undefined,
+    telefone: (p.telefone as string) ?? undefined,
+    email: (p.email as string) ?? undefined,
+    descricao: (p.descricao as string) ?? undefined,
+    ativa: p.ativa as boolean | undefined,
+  }
+}
+
+export function membroDaApi(m: Bruto): MembroEquipe {
+  return {
+    id: texto(m.id),
+    nome: texto(m.name ?? m.nome),
+    email: texto(m.email),
+    role: texto(m.role),
+    is_owner: Boolean(m.isOwner ?? m.is_owner),
+  }
+}
+
+function itemAgenda(r: Bruto): ItemAgenda {
+  const base = reservaDaApi(r)
+  return {
+    id: base.id as number,
+    nome: base.nome,
+    quarto: Number(base.quarto),
+    data_entrada: base.data_entrada,
+    data_saida: base.data_saida,
+    valor: (base.valor as string | number | null) ?? null,
+    pago: base.pago,
+    status: base.status,
+  }
+}
+
+export function agendaDaApi(a: Bruto): Agenda {
+  const lista = (k: string) => ((a[k] as Bruto[] | undefined) ?? []).map(itemAgenda)
+  return {
+    dia: texto(a.dia),
+    chegadas: lista("chegadas"),
+    saidas: lista("saidas"),
+    hospedados: lista("hospedados"),
+    proximas: lista("proximas"),
   }
 }

@@ -50,7 +50,7 @@ function ResetPasswordForm() {
       } else {
         setSuccess(true);
         setMessage({ type: 'success', text: 'Senha redefinida com sucesso!' });
-        setTimeout(() => router.push('/'), 2000);
+        setTimeout(() => router.push('/entrar'), 2000);
       }
     } catch (error) {
       setMessage({ type: 'error', text: 'Erro ao redefinir senha. Tente novamente.' });

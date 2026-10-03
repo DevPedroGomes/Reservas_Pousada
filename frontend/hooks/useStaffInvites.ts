@@ -11,6 +11,7 @@ interface UseStaffInvitesReturn {
   carregarConvites: (pousadaId: number) => Promise<void>;
   enviarConvite: (pousadaId: number, email: string, role: string) => Promise<boolean>;
   revogarConvite: (pousadaId: number, inviteId: number) => Promise<boolean>;
+  reenviarConvite: (pousadaId: number, inviteId: number) => Promise<boolean>;
   setMessage: (msg: Message | null) => void;
 }
 
@@ -48,7 +49,7 @@ export function useStaffInvites(): UseStaffInvitesReturn {
       const data = await response.json();
 
       if (data.sucesso) {
-        setMessage({ type: "success", text: "Convite enviado com sucesso!" });
+        setMessage({ type: data.emailEnviado === false ? "error" : "success", text: data.mensagem || "Convite enviado." });
         await carregarConvites(pousadaId);
         return true;
       } else {
@@ -92,6 +93,22 @@ export function useStaffInvites(): UseStaffInvitesReturn {
     }
   }, [carregarConvites]);
 
+  const reenviarConvite = useCallback(async (pousadaId: number, inviteId: number): Promise<boolean> => {
+    setMessage(null);
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites/${inviteId}/reenviar`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      setMessage({ type: data.sucesso ? "success" : "error", text: data.mensagem || "Não foi possível reenviar." });
+      if (data.sucesso) await carregarConvites(pousadaId);
+      return Boolean(data.sucesso);
+    } catch {
+      setMessage({ type: "error", text: "Não foi possível reenviar o convite." });
+      return false;
+    }
+  }, [carregarConvites]);
+
   return {
     convites,
     loading,
@@ -99,6 +116,7 @@ export function useStaffInvites(): UseStaffInvitesReturn {
     carregarConvites,
     enviarConvite,
     revogarConvite,
+    reenviarConvite,
     setMessage,
   };
 }

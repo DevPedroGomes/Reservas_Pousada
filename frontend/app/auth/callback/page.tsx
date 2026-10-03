@@ -26,7 +26,7 @@ export default function AuthCallbackPage() {
       if (!user.pousadaId) {
         setTimeout(() => router.push('/onboarding'), 1000);
       } else {
-        setTimeout(() => router.push('/'), 1000);
+        setTimeout(() => router.push('/painel'), 1000);
       }
     }
 
@@ -35,7 +35,7 @@ export default function AuthCallbackPage() {
       // Give it a moment - Better Auth might still be processing
       const timeout = setTimeout(() => {
         setError('Sessao nao encontrada. Tente fazer login novamente.');
-        setTimeout(() => router.push('/'), 3000);
+        setTimeout(() => router.push('/entrar'), 3000);
       }, 2000);
 
       return () => clearTimeout(timeout);

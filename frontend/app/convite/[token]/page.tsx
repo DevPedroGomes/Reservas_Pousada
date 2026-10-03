@@ -71,7 +71,7 @@ export default function ConvitePage() {
         fixarPousadaDaAba(data.pousadaId ?? null);
         setState('accepted');
         setTimeout(() => {
-          window.location.href = '/';
+          window.location.href = '/painel';
         }, 1500);
       } else {
         setState('valid');
@@ -199,8 +199,11 @@ export default function ConvitePage() {
               <p className="text-sm text-muted-foreground text-center">
                 Voce precisa estar autenticado para aceitar o convite.
               </p>
-              <Button className="w-full" onClick={() => router.push(`/?convite=${token}`)}>
-                Entrar ou Criar Conta
+              <Button className="w-full" onClick={() => router.push(`/cadastro?convite=${encodeURIComponent(token)}`)}>
+                Criar minha conta
+              </Button>
+              <Button variant="outline" className="w-full" onClick={() => router.push(`/entrar?convite=${encodeURIComponent(token)}`)}>
+                Já tenho conta
               </Button>
             </div>
           ) : (

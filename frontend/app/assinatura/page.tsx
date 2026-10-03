@@ -40,7 +40,7 @@ function ConteudoAssinatura() {
   const [confirmando, setConfirmando] = useState(voltandoDoStripe)
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push("/")
+    if (!authLoading && !isAuthenticated) router.push("/entrar?proximo=/assinatura")
   }, [authLoading, isAuthenticated, router])
 
   /**
@@ -83,11 +83,11 @@ function ConteudoAssinatura() {
     <main className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 h-14">
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href="/painel" className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
             <span className="text-sm font-semibold">Diária</span>
           </Link>
-          <Link href="/">
+          <Link href="/painel">
             <Button variant="ghost" size="sm">Voltar ao painel</Button>
           </Link>
         </div>

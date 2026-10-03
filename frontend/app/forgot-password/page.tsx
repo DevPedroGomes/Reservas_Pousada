@@ -113,7 +113,7 @@ export default function ForgotPasswordPage() {
             )}
 
             <div className="text-center pt-2">
-              <Link href="/" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
+              <Link href="/entrar" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
                 Voltar ao login
               </Link>
             </div>

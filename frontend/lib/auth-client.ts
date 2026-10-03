@@ -69,7 +69,7 @@ export async function signUpWithEmail(email: string, password: string, name: str
 export async function signInWithGoogle(options?: { callbackURL?: string; newUserCallbackURL?: string }) {
   return authClient.signIn.social({
     provider: "google",
-    callbackURL: options?.callbackURL || `${APP_URL}/`,
+    callbackURL: options?.callbackURL || `${APP_URL}/painel`,
     newUserCallbackURL: options?.newUserCallbackURL || `${APP_URL}/onboarding`,
   });
 }

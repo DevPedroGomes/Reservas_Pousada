@@ -42,7 +42,35 @@ export interface Pousada {
   cep?: string
   telefone?: string
   email?: string
+  descricao?: string
   ativa?: boolean
+}
+
+export interface MembroEquipe {
+  id: string
+  nome: string
+  email: string
+  role: string
+  is_owner: boolean
+}
+
+export interface ItemAgenda {
+  id: number
+  nome: string
+  quarto: number
+  data_entrada: string
+  data_saida: string
+  valor: string | number | null
+  pago: boolean
+  status: string
+}
+
+export interface Agenda {
+  dia: string
+  chegadas: ItemAgenda[]
+  saidas: ItemAgenda[]
+  hospedados: ItemAgenda[]
+  proximas: ItemAgenda[]
 }
 
 export interface UserPousada {

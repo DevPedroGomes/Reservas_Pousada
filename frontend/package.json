@@ -13,7 +13,6 @@
     "better-auth": "^1.7.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "gsap": "^3.14.2",
     "lucide-react": "^1.51.0",
     "next": "^15.5.27",
     "react": "^19.3.0",

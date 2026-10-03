@@ -93,7 +93,7 @@ export default function MargemPage() {
             <CardDescription>O endereço acessado não existe.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/"><Button variant="outline">Ir para o início</Button></Link>
+            <Link href="/painel"><Button variant="outline">Ir para o painel</Button></Link>
           </CardContent>
         </Card>
       </main>
@@ -110,7 +110,7 @@ export default function MargemPage() {
             <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
             <span className="text-sm font-semibold">Diária · Margem</span>
           </div>
-          <Link href="/"><Button variant="ghost" size="sm">Voltar ao painel</Button></Link>
+          <Link href="/painel"><Button variant="ghost" size="sm">Voltar ao painel</Button></Link>
         </div>
       </header>
 

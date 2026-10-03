@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import {
   useSession,
   signInWithEmail,
@@ -12,6 +11,7 @@ import {
 import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
 import { API_BASE_URL, authenticatedFetch } from "../lib/api";
 import { fixarPousadaDaAba } from "../lib/tenant";
+import { pousadaDaApi } from "../lib/adaptadores";
 
 interface UseAuthReturn {
   // State
@@ -33,12 +33,11 @@ interface UseAuthReturn {
   googleLogin: () => Promise<void>;
   setMessage: (message: Message | null) => void;
   clearMessage: () => void;
-  refreshPousadas: () => Promise<void>;
+  refreshPousadas: (opcoes?: { silencioso?: boolean }) => Promise<void>;
   trocarPousada: (pousadaId: number) => Promise<boolean>;
 }
 
 export function useAuth(): UseAuthReturn {
-  const router = useRouter();
   const { data: session, isPending: sessionLoading } = useSession();
 
   const [user, setUser] = useState<Usuario | null>(null);
@@ -49,7 +48,6 @@ export function useAuth(): UseAuthReturn {
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const pousadaChecked = useRef(false);
 
   const clearMessage = useCallback(() => setMessage(null), []);
 
@@ -75,9 +73,12 @@ export function useAuth(): UseAuthReturn {
   }, [session, sessionLoading]);
 
   // Load pousadas from API (single source of truth)
-  const refreshPousadas = useCallback(async () => {
+  const refreshPousadas = useCallback(async (opcoes: { silencioso?: boolean } = {}) => {
     if (!session?.user) return;
-    setPousadaLoading(true);
+    // Silencioso: recarrega os dados sem o "carregando" global — que faz o
+    // layout trocar a tela pelo spinner e desmontar a página aberta (e com
+    // ela a mensagem de "salvo").
+    if (!opcoes.silencioso) setPousadaLoading(true);
 
     try {
       const [minhaRes, minhasRes] = await Promise.all([
@@ -89,7 +90,7 @@ export function useAuth(): UseAuthReturn {
       const minhasData = await minhasRes.json();
 
       if (minhaData.sucesso && minhaData.pousada) {
-        setPousada(minhaData.pousada);
+        setPousada(pousadaDaApi(minhaData.pousada));
         // Fixa a pousada nesta aba: a partir daqui, trocar em outra aba não
         // muda esta.
         fixarPousadaDaAba(minhaData.pousada.id);
@@ -115,7 +116,6 @@ export function useAuth(): UseAuthReturn {
         }
       }
 
-      pousadaChecked.current = true;
     } catch (error) {
       console.error("Erro ao carregar pousadas:", error);
     } finally {
@@ -129,29 +129,6 @@ export function useAuth(): UseAuthReturn {
       refreshPousadas();
     }
   }, [session?.user?.id]);
-
-  // Redirect to onboarding ONLY after pousada API check completes
-  useEffect(() => {
-    if (!session?.user || !pousadaChecked.current || pousadaLoading) return;
-
-    // No pousada found via API — needs onboarding
-    if (!pousada) {
-      const currentPath = window.location.pathname;
-      // Quem chegou por um link de convite NÃO pode ser mandado para o
-      // onboarding: ele não vem criar uma pousada, vem entrar na equipe de uma
-      // que já existe. Sem esta guarda, o convidado sem conta criava a própria
-      // pousada e o convite ficava para trás.
-      const temConvitePendente = new URLSearchParams(window.location.search).has('convite');
-      if (
-        !temConvitePendente &&
-        !currentPath.startsWith('/onboarding') &&
-        !currentPath.startsWith('/auth') &&
-        !currentPath.startsWith('/convite')
-      ) {
-        router.push('/onboarding');
-      }
-    }
-  }, [session, pousada, pousadaLoading, router]);
 
   // Switch active pousada (client-side state update, no reload)
   const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
@@ -167,7 +144,7 @@ export function useAuth(): UseAuthReturn {
 
       if (data.sucesso) {
         fixarPousadaDaAba(data.pousada.id);
-        setPousada(data.pousada);
+        setPousada(pousadaDaApi(data.pousada));
         setUser(prev => prev ? {
           ...prev,
           pousada_id: data.pousada.id,
@@ -261,12 +238,11 @@ export function useAuth(): UseAuthReturn {
       setUser(null);
       setPousada(null);
       setPousadas([]);
-      pousadaChecked.current = false;
-      router.push("/");
+      window.location.assign("/");
     } catch (error) {
       console.error("Erro ao fazer logout", error);
     }
-  }, [router]);
+  }, []);
 
   // Google Login
   const googleLogin = useCallback(async () => {

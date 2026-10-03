@@ -1,929 +1,298 @@
-"use client"
-
-import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
-import gsap from "gsap"
-import { ScrollTrigger } from "gsap/ScrollTrigger"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card"
-import { Button } from "../components/ui/button"
-import { Badge } from "../components/ui/badge"
-import { ConfirmDialog } from "../components/confirm-dialog"
-import { cn } from "../lib/utils"
-
-// Auth and Reservations
-import { useAuth } from "../hooks/useAuth"
-import { useReservations } from "../hooks/useReservations"
-import { useStaffInvites } from "../hooks/useStaffInvites"
-import { useAssinatura } from "../hooks/useAssinatura"
-import { sendEmailVerification, changePassword } from "../lib/auth-client"
-
-// Components
-import { AuthCard } from "../components/auth/AuthCard"
-import { DashboardHeader } from "../components/dashboard/DashboardHeader"
-import { StatsGrid } from "../components/dashboard/StatsGrid"
-import { ReservationFilters } from "../components/reservations/ReservationFilters"
-import { ReservationTable, ProximasReservasTable } from "../components/reservations/ReservationTable"
-import { ReservationForm } from "../components/reservations/ReservationForm"
-import { AvisoAssinatura } from "../components/billing/AvisoAssinatura"
-
-// Types
+import type { Metadata } from "next"
 import Link from "next/link"
-import type { Reserva } from "../lib/types"
+import { AcessoNoTopo } from "../components/landing/AcessoNoTopo"
+import { DIAS_DE_TRIAL, PLANOS_PUBLICOS } from "../lib/planos-publicos"
 
-if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger)
+/**
+ * Página pública — renderizada no servidor.
+ *
+ * Antes a landing e o painel eram o MESMO componente client: o HTML que o
+ * Google e a prévia dos anúncios recebiam era um spinner "Carregando...".
+ * Agora o HTML já vem com o conteúdo (SEO, índice de qualidade do anúncio,
+ * primeira pintura rápida no celular).
+ *
+ * Só promete o que o produto entrega hoje. Recurso novo entra aqui quando
+ * estiver no ar — anúncio que promete o que não existe vira cancelamento no
+ * trial e reclamação.
+ */
+
+const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.pgdev.com.br"
+const CONTATO = process.env.NEXT_PUBLIC_CONTATO_EMAIL || ""
+
+export const metadata: Metadata = {
+  title: "Diária — sistema de reservas para pousadas",
+  description:
+    "Reservas sem overbooking, chegadas e saídas do dia e a equipe trabalhando junta. Teste grátis por 14 dias, sem cartão.",
+  alternates: { canonical: URL_APP },
+  openGraph: {
+    title: "Diária — a recepção da sua pousada, organizada",
+    description: "Reservas sem overbooking, painel do dia e equipe com permissões. 14 dias grátis, sem cartão.",
+    url: URL_APP,
+    siteName: "Diária",
+    locale: "pt_BR",
+    type: "website",
+  },
 }
 
-type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoes"
+const recursos = [
+  {
+    titulo: "Reservas sem overbooking",
+    texto: "O sistema recusa duas reservas no mesmo quarto e período — mesmo quando duas pessoas lançam no mesmo segundo.",
+  },
+  {
+    titulo: "O dia na primeira tela",
+    texto: "Chegadas, saídas, quem está hospedado e quanto falta receber, assim que você abre o painel.",
+  },
+  {
+    titulo: "Equipe com permissões",
+    texto: "Recepção, administração e auditoria: cada pessoa vê e faz só o que precisa, com histórico de quem mudou o quê.",
+  },
+  {
+    titulo: "Funciona no celular",
+    texto: "Pelo navegador, sem instalar nada. A recepção lança do computador, você acompanha do celular.",
+  },
+  {
+    titulo: "Mais de uma pousada",
+    texto: "No plano Rede você administra até 3 propriedades e troca entre elas em um clique.",
+  },
+  {
+    titulo: "Dados dos hóspedes protegidos",
+    texto: "CPF cifrado, acesso por papel e registro de cada visualização. Planilha para o contador quando precisar.",
+  },
+]
+
+const dores = [
+  ["Duas reservas no mesmo quarto", "Choque de datas é bloqueado na hora, com o nome de quem já está no quarto."],
+  ["Caderno que só uma pessoa entende", "Toda a equipe vê a mesma agenda, atualizada sozinha, de qualquer aparelho."],
+  ["Não saber quanto falta receber", "O painel soma o que está pendente das reservas ativas."],
+]
+
+const passos = [
+  ["Crie sua conta", "Com e-mail ou Google, em menos de um minuto."],
+  ["Cadastre a pousada", "Nome e número de quartos — o resto pode ficar para depois."],
+  ["Lance reservas e chame a equipe", "Convide a recepção por e-mail, cada uma com seu acesso."],
+]
+
+const faq = [
+  ["Preciso de cartão de crédito para testar?", `Não. São ${DIAS_DE_TRIAL} dias com tudo liberado. Você só escolhe um plano se quiser continuar.`],
+  ["Minha equipe pode usar ao mesmo tempo?", "Pode. As telas se atualizam sozinhas e o sistema impede duas reservas no mesmo quarto e período, mesmo lançadas ao mesmo tempo."],
+  ["Quantos quartos posso cadastrar?", "Até 10 no Essencial, 25 no Pousada e 100 no Rede (em até 3 propriedades)."],
+  ["Funciona no celular?", "Sim, pelo navegador do celular ou do tablet, sem instalar nada."],
+  ["E os dados dos meus hóspedes?", "O CPF é guardado cifrado, cada pessoa da equipe só acessa o que o papel dela permite, e cada visualização fica registrada."],
+  ["Posso cancelar quando quiser?", "Sim, sem fidelidade. E você exporta suas reservas em planilha a qualquer momento."],
+]
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Diária",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  description: "Sistema de reservas e gestão para pousadas.",
+  offers: PLANOS_PUBLICOS.map((p) => ({
+    "@type": "Offer",
+    name: p.nome,
+    price: p.mensal,
+    priceCurrency: "BRL",
+  })),
+}
 
 export default function Home() {
-  const {
-    isAuthenticated,
-    user,
-    pousada,
-    pousadas: userPousadas,
-    loading: loginLoading,
-    authLoading,
-    signupLoading,
-    googleLoading,
-    pousadaLoading,
-    message,
-    login,
-    signup,
-    logout,
-    googleLogin,
-    trocarPousada,
-    refreshPousadas,
-    setMessage,
-  } = useAuth()
-
-  const {
-    reservas,
-    dashReservas,
-    dashboardStats,
-    filters,
-    meta,
-    loading: reservasLoading,
-    exporting,
-    auditLogs,
-    error: apiError,
-    reservasAtivas,
-    reservasHoje,
-    setFilters,
-    clearFilters,
-    clearError,
-    carregarReservas,
-    carregarDashboard,
-    exportarCsv,
-    editarReserva,
-    salvarReserva,
-    excluirReserva,
-    carregarAuditoria,
-    setPage: setReservasPage,
-  } = useReservations(isAuthenticated, pousada?.id)
-
-  const {
-    convites,
-    loading: convitesLoading,
-    message: convitesMessage,
-    carregarConvites,
-    enviarConvite,
-    revogarConvite,
-    setMessage: setConvitesMessage,
-  } = useStaffInvites()
-
-  const assinatura = useAssinatura(isAuthenticated, pousada?.id)
-  // Bloqueio so existe com billing ligado; desligado, a tela roda como sempre.
-  const bloqueado = assinatura.billingHabilitado && assinatura.situacao?.liberado === false
-
-  const [page, setPage] = useState<PageType>("dashboard")
-  const [isSignup, setIsSignup] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [reservaToDelete, setReservaToDelete] = useState<number | null>(null)
-  const [formData, setFormData] = useState<Reserva | null>(null)
-  const [formId, setFormId] = useState<number | null>(null)
-  const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteRole, setInviteRole] = useState("recepcao")
-  const [verificationSent, setVerificationSent] = useState(false)
-  const [pwCurrent, setPwCurrent] = useState("")
-  const [pwNew, setPwNew] = useState("")
-  const [pwConfirm, setPwConfirm] = useState("")
-  const [pwLoading, setPwLoading] = useState(false)
-  const [pwMessage, setPwMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
-  const [formLoading, setFormLoading] = useState(false)
-
-  const heroRef = useRef<HTMLDivElement>(null)
-  const statsRef = useRef<HTMLDivElement>(null)
-  const authFormRef = useRef<HTMLDivElement>(null)
-
-  const TOTAL_QUARTOS = pousada?.num_quartos || 25
-  const quartosDisponiveis = dashboardStats?.quartos_disponiveis ?? (TOTAL_QUARTOS - reservasAtivas)
-
-  const proximasReservas = useMemo(
-    () =>
-      dashReservas
-        .filter((r) => r.status === "ativa")
-        .sort((a, b) => new Date(a.data_entrada).getTime() - new Date(b.data_entrada).getTime())
-        .slice(0, 5),
-    [dashReservas]
-  )
-
-  // Retoma o convite depois do login.
-  //
-  // A página /convite/[token] manda quem não tem conta para `/?convite=<token>`,
-  // mas a home ignorava esse parâmetro: depois de criar a conta o usuário caía
-  // no onboarding e montava a PRÓPRIA pousada em vez de entrar na equipe que o
-  // convidou — e o convite ficava pendente para sempre.
-  useEffect(() => {
-    if (!isAuthenticated) return
-    const token = new URLSearchParams(window.location.search).get("convite")
-    if (token) {
-      window.location.replace(`/convite/${encodeURIComponent(token)}`)
-    }
-  }, [isAuthenticated])
-
-  // Load data when authenticated and pousada is ready
-  useEffect(() => {
-    if (isAuthenticated && pousada?.id && !pousadaLoading) {
-      carregarDashboard()
-      carregarReservas()
-    }
-  }, [isAuthenticated, pousada?.id, pousadaLoading, carregarDashboard, carregarReservas])
-
-  // Auto-dismiss messages after 4 seconds — só dentro do painel. Na tela de
-  // entrada a mensagem é instrução ("confirme seu e-mail"), e sumir em 4s
-  // deixava a pessoa sem saber o próximo passo.
-  useEffect(() => {
-    if (message && isAuthenticated) {
-      const timer = setTimeout(() => setMessage(null), 4000)
-      return () => clearTimeout(timer)
-    }
-  }, [message, setMessage, isAuthenticated])
-
-  useEffect(() => {
-    if (!isAuthenticated && heroRef.current) {
-      const ctx = gsap.context(() => {
-        gsap.from(".hero-badge", { opacity: 0, y: -20, duration: 0.6, ease: "power3.out" })
-        gsap.from(".hero-title", { opacity: 0, y: 30, duration: 0.8, delay: 0.2, ease: "power3.out" })
-        gsap.from(".hero-description", { opacity: 0, y: 20, duration: 0.8, delay: 0.4, ease: "power3.out" })
-        gsap.from(".hero-buttons", { opacity: 0, y: 20, duration: 0.8, delay: 0.6, ease: "power3.out" })
-        gsap.from(".feature-card", { opacity: 0, y: 40, duration: 0.8, stagger: 0.15, delay: 0.8, ease: "power3.out" })
-      }, heroRef)
-      return () => ctx.revert()
-    }
-  }, [isAuthenticated])
-
-  useEffect(() => {
-    if (!isAuthenticated && authFormRef.current) {
-      gsap.fromTo(
-        authFormRef.current,
-        { opacity: 0, scale: 0.97, y: 15 },
-        { opacity: 1, scale: 1, y: 0, duration: 0.4, ease: "power3.out" }
-      )
-    }
-  }, [isSignup, isAuthenticated])
-
-  useEffect(() => {
-    if (isAuthenticated && page === "dashboard" && statsRef.current) {
-      const ctx = gsap.context(() => {
-        gsap.from(".stat-card", { opacity: 0, y: 20, duration: 0.5, stagger: 0.08, ease: "power3.out" })
-        gsap.from(".dashboard-table", { opacity: 0, y: 20, duration: 0.6, delay: 0.25, ease: "power3.out" })
-      }, statsRef)
-      return () => ctx.revert()
-    }
-  }, [isAuthenticated, page, reservasAtivas])
-
-  const handlePageChange = useCallback((newPage: PageType) => {
-    setPage(newPage)
-    if (newPage === "dashboard") carregarDashboard()
-    if (newPage === "reservas") carregarReservas()
-    if (newPage === "nova-reserva") {
-      setFormData(null)
-      setFormId(null)
-    }
-    if (newPage === "configuracoes" && pousada) {
-      carregarConvites(pousada.id)
-    }
-  }, [carregarDashboard, carregarReservas, carregarConvites, pousada])
-
-  const handleEditReserva = useCallback(async (id: number) => {
-    const reserva = await editarReserva(id)
-    if (reserva) {
-      setFormData(reserva)
-      setFormId(reserva.id ?? null)
-      await carregarAuditoria(id)
-      setPage("nova-reserva")
-    }
-  }, [editarReserva, carregarAuditoria])
-
-  const handleSaveReserva = useCallback(async (data: Reserva) => {
-    setFormLoading(true)
-    const result = await salvarReserva(data, formId)
-    setFormLoading(false)
-
-    if (result.sucesso) {
-      setMessage({ type: "success", text: result.mensagem })
-      setPage("reservas")
-      setFormData(null)
-      setFormId(null)
-      carregarReservas()
-      carregarDashboard()
-    } else {
-      setMessage({ type: "error", text: result.mensagem })
-    }
-  }, [formId, salvarReserva, setMessage, carregarReservas, carregarDashboard])
-
-  const handleConfirmDelete = useCallback((id: number) => {
-    setReservaToDelete(id)
-    setConfirmOpen(true)
-  }, [])
-
-  const handleDeleteReserva = useCallback(async () => {
-    if (!reservaToDelete) return
-    const success = await excluirReserva(reservaToDelete)
-    if (success) {
-      setMessage({ type: "success", text: "Reserva excluida com sucesso." })
-      carregarReservas()
-      carregarDashboard()
-    } else {
-      setMessage({ type: "error", text: "Erro ao excluir reserva." })
-    }
-    setConfirmOpen(false)
-    setReservaToDelete(null)
-  }, [reservaToDelete, excluirReserva, setMessage, carregarReservas, carregarDashboard])
-
-  const handleLogin = useCallback(async (username: string, password: string) => {
-    await login(username, password)
-  }, [login])
-
-  const handleSignup = useCallback(async (nome: string, username: string, password: string) => {
-    await signup(nome, username, password)
-  }, [signup])
-
-  const handleLogout = useCallback(() => {
-    logout()
-  }, [logout])
-
-  // Loading state (session or pousada loading)
-  if (authLoading || (isAuthenticated && pousadaLoading)) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Carregando...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // ========================================
-  // Landing Page
-  // ========================================
-  if (!isAuthenticated) {
-    const features = [
-      {
-        title: "Reservas em segundos",
-        desc: "Crie, edite e cancele reservas com check-in, check-out e disponibilidade em tempo real. CSV export para contador.",
-        icon: "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
-      },
-      {
-        title: "Cadastro de hóspedes",
-        desc: "Histórico completo por hóspede com CPF criptografado. Encontre quem ficou onde e quando em segundos.",
-        icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
-      },
-      {
-        title: "Equipe com permissões",
-        desc: "Convide recepção, administradores e auditoria por email. Cada um vê só o que precisa, com trilha de auditoria de tudo.",
-        icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z",
-      },
-      {
-        title: "Múltiplas pousadas",
-        desc: "Gerencia mais de uma pousada? Troque entre elas sem fazer logout. Cada uma com sua equipe e seus dados isolados.",
-        icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
-      },
-      {
-        title: "Dashboard com números",
-        desc: "Ocupação, receita, taxa de cancelamento e próximos check-ins na primeira tela. Decisões em segundos, não relatórios.",
-        icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z",
-      },
-      {
-        title: "Seguro por padrão",
-        desc: "Cookies HTTPOnly, RBAC, rate limiting, validação de CPF, sanitização de inputs. Os dados dos seus hóspedes ficam protegidos.",
-        icon: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z",
-      },
-    ]
-
-    const steps = [
-      { n: 1, title: "Crie sua conta", desc: "Cadastre-se com email ou Google em menos de um minuto." },
-      { n: 2, title: "Configure sua pousada", desc: "Nome, número de quartos, endereço. 4 etapas guiadas." },
-      { n: 3, title: "Convide sua equipe", desc: "Recepção, admin, auditoria — cada um com seu papel." },
-      { n: 4, title: "Comece a usar", desc: "Lance reservas, registre hóspedes, acompanhe pelo dashboard." },
-    ]
-
-    const faqs = [
-      { q: "Funciona para quantos quartos?", a: "Não há limite. Pousadas com 5 ou 50 quartos rodam igual no sistema. O dashboard escala junto." },
-      { q: "Posso convidar minha recepcionista?", a: "Sim. Convites por email com papéis definidos: owner, admin, recepção e auditoria. Cada papel vê e faz só o que precisa." },
-      { q: "Os dados dos hóspedes são seguros?", a: "CPF é criptografado, cookies são HTTPOnly, todas as ações ficam em trilha de auditoria. Os dados da sua pousada ficam isolados dos demais." },
-      { q: "Tem versão mobile?", a: "A interface é totalmente responsiva. Recepção pode usar pelo celular sem instalar nada." },
-      { q: "E se eu tiver mais de uma pousada?", a: "O sistema é multi-tenant: você troca de pousada ativa em um clique, sem precisar de logins separados." },
-    ]
-
-    return (
-      <main ref={heroRef} className="min-h-screen bg-background">
-        {/* Nav */}
-        <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/40 bg-white/80 backdrop-blur-md">
-          <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <img src="/logo.png" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
-              <span className="text-sm font-semibold">Diária</span>
-            </div>
-            <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
-              <a href="#recursos" className="hover:text-foreground transition-colors">Recursos</a>
-              <a href="#como-funciona" className="hover:text-foreground transition-colors">Como funciona</a>
-              <a href="#faq" className="hover:text-foreground transition-colors">FAQ</a>
-            </nav>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setIsSignup(false)}>
-                Entrar
-              </Button>
-              <Button type="button" size="sm" onClick={() => setIsSignup(true)}>
-                Começar grátis
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        {/* Hero */}
-        <section className="relative overflow-hidden pt-24 pb-16 md:pt-32 md:pb-20 px-6">
-          {/* Soft warm gradient */}
-          <div
-            className="absolute inset-0 -z-10 pointer-events-none"
-            aria-hidden
-            style={{
-              background:
-                "radial-gradient(ellipse 70% 50% at 50% 0%, hsl(25 80% 55% / 0.12), transparent 60%), radial-gradient(ellipse 60% 40% at 90% 30%, hsl(35 70% 60% / 0.10), transparent 70%)",
-            }}
-          />
-          <div className="mx-auto max-w-6xl">
-            <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
-              <div className="space-y-8">
-                <div className="space-y-4">
-                  <Badge className="hero-badge">Para donos de pousadas no Brasil</Badge>
-                  <h1 className="hero-title text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] tracking-tight">
-                    Gerencie sua pousada{" "}
-                    <span className="text-primary">sem planilha</span>,{" "}
-                    <span className="text-primary">sem caderno</span>,
-                    sem confusão.
-                  </h1>
-                  <p className="hero-description text-lg text-muted-foreground leading-relaxed max-w-lg">
-                    Reservas, hóspedes, equipe e relatórios em um só lugar.
-                    Multi-tenant, seguro, com trilha de auditoria de tudo que acontece.
-                  </p>
-                </div>
-                <div className="hero-buttons flex flex-col sm:flex-row gap-3">
-                  <Button type="button" size="lg" onClick={() => setIsSignup(true)}>
-                    Criar conta gratuita
-                  </Button>
-                  <Button type="button" size="lg" variant="outline" onClick={() => setIsSignup(false)}>
-                    Já tenho conta
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground pt-2">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Sem cartão de crédito
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Setup em 4 etapas
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Login com Google
-                  </span>
-                </div>
-              </div>
-
-              <div ref={authFormRef} className="flex justify-center lg:justify-end">
-                <AuthCard
-                  isSignup={isSignup}
-                  onToggleMode={() => setIsSignup(!isSignup)}
-                  onLogin={handleLogin}
-                  onSignup={handleSignup}
-                  onGoogleLogin={googleLogin}
-                  loading={{ signup: signupLoading, google: googleLoading, login: loginLoading }}
-                  message={message}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Features */}
-        <section id="recursos" className="py-16 md:py-20 px-6 border-t border-border/40 bg-white">
-          <div className="mx-auto max-w-6xl">
-            <div className="text-center mb-12">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground font-mono">Recursos</span>
-              <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mt-2">
-                Tudo que sua pousada precisa
-              </h2>
-              <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-                Construído com a operação real de uma pousada em mente — não é uma planilha bonita, é um sistema completo.
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {features.map((feature) => (
-                <Card key={feature.title} className="feature-card hover:shadow-md transition-shadow">
-                  <CardHeader>
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-                      <svg className="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d={feature.icon} />
-                      </svg>
-                    </div>
-                    <CardTitle className="text-base">{feature.title}</CardTitle>
-                    <CardDescription className="pt-1.5 text-sm leading-relaxed">{feature.desc}</CardDescription>
-                  </CardHeader>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* How it works */}
-        <section id="como-funciona" className="py-16 md:py-20 px-6 border-t border-border/40">
-          <div className="mx-auto max-w-5xl">
-            <div className="text-center mb-12">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground font-mono">Como funciona</span>
-              <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mt-2">
-                Em 4 etapas você está rodando
-              </h2>
-            </div>
-            <div className="grid gap-4 md:grid-cols-4">
-              {steps.map((s) => (
-                <div key={s.n} className="relative bg-white border border-border/40 rounded-2xl p-6 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground font-semibold text-sm mb-3">
-                    {s.n}
-                  </div>
-                  <h3 className="font-semibold text-base mb-1.5">{s.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Stack note */}
-        <section className="py-12 px-6 border-t border-border/40 bg-white">
-          <div className="mx-auto max-w-4xl text-center">
-            <span className="text-xs uppercase tracking-widest text-muted-foreground font-mono">Construído com</span>
-            <div className="flex flex-wrap justify-center gap-2 mt-4">
-              {["Next.js 14", "Express + TypeScript", "PostgreSQL 16", "Drizzle ORM", "Better Auth", "Docker", "Traefik v3", "Resend"].map((tech) => (
-                <span key={tech} className="inline-flex items-center px-3 py-1 rounded-full bg-muted text-xs text-muted-foreground border border-border/40">
-                  {tech}
-                </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* FAQ */}
-        <section id="faq" className="py-16 md:py-20 px-6 border-t border-border/40">
-          <div className="mx-auto max-w-3xl">
-            <div className="text-center mb-10">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground font-mono">FAQ</span>
-              <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mt-2">
-                Perguntas frequentes
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {faqs.map((f, i) => (
-                <details key={i} className="group bg-white border border-border/40 rounded-xl p-5 hover:shadow-sm transition-shadow [&_svg]:open:rotate-180">
-                  <summary className="flex items-center justify-between cursor-pointer list-none">
-                    <span className="font-medium text-base">{f.q}</span>
-                    <svg className="h-4 w-4 text-muted-foreground transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </summary>
-                  <p className="text-sm text-muted-foreground leading-relaxed mt-3">{f.a}</p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section className="py-20 px-6 border-t border-border/40 bg-gradient-to-b from-white to-background">
-          <div className="mx-auto max-w-3xl text-center">
-            <h2 className="text-3xl md:text-4xl font-semibold tracking-tight">
-              Pronto para parar de gerenciar a pousada na planilha?
-            </h2>
-            <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-              Crie sua conta agora. Em 5 minutos sua pousada está cadastrada e a primeira reserva entra no sistema.
-            </p>
-            <Button type="button" size="lg" className="mt-8" onClick={() => setIsSignup(true)}>
-              Começar agora — é grátis
-            </Button>
-          </div>
-        </section>
-
-        <footer className="py-8 px-6 border-t border-border/40 bg-white">
-          <div className="mx-auto max-w-6xl flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
-            <p>Diária — Gestão para pousadas</p>
-            <p className="text-xs">Construído por Pedro Gomes</p>
-          </div>
-        </footer>
-      </main>
-    )
-  }
-
-  // ========================================
-  // Dashboard (authenticated)
-  // ========================================
   return (
-    <main className="min-h-screen">
-      <DashboardHeader
-        user={user}
-        pousada={pousada}
-        pousadas={userPousadas}
-        currentPage={page}
-        onPageChange={handlePageChange}
-        onLogout={handleLogout}
-        onTrocarPousada={trocarPousada}
-      />
+    <main className="min-h-screen bg-background text-foreground">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      <div ref={statsRef} className="mx-auto max-w-7xl px-6 py-6 space-y-6">
-        <AvisoAssinatura situacao={assinatura.situacao} billingHabilitado={assinatura.billingHabilitado} />
+      <header className="sticky top-0 z-50 border-b border-border/40 bg-white/85 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="text-sm font-semibold">Diária</span>
+          </Link>
+          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+            <a href="#recursos" className="hover:text-foreground">Recursos</a>
+            <a href="#planos" className="hover:text-foreground">Planos</a>
+            <a href="#perguntas" className="hover:text-foreground">Dúvidas</a>
+          </nav>
+          <AcessoNoTopo />
+        </div>
+      </header>
 
-        {apiError && (
-          <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-            <p className="text-sm text-rose-800">{apiError}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { clearError(); carregarDashboard(); carregarReservas(); }}
-              className="shrink-0 text-rose-700 border-rose-300 hover:bg-rose-100"
-            >
-              Tentar novamente
-            </Button>
-          </div>
-        )}
-
-        {message && (
-          <div className={cn(
-            "rounded-lg border px-4 py-3 text-sm",
-            message.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
-          )}>
-            {message.text}
-          </div>
-        )}
-
-        {user && user.email_verified === false && (
-          <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-4 py-3 flex items-center justify-between gap-4">
-            <p className="text-sm text-amber-800">
-              Seu email ainda nao foi verificado.
+      {/* Hero */}
+      <section className="relative overflow-hidden px-4 pb-16 pt-14 sm:px-6 md:pb-24 md:pt-20">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10"
+          style={{ background: "radial-gradient(ellipse 70% 50% at 50% 0%, hsl(25 80% 55% / 0.12), transparent 60%)" }}
+        />
+        <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2">
+          <div className="space-y-7">
+            <span className="inline-flex rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              Para pousadas de 3 a 100 quartos
+            </span>
+            <h1 className="text-4xl font-bold leading-[1.05] tracking-tight md:text-5xl lg:text-6xl">
+              A recepção da sua pousada, <span className="text-primary">organizada</span>.
+            </h1>
+            <p className="max-w-lg text-lg leading-relaxed text-muted-foreground">
+              Reservas sem overbooking, chegadas e saídas do dia na primeira tela e a equipe trabalhando junta —
+              do computador ou do celular. Sem planilha, sem caderno.
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={verificationSent}
-              className="border-amber-300 text-amber-800 hover:bg-amber-100 shrink-0"
-              onClick={async () => {
-                if (user.email) {
-                  await sendEmailVerification(user.email)
-                  setVerificationSent(true)
-                  setMessage({ type: "success", text: "Email de verificacao reenviado!" })
-                }
-              }}
-            >
-              {verificationSent ? "Enviado!" : "Reenviar"}
-            </Button>
-          </div>
-        )}
-
-        {bloqueado ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Acesso pausado</CardTitle>
-              <CardDescription>
-                Seus dados continuam salvos e intactos. Assim que a assinatura estiver em dia,
-                tudo volta exatamente como estava.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link href="/assinatura"><Button>Ver planos</Button></Link>
-            </CardContent>
-          </Card>
-        ) : (
-        <>
-        {/* Dashboard */}
-        {page === "dashboard" && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Dashboard</h2>
-              {pousada && (
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {pousada.cidade && pousada.estado ? `${pousada.cidade} - ${pousada.estado}` : ""}
-                  {pousada.telefone ? ` | ${pousada.telefone}` : ""}
-                </p>
-              )}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link href="/cadastro" className="inline-flex h-12 items-center justify-center rounded-lg bg-primary px-6 text-base font-semibold text-primary-foreground hover:bg-primary/90">
+                Testar {DIAS_DE_TRIAL} dias grátis
+              </Link>
+              <a href="#planos" className="inline-flex h-12 items-center justify-center rounded-lg border border-border bg-white px-6 text-base font-medium hover:bg-muted/50">
+                Ver planos e preços
+              </a>
             </div>
-
-            <StatsGrid
-              reservasAtivas={reservasAtivas}
-              quartosDisponiveis={quartosDisponiveis}
-              totalQuartos={TOTAL_QUARTOS}
-              reservasHoje={reservasHoje}
-            />
-
-            <ProximasReservasTable
-              reservas={proximasReservas}
-              onViewAll={() => setPage("reservas")}
-            />
+            <p className="text-xs text-muted-foreground">Sem cartão de crédito · Cancele quando quiser · Dados protegidos pela LGPD</p>
           </div>
-        )}
 
-        {/* Reservas */}
-        {page === "reservas" && (
-          <div className="space-y-5">
-            <h2 className="text-2xl font-semibold tracking-tight">Todas as Reservas</h2>
-
-            <ReservationFilters
-              filters={filters}
-              onFiltersChange={setFilters}
-              onApply={() => carregarReservas(1)}
-              onExport={exportarCsv}
-              onClear={clearFilters}
-              total={meta.total}
-              loading={reservasLoading}
-              exporting={exporting}
-            />
-
-            <ReservationTable
-              reservas={reservas}
-              meta={meta}
-              onPageChange={carregarReservas}
-              onEdit={handleEditReserva}
-              onDelete={handleConfirmDelete}
-              loading={reservasLoading}
-              userRole={user?.role}
-            />
-          </div>
-        )}
-
-        {/* Nova Reserva */}
-        {page === "nova-reserva" && (
-          <ReservationForm
-            initialData={formData}
-            isEditing={formId !== null}
-            totalQuartos={TOTAL_QUARTOS}
-            auditLogs={auditLogs}
-            onSubmit={handleSaveReserva}
-            onCancel={() => {
-              setPage("reservas")
-              setFormData(null)
-              setFormId(null)
-            }}
-            loading={formLoading}
-          />
-        )}
-
-        {/* Configuracoes */}
-        {page === "configuracoes" && pousada && (
-          <div className="space-y-5">
-            <h2 className="text-2xl font-semibold tracking-tight">Configuracoes</h2>
-
-            <div className="grid gap-5 md:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Informacoes Gerais</CardTitle>
-                  <CardDescription>Dados da pousada</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                    <dt className="text-muted-foreground">Nome</dt>
-                    <dd className="font-medium truncate">{pousada.nome}</dd>
-                    <dt className="text-muted-foreground">Quartos</dt>
-                    <dd className="font-medium">{pousada.num_quartos}</dd>
-                    <dt className="text-muted-foreground">Email</dt>
-                    <dd className="font-medium truncate">{pousada.email || "-"}</dd>
-                    <dt className="text-muted-foreground">Telefone</dt>
-                    <dd className="font-medium">{pousada.telefone || "-"}</dd>
-                  </dl>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Endereco</CardTitle>
-                  <CardDescription>Localizacao</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                    <dt className="text-muted-foreground">Endereco</dt>
-                    <dd className="font-medium truncate">{pousada.endereco || "-"}</dd>
-                    <dt className="text-muted-foreground">Cidade</dt>
-                    <dd className="font-medium truncate">{pousada.cidade || "-"}</dd>
-                    <dt className="text-muted-foreground">Estado</dt>
-                    <dd className="font-medium">{pousada.estado || "-"}</dd>
-                  </dl>
-                </CardContent>
-              </Card>
+          {/* Ilustração do painel (estática) */}
+          <div aria-hidden className="rounded-2xl border border-border/60 bg-white p-5 shadow-xl shadow-orange-900/5">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-semibold">Hoje</p>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">Ocupação 82%</span>
             </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Equipe</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/40 border border-border/60">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                    {user?.nome?.charAt(0).toUpperCase() || "U"}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{user?.nome}</p>
-                    <p className="text-xs text-muted-foreground">Owner</p>
-                  </div>
+            <div className="mb-4 grid grid-cols-3 gap-3 text-center">
+              {[["3", "chegadas"], ["2", "saídas"], ["R$ 1.840", "a receber"]].map(([n, t]) => (
+                <div key={t} className="rounded-xl bg-muted/50 p-3">
+                  <p className="text-lg font-bold">{n}</p>
+                  <p className="text-xs text-muted-foreground">{t}</p>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Seguranca</CardTitle>
-                <CardDescription>Alterar sua senha</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {pwMessage && (
-                  <div className={cn(
-                    "rounded-lg border px-3 py-2 text-sm",
-                    pwMessage.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
-                  )}>
-                    {pwMessage.text}
-                  </div>
-                )}
-                <form
-                  onSubmit={async (e: React.FormEvent) => {
-                    e.preventDefault()
-                    setPwMessage(null)
-                    if (pwNew.length < 8) {
-                      setPwMessage({ type: "error", text: "A nova senha deve ter pelo menos 8 caracteres." })
-                      return
-                    }
-                    if (pwNew !== pwConfirm) {
-                      setPwMessage({ type: "error", text: "As senhas nao coincidem." })
-                      return
-                    }
-                    setPwLoading(true)
-                    try {
-                      const result = await changePassword(pwCurrent, pwNew)
-                      if ((result as any)?.error) {
-                        setPwMessage({ type: "error", text: (result as any).error.message || "Senha atual incorreta." })
-                      } else {
-                        setPwMessage({ type: "success", text: "Senha alterada com sucesso!" })
-                        setPwCurrent("")
-                        setPwNew("")
-                        setPwConfirm("")
-                      }
-                    } catch (err: any) {
-                      setPwMessage({ type: "error", text: err.message || "Erro ao alterar senha." })
-                    } finally {
-                      setPwLoading(false)
-                    }
-                  }}
-                  className="space-y-2 max-w-sm"
-                >
-                  <input
-                    type="password"
-                    placeholder="Senha atual"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Nova senha"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                    required
-                    autoComplete="new-password"
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Confirmar nova senha"
-                    value={pwConfirm}
-                    onChange={(e) => setPwConfirm(e.target.value)}
-                    required
-                    autoComplete="new-password"
-                    className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-                  />
-                  <Button type="submit" disabled={pwLoading} className="w-full">
-                    {pwLoading ? "Alterando..." : "Alterar Senha"}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {(user?.is_owner || user?.role === "admin") && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Convidar Equipe</CardTitle>
-                  <CardDescription>Envie convites por email</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {convitesMessage && (
-                    <div className={cn(
-                      "rounded-lg border px-3 py-2 text-sm",
-                      convitesMessage.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800"
-                    )}>
-                      {convitesMessage.text}
-                    </div>
-                  )}
-
-                  <form
-                    onSubmit={async (e: React.FormEvent) => {
-                      e.preventDefault()
-                      if (!pousada) return
-                      const success = await enviarConvite(pousada.id, inviteEmail, inviteRole)
-                      if (success) {
-                        setInviteEmail("")
-                        setInviteRole("recepcao")
-                      }
-                    }}
-                    className="flex flex-col sm:flex-row gap-2"
-                  >
-                    <input
-                      type="email"
-                      placeholder="email@exemplo.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      required
-                      autoComplete="email"
-                      className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-                    />
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value)}
-                      className="rounded-lg border border-border bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-                    >
-                      <option value="recepcao">Recepcionista</option>
-                      <option value="admin">Administrador</option>
-                      <option value="auditoria">Auditor</option>
-                    </select>
-                    <Button type="submit" disabled={convitesLoading}>
-                      {convitesLoading ? "Enviando..." : "Enviar"}
-                    </Button>
-                  </form>
-
-                  <div className="space-y-2 pt-2">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Convites enviados</p>
-                    {!convitesLoading && convites.length === 0 && (
-                      <p className="text-sm text-muted-foreground py-3">Nenhum convite enviado ainda.</p>
-                    )}
-                    {convites.map((c) => (
-                      <div key={c.id} className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30 border border-border/50">
-                        <div>
-                          <p className="text-sm font-medium">{c.email}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {c.role === "admin" ? "Administrador" : c.role === "recepcao" ? "Recepcionista" : "Auditor"}
-                            {" - "}
-                            <span className={cn(
-                              "font-medium",
-                              c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600"
-                            )}>
-                              {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
-                            </span>
-                          </p>
-                        </div>
-                        {c.status === "pending" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => pousada && revogarConvite(pousada.id, c.id)}
-                            className="text-rose-600 hover:text-rose-700 text-xs"
-                          >
-                            Revogar
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+              ))}
+            </div>
+            {[["4", "Família Souza", "a pagar"], ["7", "Marina e Lucas", ""], ["2", "João Pereira", ""]].map(([q, n, s]) => (
+              <div key={n} className="flex items-center justify-between border-t border-border/50 py-2.5 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-primary/10 text-xs font-semibold text-primary">{q}</span>
+                  {n}
+                </span>
+                {s && <span className="text-xs text-amber-600">{s}</span>}
+              </div>
+            ))}
           </div>
-        )}
-        </>
-        )}
-      </div>
+        </div>
+      </section>
 
-      <ConfirmDialog
-        open={confirmOpen}
-        message="Tem certeza que deseja excluir esta reserva?"
-        onCancel={() => setConfirmOpen(false)}
-        onConfirm={handleDeleteReserva}
-      />
+      {/* Dores */}
+      <section className="border-t border-border/40 bg-white px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-center text-3xl font-semibold tracking-tight md:text-4xl">Chega de improviso na recepção</h2>
+          <div className="mt-10 grid gap-6 md:grid-cols-3">
+            {dores.map(([dor, solucao]) => (
+              <div key={dor} className="rounded-xl border border-border/50 p-6">
+                <p className="text-sm font-medium text-rose-600 line-through decoration-rose-300">{dor}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{solucao}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Recursos */}
+      <section id="recursos" className="border-t border-border/40 px-4 py-16 sm:px-6 md:py-20">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-center text-3xl font-semibold tracking-tight md:text-4xl">O que você tem no Diária</h2>
+          <div className="mt-12 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+            {recursos.map((r) => (
+              <div key={r.titulo} className="rounded-xl border border-border/50 bg-white p-6">
+                <h3 className="text-base font-semibold">{r.titulo}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{r.texto}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Como funciona */}
+      <section className="border-t border-border/40 bg-white px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-center text-3xl font-semibold tracking-tight">Em 5 minutos a primeira reserva está lançada</h2>
+          <ol className="mt-10 grid gap-6 md:grid-cols-3">
+            {passos.map(([t, d], i) => (
+              <li key={t} className="rounded-xl border border-border/50 p-6">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">{i + 1}</span>
+                <p className="mt-4 font-semibold">{t}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{d}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Planos */}
+      <section id="planos" className="border-t border-border/40 px-4 py-16 sm:px-6 md:py-20">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-center text-3xl font-semibold tracking-tight md:text-4xl">Planos simples, sem fidelidade</h2>
+          <p className="mt-3 text-center text-muted-foreground">
+            {DIAS_DE_TRIAL} dias grátis em qualquer plano. No anual, 2 meses saem de graça.
+          </p>
+          <div className="mt-12 grid gap-6 md:grid-cols-3">
+            {PLANOS_PUBLICOS.map((p) => (
+              <div
+                key={p.codigo}
+                className={`flex flex-col rounded-2xl border bg-white p-6 ${"destaque" in p && p.destaque ? "border-primary shadow-lg shadow-orange-900/10" : "border-border/60"}`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">{p.nome}</h3>
+                  {"destaque" in p && p.destaque && (
+                    <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">Mais escolhido</span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{p.resumo}</p>
+                <p className="mt-5">
+                  <span className="text-4xl font-bold">R$ {p.mensal}</span>
+                  <span className="text-sm text-muted-foreground">/mês</span>
+                </p>
+                <ul className="mt-5 flex-1 space-y-2 text-sm">
+                  {p.itens.map((i) => (
+                    <li key={i} className="flex gap-2"><span className="text-emerald-600">✓</span>{i}</li>
+                  ))}
+                </ul>
+                <Link href="/cadastro" className="mt-6 inline-flex h-11 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                  Começar teste grátis
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Perguntas */}
+      <section id="perguntas" className="border-t border-border/40 bg-white px-4 py-16 sm:px-6 md:py-20">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-center text-3xl font-semibold tracking-tight md:text-4xl">Perguntas frequentes</h2>
+          <div className="mt-10 space-y-3">
+            {faq.map(([q, a]) => (
+              <details key={q} className="group rounded-xl border border-border/50 bg-white p-5">
+                <summary className="cursor-pointer list-none font-medium">{q}</summary>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA final */}
+      <section className="border-t border-border/40 px-4 py-20 text-center sm:px-6">
+        <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">Pronto para tirar a pousada da planilha?</h2>
+        <p className="mx-auto mt-3 max-w-xl text-muted-foreground">Crie a conta agora e lance a primeira reserva ainda hoje.</p>
+        <Link href="/cadastro" className="mt-8 inline-flex h-12 items-center justify-center rounded-lg bg-primary px-7 text-base font-semibold text-primary-foreground hover:bg-primary/90">
+          Testar {DIAS_DE_TRIAL} dias grátis
+        </Link>
+      </section>
+
+      <footer className="border-t border-border/40 bg-white px-4 py-8 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 text-sm text-muted-foreground sm:flex-row">
+          <p>© {new Date().getFullYear()} Diária — gestão de reservas para pousadas</p>
+          <nav className="flex flex-wrap items-center gap-4">
+            <Link href="/privacidade" className="hover:text-foreground">Privacidade</Link>
+            <Link href="/termos" className="hover:text-foreground">Termos de uso</Link>
+            {CONTATO && <a href={`mailto:${CONTATO}`} className="hover:text-foreground">Contato</a>}
+          </nav>
+        </div>
+      </footer>
     </main>
   )
 }

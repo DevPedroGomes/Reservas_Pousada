@@ -55,7 +55,7 @@ function VerifyEmailContent() {
           </div>
         )}
 
-        <Link href="/">
+        <Link href="/painel">
           <Button className="w-full h-11 font-semibold">
             {status === 'success' ? 'Ir para o Dashboard' : 'Voltar ao inicio'}
           </Button>

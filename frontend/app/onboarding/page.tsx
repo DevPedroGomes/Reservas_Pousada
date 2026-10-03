@@ -12,6 +12,7 @@ import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
 import { useSession } from '../../lib/auth-client';
 import { fixarPousadaDaAba } from '../../lib/tenant';
+import { handleSignOut } from '../../lib/auth-client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -57,7 +58,7 @@ export default function OnboardingPage() {
   // Redirect if not authenticated
   useEffect(() => {
     if (!sessionLoading && !session?.user) {
-      router.push('/');
+      router.push('/entrar?proximo=/onboarding');
     }
   }, [session, sessionLoading, router]);
 
@@ -75,7 +76,7 @@ export default function OnboardingPage() {
         // Quem já tem pousada só fica aqui se veio criar OUTRA (?nova=1).
         const criandoOutra = new URLSearchParams(window.location.search).has('nova');
         if (data.sucesso && data.pousada && !criandoOutra) {
-          router.push('/');
+          router.push('/painel');
           return;
         }
       } catch (error) {
@@ -176,7 +177,7 @@ export default function OnboardingPage() {
 
         // Full reload to refresh session with new pousadaId
         setTimeout(() => {
-          window.location.replace('/');
+          window.location.replace('/painel');
         }, 1200);
       } else if (response.status === 402) {
         // Limite do plano (número de pousadas ou de quartos).
@@ -474,7 +475,12 @@ export default function OnboardingPage() {
               <Button
                 type="button"
                 variant="ghost"
-                onClick={step === 1 ? () => router.push('/') : prevStep}
+                onClick={step === 1 ? () => {
+                  // Criando a 2ª pousada: volta ao painel. Primeira pousada: não
+                  // há painel ainda, então "cancelar" é sair da conta.
+                  if (new URLSearchParams(window.location.search).has('nova')) router.push('/painel');
+                  else void handleSignOut().then(() => window.location.assign('/'));
+                } : prevStep}
               >
                 {step === 1 ? 'Cancelar' : 'Voltar'}
               </Button>
