@@ -141,6 +141,18 @@ function ConteudoAssinatura() {
           <>
             <CartaoSituacao situacao={a.situacao} />
 
+            {a.cobertaPor && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Incluída no plano Rede</CardTitle>
+                  <CardDescription>
+                    Esta pousada está coberta pela assinatura da {a.cobertaPor.nome}. Para trocar de plano
+                    ou ver faturas, troque para a {a.cobertaPor.nome} e abra a Assinatura por lá.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
+
             {temAssinatura && ehDono && (
               <Card>
                 <CardHeader>
@@ -157,7 +169,7 @@ function ConteudoAssinatura() {
               </Card>
             )}
 
-            {a.planos.length > 0 && (
+            {a.planos.length > 0 && !a.cobertaPor && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <h2 className="text-lg font-semibold">

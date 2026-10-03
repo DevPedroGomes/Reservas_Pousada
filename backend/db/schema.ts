@@ -142,6 +142,8 @@ export const assinaturas = pgTable('assinaturas', {
   cancelaNoFim: boolean('cancela_no_fim').notNull().default(false),
   stripeCustomerId: text('stripe_customer_id').unique(),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  // Pousada extra coberta pela assinatura de outra (plano Rede). Ver migration 012.
+  cobertaPorPousadaId: integer('coberta_por_pousada_id').references(() => pousadas.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

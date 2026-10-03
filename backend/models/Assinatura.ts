@@ -7,6 +7,7 @@ import {
   temAssinaturaViva,
   type EstadoAssinatura,
   type Limites,
+  type PousadaPossuida,
   type StatusAssinatura,
   type Veredito,
 } from '../utils/assinatura.js';
@@ -29,8 +30,68 @@ export class AssinaturaModel {
       .onConflictDoNothing();
   }
 
-  static async buscarPorPousada(pousadaId: number) {
-    const [row] = await db
+  /**
+   * Linha de assinatura de uma pousada extra, coberta pela pagadora (Rede).
+   * Sem trial próprio de propósito: se a cobertura acabar, ela fica bloqueada
+   * em vez de ganhar 14 dias grátis.
+   */
+  static async criarCoberta(pousadaId: number, pagadoraId: number, executor: Pick<typeof db, 'insert'> = db) {
+    await executor
+      .insert(assinaturas)
+      .values({ pousadaId, status: 'trial', trialTerminaEm: null, cobertaPorPousadaId: pagadoraId })
+      .onConflictDoNothing();
+  }
+
+  /**
+   * Assinatura que VALE para a pousada: a própria, ou a da pagadora quando a
+   * pousada é coberta pelo plano Rede de outra.
+   */
+  static async efetiva(pousadaId: number, executor: Executor = db) {
+    const propria = await this.buscarPorPousada(pousadaId, executor);
+    if (!propria) return null;
+    if (propria.cobertaPorPousadaId) {
+      const pagadora = await this.buscarPorPousada(propria.cobertaPorPousadaId, executor);
+      // Pagadora sumiu (ON DELETE SET NULL ainda não rodou): vale a própria.
+      if (pagadora && !pagadora.cobertaPorPousadaId) {
+        return { row: pagadora, propria, pagadoraId: pagadora.pousadaId };
+      }
+    }
+    return { row: propria, propria, pagadoraId: pousadaId };
+  }
+
+  /** Quantas pousadas a assinatura desta pagadora cobre, contando ela mesma. */
+  static async pousadasCobertas(pagadoraId: number, executor: Executor = db): Promise<number> {
+    const [{ n }] = await executor
+      .select({ n: sql<number>`count(*)::int` })
+      .from(assinaturas)
+      .where(eq(assinaturas.cobertaPorPousadaId, pagadoraId));
+    return 1 + (Number(n) || 0);
+  }
+
+  /** Pousadas de que o usuário é DONO, com o estado de assinatura de cada uma. */
+  static async possuidasPor(userId: string, executor: Executor = db): Promise<PousadaPossuida[]> {
+    const rows = await executor
+      .select({
+        pousadaId: userPousadas.pousadaId,
+        status: assinaturas.status,
+        plano: assinaturas.plano,
+        trialTerminaEm: assinaturas.trialTerminaEm,
+        periodoTerminaEm: assinaturas.periodoTerminaEm,
+        cobertaPor: assinaturas.cobertaPorPousadaId,
+      })
+      .from(userPousadas)
+      .innerJoin(assinaturas, eq(assinaturas.pousadaId, userPousadas.pousadaId))
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.isOwner, true)));
+
+    return rows.map((r) => ({
+      pousadaId: r.pousadaId,
+      estado: this.paraEstado(r),
+      cobertaPor: r.cobertaPor,
+    }));
+  }
+
+  static async buscarPorPousada(pousadaId: number, executor: Executor = db) {
+    const [row] = await executor
       .select()
       .from(assinaturas)
       .where(eq(assinaturas.pousadaId, pousadaId))
@@ -86,9 +147,12 @@ export class AssinaturaModel {
     ciclo: string | null;
     assinaturaViva: boolean;
     cancelaNoFim: boolean;
+    /** Id da pousada pagadora quando esta é coberta pelo Rede de outra. */
+    cobertaPor: number | null;
   } | null> {
-    const row = await this.buscarPorPousada(pousadaId);
-    if (!row) return null;
+    const efetiva = await this.efetiva(pousadaId);
+    if (!efetiva) return null;
+    const { row, pagadoraId } = efetiva;
 
     const estado = this.paraEstado(row);
     const [{ n: usuarios }] = await db
@@ -101,7 +165,8 @@ export class AssinaturaModel {
       veredito: avaliarAcesso(estado),
       limites: limitesVigentes(estado),
       usuarios: Number(usuarios) || 0,
-      pousadasDoDono: 0,
+      pousadasDoDono: await this.pousadasCobertas(pagadoraId),
+      cobertaPor: pagadoraId !== pousadaId ? pagadoraId : null,
       ciclo: row.ciclo,
       assinaturaViva: temAssinaturaViva(row),
       cancelaNoFim: row.cancelaNoFim,

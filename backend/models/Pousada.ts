@@ -3,6 +3,15 @@ import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
 import { hojeLocal } from '../utils/datas.js';
 import AssinaturaModel from './Assinatura.js';
+import { decidirNovaPousada, limitesVigentes } from '../utils/assinatura.js';
+
+/** Criação recusada pelo plano. A rota responde 402 com a mensagem. */
+export class LimiteDoPlano extends Error {
+  constructor(mensagem: string, readonly codigo: string) {
+    super(mensagem);
+    this.name = 'LimiteDoPlano';
+  }
+}
 
 export class PousadaModel {
   /**
@@ -62,13 +71,41 @@ export class PousadaModel {
 
   /**
    * Create pousada and associate user as owner (junction table + active)
+   *
+   * Com `aplicarLimites` (billing ligado), decide DENTRO da transação se o dono
+   * pode ter mais uma pousada e qual assinatura a cobre (plano Rede). O lock
+   * por usuário serializa criações simultâneas do mesmo dono — sem ele, dois
+   * cliques contavam "2 de 3" ao mesmo tempo e o limite estourava.
    */
-  static async criarComOwner(pousadaData: Omit<NewPousada, 'slug'>, userId: string): Promise<Pousada> {
+  static async criarComOwner(
+    pousadaData: Omit<NewPousada, 'slug'>,
+    userId: string,
+    opcoes: { aplicarLimites?: boolean } = {},
+  ): Promise<Pousada> {
     const slug = await this.gerarSlugUnico(pousadaData.nome);
 
     // As três escritas são uma coisa só. Sem transação, uma falha no meio
     // deixava pousada órfã sem dono — estado que nenhuma tela sabe consertar.
     return db.transaction(async (tx) => {
+      let cobertaPor: number | null = null;
+      if (opcoes.aplicarLimites) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'nova-pousada:' + userId}))`);
+        const decisao = decidirNovaPousada(await AssinaturaModel.possuidasPor(userId, tx));
+        if (!decisao.permitido) throw new LimiteDoPlano(decisao.motivo, 'BILLING_004');
+        cobertaPor = decisao.cobertaPor;
+
+        const efetiva = cobertaPor ? await AssinaturaModel.efetiva(cobertaPor, tx) : null;
+        const limites = limitesVigentes(
+          efetiva ? AssinaturaModel.paraEstado(efetiva.row) : { status: 'trial', plano: null },
+        );
+        if ((pousadaData.numQuartos ?? 0) > limites.maxQuartos) {
+          throw new LimiteDoPlano(
+            `Seu plano permite até ${limites.maxQuartos} quartos. Faça upgrade para cadastrar ${pousadaData.numQuartos}.`,
+            'BILLING_002',
+          );
+        }
+      }
+
       const [pousada] = await tx
         .insert(pousadas)
         .values({ ...pousadaData, slug })
@@ -93,7 +130,11 @@ export class PousadaModel {
 
       // Mesma transacao: pousada sem assinatura e tenant que o enforcement nao
       // sabe avaliar, e o trial precisa comecar a contar do minuto zero.
-      await AssinaturaModel.criarTrial(pousada.id, tx);
+      if (cobertaPor) {
+        await AssinaturaModel.criarCoberta(pousada.id, cobertaPor, tx);
+      } else {
+        await AssinaturaModel.criarTrial(pousada.id, tx);
+      }
 
       return pousada;
     });

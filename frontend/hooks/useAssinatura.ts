@@ -6,6 +6,8 @@ import type { Ciclo, LimitesPlano, PlanoDisponivel, SituacaoAssinatura } from ".
 
 interface UseAssinaturaReturn {
   situacao: SituacaoAssinatura | null
+  /** Pousada coberta pelo plano Rede de outra: a assinatura é gerida lá. */
+  cobertaPor: { pousadaId: number; nome: string } | null
   limites: LimitesPlano | null
   usuarios: number
   billingHabilitado: boolean
@@ -24,6 +26,7 @@ interface UseAssinaturaReturn {
 
 export function useAssinatura(autenticado: boolean, pousadaId?: number | null): UseAssinaturaReturn {
   const [situacao, setSituacao] = useState<SituacaoAssinatura | null>(null)
+  const [cobertaPor, setCobertaPor] = useState<{ pousadaId: number; nome: string } | null>(null)
   const [limites, setLimites] = useState<LimitesPlano | null>(null)
   const [usuarios, setUsuarios] = useState(0)
   const [billingHabilitado, setBillingHabilitado] = useState(false)
@@ -42,6 +45,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
       const data = await r.json()
       if (data.sucesso) {
         setSituacao(data.assinatura ?? null)
+        setCobertaPor(data.cobertaPor ?? null)
         setLimites(data.limites ?? null)
         setUsuarios(data.uso?.usuarios ?? 0)
         setBillingHabilitado(Boolean(data.billingHabilitado))
@@ -147,7 +151,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
   }, [])
 
   return {
-    situacao, limites, usuarios, billingHabilitado, planos, ciclo,
+    situacao, cobertaPor, limites, usuarios, billingHabilitado, planos, ciclo,
     carregando, redirecionando, erro,
     setCiclo, recarregar, assinar, trocarPlano, abrirPortal, aviso,
   }

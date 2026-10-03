@@ -34,6 +34,18 @@ function exigirBilling(res: Response): boolean {
   return false;
 }
 
+
+/** Pousada coberta pelo Rede de outra não tem assinatura própria para mexer. */
+function recusarSeCoberta(row: { cobertaPorPousadaId: number | null } | null, res: Response): boolean {
+  if (!row?.cobertaPorPousadaId) return false;
+  res.status(409).json({
+    sucesso: false,
+    codigo: 'BILLING_COBERTA',
+    mensagem: 'Esta pousada está incluída no plano Rede de outra pousada sua. Gerencie a assinatura por lá.',
+  });
+  return true;
+}
+
 /**
  * GET /api/billing/situacao
  * Estado da assinatura do tenant ativo. Base do banner de trial e da tela de
@@ -51,9 +63,14 @@ router.get('/situacao', async (req: Request, res: Response) => {
     return res.json({ sucesso: true, billingHabilitado: billingHabilitado(), assinatura: null });
   }
 
+  // Pousada coberta pelo Rede de outra: a tela mostra de quem é a assinatura,
+  // em vez de oferecer planos para algo que já está pago.
+  const pagadora = situacao.cobertaPor ? await PousadaModel.buscarPorId(situacao.cobertaPor) : null;
+
   res.json({
     sucesso: true,
     billingHabilitado: billingHabilitado(),
+    cobertaPor: pagadora ? { pousadaId: pagadora.id, nome: pagadora.nome } : null,
     assinatura: {
       status: situacao.estado.status,
       plano: situacao.estado.plano,
@@ -68,7 +85,7 @@ router.get('/situacao', async (req: Request, res: Response) => {
       diasRestantes: situacao.veredito.liberado ? situacao.veredito.diasRestantes ?? null : 0,
     },
     limites: situacao.limites,
-    uso: { usuarios: situacao.usuarios },
+    uso: { usuarios: situacao.usuarios, pousadas: situacao.pousadasDoDono },
   });
 });
 
@@ -128,6 +145,8 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
     if (!pousada) {
       return res.status(404).json({ sucesso: false, mensagem: 'Pousada não encontrada' });
     }
+
+    if (recusarSeCoberta(assinatura, res)) return;
 
     if (assinatura?.status === 'cortesia') {
       return res.status(409).json({ sucesso: false, mensagem: 'Esta conta é cortesia e não precisa de assinatura.' });
@@ -224,6 +243,7 @@ router.post('/trocar-plano', requireOwner, limiteDeSessao, async (req: Request, 
     PousadaModel.buscarPorId(pousadaId),
     AssinaturaModel.situacao(pousadaId),
   ]);
+  if (recusarSeCoberta(assinatura, res)) return;
   if (!assinatura?.stripeSubscriptionId || assinatura.status !== 'ativa') {
     return res.status(409).json({
       sucesso: false,
@@ -285,6 +305,7 @@ router.post('/portal', requireOwner, limiteDeSessao, async (req: Request, res: R
 
   const pousadaId = req.user!.pousadaId;
   const assinatura = pousadaId ? await AssinaturaModel.buscarPorPousada(pousadaId) : null;
+  if (recusarSeCoberta(assinatura, res)) return;
   if (!assinatura?.stripeCustomerId) {
     return res.status(409).json({
       sucesso: false,

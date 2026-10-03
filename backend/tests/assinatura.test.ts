@@ -14,6 +14,8 @@ import {
   mensagemDeBloqueio,
   motivosParaNaoCaber,
   temAssinaturaViva,
+  decidirNovaPousada,
+  type PousadaPossuida,
   type EstadoAssinatura,
   type MotivoBloqueio,
 } from '../utils/assinatura.js';
@@ -184,5 +186,47 @@ describe('troca de plano — o uso atual precisa caber', () => {
 
   it('upgrade sempre cabe', () => {
     assert.deepEqual(motivosParaNaoCaber({ quartos: 20, usuarios: 9, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'rede' })), []);
+  });
+});
+
+describe('nova pousada — plano Rede e fim do trial infinito', () => {
+  const trialValido = estado({ status: 'trial', trialTerminaEm: emDias(10) });
+  const rede = estado({ status: 'ativa', plano: 'rede' });
+  const pousada = (pousadaId: number, e: EstadoAssinatura, cobertaPor: number | null = null): PousadaPossuida =>
+    ({ pousadaId, estado: e, cobertaPor });
+
+  it('primeira pousada sempre pode, com assinatura própria', () => {
+    assert.deepEqual(decidirNovaPousada([], AGORA), { permitido: true, cobertaPor: null });
+  });
+
+  it('segunda pousada em trial é recusada — antes ganhava outro trial', () => {
+    const d = decidirNovaPousada([pousada(1, trialValido)], AGORA);
+    assert.equal(d.permitido, false);
+    if (!d.permitido) assert.match(d.motivo, /Rede/);
+  });
+
+  it('assinante do Rede cria a 2ª e a 3ª cobertas pela pagadora', () => {
+    assert.deepEqual(decidirNovaPousada([pousada(1, rede)], AGORA), { permitido: true, cobertaPor: 1 });
+    assert.deepEqual(
+      decidirNovaPousada([pousada(1, rede), pousada(2, estado(), 1)], AGORA),
+      { permitido: true, cobertaPor: 1 },
+    );
+  });
+
+  it('a 4ª no Rede é recusada', () => {
+    const d = decidirNovaPousada([pousada(1, rede), pousada(2, estado(), 1), pousada(3, estado(), 1)], AGORA);
+    assert.equal(d.permitido, false);
+  });
+
+  it('Rede com acesso bloqueado não cobre ninguém', () => {
+    const vencida = estado({ status: 'cancelada', plano: 'rede', periodoTerminaEm: emDias(-1) });
+    assert.equal(decidirNovaPousada([pousada(1, vencida)], AGORA).permitido, false);
+  });
+
+  it('cortesia cobre pousadas extras (contas internas)', () => {
+    assert.deepEqual(
+      decidirNovaPousada([pousada(1, estado({ status: 'cortesia' }))], AGORA),
+      { permitido: true, cobertaPor: 1 },
+    );
   });
 });

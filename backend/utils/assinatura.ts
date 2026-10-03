@@ -174,3 +174,46 @@ export function motivosParaNaoCaber(uso: UsoAtual, limites: Limites): string[] {
   }
   return motivos;
 }
+
+export interface PousadaPossuida {
+  pousadaId: number;
+  estado: EstadoAssinatura;
+  /** Pousada cuja assinatura cobre esta (plano Rede). null = assinatura própria. */
+  cobertaPor: number | null;
+}
+
+export type DecisaoNovaPousada =
+  | { permitido: true; cobertaPor: number | null }
+  | { permitido: false; motivo: string };
+
+/**
+ * O dono pode criar mais uma pousada? E, se puder, qual assinatura a cobre?
+ *
+ * - Primeira pousada: sempre, com trial próprio.
+ * - Seguintes: só se alguma pousada pagadora do dono (assinatura própria,
+ *   liberada) tiver `maxPousadas` folgado — Rede ou cortesia. A nova nasce
+ *   coberta por ela, sem trial novo.
+ *
+ * Antes não havia regra: cada pousada nova ganhava 14 dias de trial (teste
+ * grátis infinito) e o Rede não cobria as pousadas que prometia cobrir.
+ */
+export function decidirNovaPousada(possuidas: PousadaPossuida[], agora: Date = new Date()): DecisaoNovaPousada {
+  if (possuidas.length === 0) return { permitido: true, cobertaPor: null };
+
+  const pagadoras = possuidas.filter((p) => p.cobertaPor === null && avaliarAcesso(p.estado, agora).liberado);
+  for (const pagadora of pagadoras) {
+    const cobertas = possuidas.filter((p) => p.cobertaPor === pagadora.pousadaId).length;
+    const limite = limitesVigentes(pagadora.estado).maxPousadas;
+    if (1 + cobertas < limite) {
+      return { permitido: true, cobertaPor: pagadora.pousadaId };
+    }
+  }
+
+  const temRede = pagadoras.some((p) => limitesVigentes(p.estado).maxPousadas > 1);
+  return {
+    permitido: false,
+    motivo: temRede
+      ? 'Você atingiu o número de pousadas do seu plano. Fale com o suporte para ampliar.'
+      : 'Seu plano permite 1 pousada. Assine o plano Rede para gerenciar até 3 propriedades.',
+  };
+}

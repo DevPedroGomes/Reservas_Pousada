@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import PousadaModel from '../models/Pousada.js';
+import PousadaModel, { LimiteDoPlano } from '../models/Pousada.js';
+import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
@@ -66,15 +67,8 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const estouro = await excedeLimiteDeQuartos(
-      req.user!.pousadaId ?? null,
-      dadosSanitizados.num_quartos as number,
-    );
-    if (estouro) {
-      return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
-    }
-
-    // Create pousada with owner
+    // Limites (número de pousadas e de quartos) são decididos dentro da
+    // transação de criação — ver PousadaModel.criarComOwner.
     const pousada = await PousadaModel.criarComOwner({
       nome: dadosSanitizados.nome!,
       numQuartos: dadosSanitizados.num_quartos as number,
@@ -87,7 +81,7 @@ router.post('/', async (req: Request, res: Response) => {
       logoUrl: dadosSanitizados.logo_url,
       descricao: dadosSanitizados.descricao,
       configuracoes: dadosSanitizados.configuracoes,
-    }, req.user!.id);
+    }, req.user!.id, { aplicarLimites: billingHabilitado() });
 
     res.status(201).json({
       sucesso: true,
@@ -95,6 +89,9 @@ router.post('/', async (req: Request, res: Response) => {
       pousada
     });
   } catch (error: any) {
+    if (error instanceof LimiteDoPlano) {
+      return res.status(402).json({ sucesso: false, codigo: error.codigo, mensagem: error.message, precisaUpgrade: true });
+    }
     console.error('Erro ao criar pousada:', error);
     res.status(500).json({
       sucesso: false,

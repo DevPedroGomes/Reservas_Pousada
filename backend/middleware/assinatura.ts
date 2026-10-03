@@ -21,18 +21,19 @@ export async function requerAssinaturaAtiva(req: Request, res: Response, next: N
   if (!pousadaId) return next(); // requirePousada já trata a ausência de tenant
 
   try {
-    const row = await AssinaturaModel.buscarPorPousada(pousadaId);
+    // A assinatura que VALE: a própria ou a da pagadora (pousada coberta pelo Rede).
+    const efetiva = await AssinaturaModel.efetiva(pousadaId);
 
     // Pousada sem linha de assinatura não deveria existir (a criação abre uma
     // na mesma transação). Se existir, é dado anterior ao billing — libera e
     // registra, porque bloquear um cliente por falha nossa de migração é pior
     // que o inverso.
-    if (!row) {
+    if (!efetiva) {
       console.warn(`[Billing] pousada ${pousadaId} sem linha de assinatura — liberando`);
       return next();
     }
 
-    const veredito = avaliarAcesso(AssinaturaModel.paraEstado(row));
+    const veredito = avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row));
     if (veredito.liberado) return next();
 
     return res.status(402).json({
@@ -62,9 +63,9 @@ export async function excedeLimiteDeQuartos(
 ): Promise<string | null> {
   if (!billingHabilitado()) return null;
 
-  const row = pousadaId ? await AssinaturaModel.buscarPorPousada(pousadaId) : null;
+  const efetiva = pousadaId ? await AssinaturaModel.efetiva(pousadaId) : null;
   const limites = limitesVigentes(
-    row ? AssinaturaModel.paraEstado(row) : { status: 'trial', plano: null },
+    efetiva ? AssinaturaModel.paraEstado(efetiva.row) : { status: 'trial', plano: null },
   );
 
   if (numQuartos > limites.maxQuartos) {

@@ -78,15 +78,12 @@ export function DashboardHeader({
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 h-14">
         <div className="relative flex items-center gap-3" ref={switcherRef}>
           <button
-            onClick={() => hasMultiple && setSwitcherOpen(!switcherOpen)}
-            className={cn(
-              "flex items-center gap-2.5",
-              hasMultiple && "cursor-pointer hover:opacity-80 transition-opacity"
-            )}
+            onClick={() => setSwitcherOpen(!switcherOpen)}
+            className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
           >
             <img src="/logo.png" alt="Logo" className="h-8 w-8 rounded-lg object-cover" />
             <span className="text-sm font-semibold hidden sm:block">{pousada?.nome || "Diária"}</span>
-            {hasMultiple && (
+            {(hasMultiple || user?.is_owner) && (
               <svg className={cn("h-4 w-4 text-muted-foreground transition-transform", switcherOpen && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -133,6 +130,15 @@ export function DashboardHeader({
                     )}
                   </button>
                 ))}
+                {/* Criar outra pousada. O backend decide se o plano permite
+                    (Rede cobre até 3) e explica quando não permite. */}
+                <Link
+                  href="/onboarding?nova=1"
+                  className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-base">+</div>
+                  Nova pousada
+                </Link>
               </div>
             </div>
           )}

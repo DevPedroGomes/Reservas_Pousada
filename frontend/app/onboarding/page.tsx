@@ -71,8 +71,9 @@ export default function OnboardingPage() {
         });
         const data = await response.json();
 
-        if (data.sucesso && data.pousada) {
-          // User already has a pousada, redirect to dashboard
+        // Quem já tem pousada só fica aqui se veio criar OUTRA (?nova=1).
+        const criandoOutra = new URLSearchParams(window.location.search).has('nova');
+        if (data.sucesso && data.pousada && !criandoOutra) {
           router.push('/');
           return;
         }
@@ -173,6 +174,9 @@ export default function OnboardingPage() {
         setTimeout(() => {
           window.location.replace('/');
         }, 1200);
+      } else if (response.status === 402) {
+        // Limite do plano (número de pousadas ou de quartos).
+        setMessage({ type: 'error', text: `${data.mensagem} Veja os planos em Assinatura.` });
       } else {
         setMessage({ type: 'error', text: data.mensagem || 'Erro ao configurar pousada.' });
       }
