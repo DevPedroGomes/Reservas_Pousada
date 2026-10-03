@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cn } from "../../../lib/utils"
 import { useQuartos } from "../../../hooks/useQuartos"
 import { Tarifario } from "../../../components/quartos/Tarifario"
+import { Calendarios } from "../../../components/quartos/Calendarios"
 import type { Quarto } from "../../../lib/types"
 
 type Rascunho = { numero: string; nome: string; tipo: string; capacidade: string; preco_base: string }
@@ -135,6 +136,8 @@ export default function Quartos() {
       </Card>
 
       <Tarifario quartos={q.quartos} podeEditar={podeEditar} />
+
+      {podeEditar && <Calendarios />}
     </div>
   )
 }

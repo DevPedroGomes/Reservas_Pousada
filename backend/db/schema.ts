@@ -1,5 +1,6 @@
 import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, smallint, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
 
 // ==========================================
 // Better Auth Tables (required by better-auth)
@@ -97,6 +98,8 @@ export const quartos = pgTable('quartos', {
   descricao: text('descricao'),
   ativo: boolean('ativo').notNull().default(true),
   ordem: integer('ordem').notNull().default(0),
+  // Link secreto do calendário exportado (migration 021).
+  icalToken: text('ical_token').notNull().$defaultFn(() => randomBytes(32).toString('hex')),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -132,6 +135,9 @@ export const reservas = pgTable('reservas', {
   adultos: integer('adultos').notNull().default(1),
   criancas: integer('criancas').notNull().default(0),
   canal: text('canal').notNull().default('direto'),
+  // Reserva que veio do calendário de uma OTA (migration 021).
+  icalImportacaoId: integer('ical_importacao_id'),
+  icalUid: text('ical_uid'),
   quarto: integer('quarto').notNull(),
   dataEntrada: date('data_entrada').notNull(),
   dataSaida: date('data_saida').notNull(),
@@ -172,6 +178,21 @@ export const tarifas = pgTable('tarifas', {
   ativa: boolean('ativa').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Calendários externos importados por quarto (migration 021).
+export const icalImportacoes = pgTable('ical_importacoes', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  quartoNumero: integer('quarto_numero').notNull(),
+  nome: text('nome').notNull(),
+  canal: text('canal').notNull().default('outro'),
+  url: text('url').notNull(),
+  ativo: boolean('ativo').notNull().default(true),
+  ultimaSincronizacao: timestamp('ultima_sincronizacao', { withTimezone: true }),
+  ultimoErro: text('ultimo_erro'),
+  eventos: integer('eventos'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Conta da reserva (migration 019). Valores em centavos.

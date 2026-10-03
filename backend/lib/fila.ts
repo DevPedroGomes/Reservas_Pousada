@@ -15,6 +15,7 @@ import { reportarErro } from './observabilidade.js';
 import { limpeza } from '../jobs/limpeza.js';
 import { expirarPreReservas, finalizarEstadiasVencidas } from '../jobs/estadias.js';
 import { anonimizarHospedesAntigos } from '../models/Conta.js';
+import { sincronizarTodas as sincronizarCalendarios } from '../models/Ical.js';
 
 export const FILAS = {
   email: 'email',
@@ -23,6 +24,7 @@ export const FILAS = {
   anonimizarHospedes: 'anonimizar-hospedes',
   conversao: 'conversao',
   expirarPreReservas: 'expirar-pre-reservas',
+  sincronizarIcal: 'sincronizar-ical',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
@@ -65,6 +67,7 @@ export async function iniciarFila(): Promise<void> {
       void executarAgendado('limpeza', limpeza).catch(() => {});
       void executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()).catch(() => {});
       void executarAgendado('expirar-pre-reservas', expirarPreReservas).catch(() => {});
+      void executarAgendado('sincronizar-ical', sincronizarCalendarios).catch(() => {});
     }, 6 * 60 * 60 * 1000);
     intervaloLocal.unref();
     return;
@@ -93,6 +96,9 @@ export async function iniciarFila(): Promise<void> {
   await boss.schedule(FILAS.finalizarEstadias, '30 3 * * *', null, { tz: TIMEZONE });
   await boss.schedule(FILAS.expirarPreReservas, '*/10 * * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.expirarPreReservas, async () => executarAgendado('expirar-pre-reservas', expirarPreReservas));
+  // Calendários de Booking/Airbnb: a cada 30 min (a OTA atualiza o .ics com atraso parecido).
+  await boss.schedule(FILAS.sincronizarIcal, '*/30 * * * *', null, { tz: TIMEZONE });
+  await boss.work(FILAS.sincronizarIcal, async () => executarAgendado('sincronizar-ical', sincronizarCalendarios));
   await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.anonimizarHospedes, async () =>
     executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),

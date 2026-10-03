@@ -568,6 +568,80 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('iCal', () => {
+    it('cada quarto tem link público só com "Reservado"; link errado é 404', async () => {
+      const r = await donoA.req('GET', '/api/ical');
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const q3 = r.json.exportar.find((x: { quarto: number }) => x.quarto === 3);
+      const caminho = new URL(q3.url).pathname;
+      assert.match(caminho, /^\/ical\/[0-9a-f]{64}\.ics$/);
+      const anon = new Cliente(base, '198.51.100.240');
+      const ics = await anon.req('GET', caminho);
+      assert.equal(ics.status, 200);
+      assert.ok(String(ics.json).includes(`UID:reserva-${reservaA}@`), 'reserva do quarto 3 está no calendário');
+      assert.ok(!String(ics.json).includes('Hóspede'), 'nome de hóspede nunca sai no link');
+      assert.equal((await anon.req('GET', '/ical/' + 'f'.repeat(64) + '.ics')).status, 404);
+      assert.equal((await recep.req('GET', '/api/ical')).status, 403, 'links são do dono/admin');
+    });
+
+    it('novo link invalida o antigo', async () => {
+      const antes = (await donoA.req('GET', '/api/ical')).json.exportar.find((x: { quarto: number }) => x.quarto === 3).url;
+      const novo = await donoA.req('POST', '/api/ical/quartos/3/novo-link');
+      assert.equal(novo.status, 200);
+      const anon = new Cliente(base, '198.51.100.241');
+      assert.equal((await anon.req('GET', new URL(antes).pathname)).status, 404);
+      assert.equal((await anon.req('GET', new URL(novo.json.url).pathname)).status, 200);
+    });
+
+    it('importar recusa link que não é https ou aponta para rede interna', async () => {
+      const r = await donoA.req('POST', '/api/ical/importacoes', { quarto: 2, nome: 'Airbnb', canal: 'airbnb', url: 'http://169.254.169.254/x' });
+      assert.equal(r.status, 400);
+      const r2 = await donoA.req('POST', '/api/ical/importacoes', { quarto: 2, nome: 'Airbnb', canal: 'airbnb', url: 'https://10.0.0.5/cal.ics' });
+      assert.equal(r2.status, 400);
+    });
+
+    it('sincronização cria, move e cancela reservas e acusa overbooking', async () => {
+      const Ical = await import('../models/Ical.js');
+      const imp = await Ical.criarImportacao(pousadaA, { quarto: 2, nome: 'Airbnb', canal: 'airbnb', url: 'https://www.airbnb.com/calendar/ical/1.ics' });
+      const ev = (uid: string, ini: string, fim: string) =>
+        `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTART;VALUE=DATE:${ini.replace(/-/g, '')}\r\nDTEND;VALUE=DATE:${fim.replace(/-/g, '')}\r\nSUMMARY:Reserved\r\nEND:VEVENT`;
+      const feed = (...eventos: string[]) => async () => `BEGIN:VCALENDAR\r\n${eventos.join('\r\n')}\r\nEND:VCALENDAR`;
+      // Reserva do sistema no quarto 2, para provocar o choque.
+      const local = await recep.req('POST', '/api/reservas', { nome: 'Local', telefone: '48933332222', quarto: 2, data_entrada: d(160), data_saida: d(162) });
+      assert.equal(local.status, 201, JSON.stringify(local.json));
+
+      const r1 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153)), ev('b', d(155), d(157)), ev('c', d(161), d(163))));
+      assert.deepEqual([r1.criadas, r1.conflitos.length], [2, 1]);
+      const { rows: criadas } = await pool.query(
+        `SELECT ical_uid, nome, canal, status, data_entrada::text AS ini FROM reservas WHERE ical_importacao_id = $1 ORDER BY ical_uid`, [imp.id]);
+      assert.deepEqual(criadas.map((x) => [x.ical_uid, x.canal, x.status]), [['a', 'airbnb', 'confirmada'], ['b', 'airbnb', 'confirmada']]);
+      const { rows: [aviso] } = await pool.query(`SELECT ultimo_erro FROM ical_importacoes WHERE id = $1`, [imp.id]);
+      assert.match(aviso.ultimo_erro, /overbooking/);
+
+      // Na OTA: "a" mudou de data, "b" foi cancelada.
+      const r2 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas], [0, 1, 1]);
+      const { rows: depois } = await pool.query(
+        `SELECT ical_uid, status, data_entrada::text AS ini, motivo_cancelamento FROM reservas WHERE ical_importacao_id = $1 ORDER BY ical_uid`, [imp.id]);
+      assert.equal(depois[0].ini, d(151));
+      assert.equal(depois[1].status, 'cancelada');
+      assert.match(depois[1].motivo_cancelamento, /Airbnb/);
+
+      // Sincronizar de novo com o mesmo feed não muda nada.
+      const r3 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.deepEqual([r3.criadas, r3.atualizadas, r3.canceladas], [0, 0, 0]);
+
+      // Outra pousada não sincroniza nem remove o calendário da A.
+      assert.equal((await donoB.req('POST', `/api/ical/importacoes/${imp.id}/sincronizar`)).status, 404);
+      assert.equal((await donoB.req('DELETE', `/api/ical/importacoes/${imp.id}`)).status, 404);
+
+      // Remover o calendário cancela as reservas futuras que vieram dele.
+      assert.equal((await donoA.req('DELETE', `/api/ical/importacoes/${imp.id}`)).status, 200);
+      const { rows: fim } = await pool.query(`SELECT status FROM reservas WHERE ical_uid = 'a' AND pousada_id = $1`, [pousadaA]);
+      assert.equal(fim[0].status, 'cancelada');
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

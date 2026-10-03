@@ -120,6 +120,8 @@ export interface Reserva {
   /** Conta: o que já entrou e o que foi consumido além das diárias (centavos). */
   pago_centavos?: number
   consumos_centavos?: number
+  /** Veio do calendário de uma OTA: datas e cancelamento seguem o que vier de lá. */
+  ical_importacao_id?: number | null
   quarto: number | string
   data_entrada: string
   data_saida: string

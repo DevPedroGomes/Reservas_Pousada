@@ -146,6 +146,12 @@ export function ReservationForm({
       <Card>
         <CardContent className="pt-5">
           <form className="space-y-5" onSubmit={handleSubmit}>
+            {isEditing && initialData?.ical_importacao_id && (
+              <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                Reserva importada do calendário da OTA: datas e cancelamento seguem o que vier de lá.
+                Complete o hóspede (nome e WhatsApp) quando receber os dados.
+              </p>
+            )}
             <SecaoHospede
               form={form}
               isEditing={isEditing}

@@ -59,7 +59,7 @@ interface ListarOptions {
  * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
  * é o documento quando ele é CPF, senão vazio.
  */
-export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash'> {
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid'> {
   criadoPorNome?: string | null;
   documento: string;
   tipoDocumento: string;
@@ -110,6 +110,8 @@ const CAMPOS_RESERVA = {
   adultos: reservas.adultos,
   criancas: reservas.criancas,
   canal: reservas.canal,
+  // Veio do calendário de uma OTA (migration 021): datas mandadas por ela.
+  icalImportacaoId: reservas.icalImportacaoId,
   // Conta (migration 019): quanto entrou e quanto foi consumido além das diárias.
   pagoCentavos: sql<number>`(SELECT COALESCE(sum(p.valor_centavos), 0)::int FROM pagamentos p WHERE p.reserva_id = "reservas"."id")`,
   consumosCentavos: sql<number>`(SELECT COALESCE(sum(c.quantidade * c.valor_unitario_centavos), 0)::int FROM consumos c WHERE c.reserva_id = "reservas"."id")`,

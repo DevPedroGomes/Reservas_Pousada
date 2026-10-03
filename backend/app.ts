@@ -14,6 +14,8 @@ import contaRoutes from './routes/conta.js';
 import quartoRoutes from './routes/quartos.js';
 import hospedeRoutes from './routes/hospedes.js';
 import tarifaRoutes from './routes/tarifas.js';
+import icalRoutes from './routes/ical.js';
+import { calendarioExportado } from './models/Ical.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -218,6 +220,23 @@ app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoutes);
 // Tarifário também é configuração (sem trava de assinatura).
 app.use('/api/tarifas', authMiddleware, userLimiter, requirePousada, tarifaRoutes);
+app.use('/api/ical', authMiddleware, userLimiter, requirePousada, icalRoutes);
+
+// Calendário exportado de um quarto: público, protegido pelo token secreto
+// do link. A OTA consulta de tempos em tempos; o limite segura varredura.
+const icalLimiter = criarLimitador('ical', { windowMs: 60 * 1000, max: 30, keyGenerator: (req) => chaveDeRateLimit(req.ip) });
+app.get('/ical/:arquivo', icalLimiter, async (req, res, next) => {
+  try {
+    const token = String(req.params.arquivo).replace(/\.ics$/, '');
+    const conteudo = await calendarioExportado(token, new URL(process.env.APP_URL || process.env.FRONTEND_URL || 'https://diaria.app').hostname);
+    if (!conteudo) return res.status(404).type('text/plain').send('Calendário não encontrado');
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(conteudo);
+  } catch (err) {
+    next(err);
+  }
+});
 // Sem requerAssinaturaAtiva de proposito: quem esta bloqueado precisa
 // conseguir ver o proprio estado e escolher um plano.
 app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);
