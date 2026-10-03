@@ -107,15 +107,28 @@ export function validarValor(valor: number | string | null | undefined): boolean
 }
 
 /**
- * Sanitizes string removing dangerous characters
+ * Normaliza texto livre: tira espaços das pontas, caracteres de controle
+ * invisíveis e limita o tamanho.
+ *
+ * NÃO remove `' " & < >`. Antes removia, e o dado gravado era outro:
+ * "Pousada D'Ajuda" virava "Pousada DAjuda", "Café & Cia" perdia o "&". A
+ * defesa contra XSS é escapar NA SAÍDA — o React escapa tudo que renderiza,
+ * os e-mails passam por escapeHtml e o CSV neutraliza fórmulas. Mexer na
+ * entrada só corrompia o dado sem proteger nada a mais.
+ *
+ * `multilinha` preserva quebras de linha (observações).
  */
-export function sanitizarString(str: string | null | undefined): string {
+export function sanitizarString(
+  str: string | null | undefined,
+  maximo = 255,
+  multilinha = false,
+): string {
   if (!str || typeof str !== 'string') return '';
 
-  return str
-    .trim()
-    .replace(/[<>"'&]/g, '') // Remove dangerous HTML characters
-    .substring(0, 255); // Limit size
+  const semControle = multilinha
+    ? str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    : str.replace(/[\u0000-\u001F\u007F]/g, ' ');
+  return semControle.trim().substring(0, maximo);
 }
 
 /**
@@ -260,7 +273,8 @@ export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
     // `valor ? ... : null` descartava R$ 0,00 (diária cortesia) porque 0 é falsy.
     valor: valorParaNumeroOuNulo(reserva.valor),
     pago: Boolean(reserva.pago),
-    observacoes: sanitizarString(reserva.observacoes || '')
+    // Observação é texto livre da recepção: 255 caracteres cortavam no meio.
+    observacoes: sanitizarString(reserva.observacoes || '', 2000, true)
   };
 }
 
@@ -422,7 +436,8 @@ export function sanitizarPousada(pousada: PousadaData): Partial<PousadaData> {
   }
 
   if (pousada.descricao !== undefined) {
-    sanitizado.descricao = pousada.descricao ? sanitizarString(pousada.descricao).substring(0, 1000) : undefined;
+    // A validação aceita 1000; antes o sanitizador cortava em 255 calado.
+    sanitizado.descricao = pousada.descricao ? sanitizarString(pousada.descricao, 1000, true) : undefined;
   }
 
   if (pousada.configuracoes !== undefined) {

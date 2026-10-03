@@ -232,3 +232,24 @@ describe('crypto — cifra e hash de CPF', () => {
     );
   });
 });
+
+describe('sanitização não corrompe texto legítimo', () => {
+  it('preserva apóstrofo, aspas e & em texto livre', async () => {
+    const { sanitizarString } = await import('../utils/validation.js');
+    assert.equal(sanitizarString("Pousada D'Ajuda"), "Pousada D'Ajuda");
+    assert.equal(sanitizarString('Café & Cia "Mar"'), 'Café & Cia "Mar"');
+  });
+
+  it('remove caracteres de controle e respeita o limite pedido', async () => {
+    const { sanitizarString } = await import('../utils/validation.js');
+    assert.equal(sanitizarString('a\u0000b'), 'a b');
+    assert.equal(sanitizarString('x'.repeat(1500), 1000).length, 1000);
+  });
+
+  it('observações mantêm quebra de linha e passam de 255 caracteres', () => {
+    const texto = 'Chega às 23h.\nAlergia a camarão. ' + 'x'.repeat(400);
+    const r = sanitizarReserva({ observacoes: texto } as never);
+    assert.ok(r.observacoes.includes('\n'));
+    assert.ok(r.observacoes.length > 255);
+  });
+});
