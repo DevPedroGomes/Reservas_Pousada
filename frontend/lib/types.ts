@@ -117,6 +117,9 @@ export interface Reserva {
   adultos?: number
   criancas?: number
   canal?: string
+  /** Conta: o que já entrou e o que foi consumido além das diárias (centavos). */
+  pago_centavos?: number
+  consumos_centavos?: number
   quarto: number | string
   data_entrada: string
   data_saida: string
@@ -169,6 +172,35 @@ export interface EstadiaDoHospede {
   criancas: number
 }
 
+export interface PagamentoDaConta {
+  id: number
+  valor_centavos: number
+  forma: string
+  tipo: "sinal" | "pagamento" | "estorno"
+  recebido_em: string
+  observacao: string
+  criado_por_nome: string
+}
+
+export interface ConsumoDaConta {
+  id: number
+  descricao: string
+  quantidade: number
+  valor_unitario_centavos: number
+  lancado_em: string
+  criado_por_nome: string
+}
+
+export interface ContaDaReserva {
+  diarias_centavos: number
+  consumos_centavos: number
+  total_centavos: number
+  pago_centavos: number
+  saldo_centavos: number
+  pagamentos: PagamentoDaConta[]
+  consumos: ConsumoDaConta[]
+}
+
 export interface Auditoria {
   id: number
   action: string
@@ -177,6 +209,9 @@ export interface Auditoria {
   details?: {
     antes?: Partial<Reserva>
     depois?: Partial<Reserva>
+    /** Lançamentos da conta (centavos, como a API grava). */
+    pagamento?: { valorCentavos?: number; valor_centavos?: number; forma?: string; tipo?: string }
+    consumo?: { descricao?: string; quantidade?: number; valorUnitarioCentavos?: number; valor_unitario_centavos?: number }
   }
 }
 

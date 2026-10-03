@@ -425,6 +425,89 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('conta da reserva', () => {
+    let id: number;
+    const conta = async () => (await recep.req('GET', `/api/reservas/${id}/conta`)).json.conta;
+    const pago = async () => (await pool.query(`SELECT pago FROM reservas WHERE id = $1`, [id])).rows[0].pago;
+
+    before(async () => {
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Conta Teste', telefone: '48955554444', quarto: 5, data_entrada: d(100), data_saida: d(102), valor: 450,
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      id = r.json.reserva.id;
+    });
+
+    it('sinal por Pix deixa saldo e a reserva continua "a pagar"', async () => {
+      const r = await recep.req('POST', `/api/reservas/${id}/pagamentos`, { valor: 150, forma: 'pix', tipo: 'sinal' });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.deepEqual([r.json.conta.totalCentavos, r.json.conta.pagoCentavos, r.json.conta.saldoCentavos], [45000, 15000, 30000]);
+      assert.equal(await pago(), false);
+      const lista = await recep.req('GET', `/api/reservas?search=Conta%20Teste`);
+      assert.equal(lista.json.reservas[0].pagoCentavos, 15000);
+    });
+
+    it('consumo entra no total; o restante em "325,00" quita a conta', async () => {
+      const c = await recep.req('POST', `/api/reservas/${id}/consumos`, { descricao: 'Frigobar', quantidade: 2, valor_unitario: '12,50' });
+      assert.equal(c.status, 201, JSON.stringify(c.json));
+      assert.equal(c.json.conta.totalCentavos, 47500);
+      const p = await recep.req('POST', `/api/reservas/${id}/pagamentos`, { valor: '325,00', forma: 'cartao_credito' });
+      assert.equal(p.status, 201, JSON.stringify(p.json));
+      assert.equal(p.json.conta.saldoCentavos, 0);
+      assert.equal(await pago(), true, 'pago é consequência da conta');
+    });
+
+    it('estorno reabre o saldo; a caixinha "pago" do formulário não passa por cima', async () => {
+      const e = await recep.req('POST', `/api/reservas/${id}/pagamentos`, { valor: 50, forma: 'pix', tipo: 'estorno' });
+      assert.equal(e.status, 201, JSON.stringify(e.json));
+      assert.equal(e.json.conta.pagamentos.at(-1).valorCentavos, -5000);
+      assert.equal(e.json.conta.saldoCentavos, 5000);
+      assert.equal(await pago(), false);
+      const det = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+      const ed = await recep.req('PUT', `/api/reservas/${id}`, {
+        nome: det.nome, telefone: det.telefone, quarto: det.quarto, data_entrada: det.dataEntrada, data_saida: det.dataSaida,
+        valor: 450, pago: true, version: det.version,
+      });
+      assert.equal(ed.status, 200, JSON.stringify(ed.json));
+      assert.equal(await pago(), false);
+    });
+
+    it('a receber do painel é o saldo, recebido é o que entrou', async () => {
+      const { rows: [esperado] } = await pool.query(
+        `SELECT COALESCE(sum(valor_centavos), 0)::int AS recebido FROM pagamentos WHERE pousada_id = $1`, [pousadaA],
+      );
+      const dash = await donoA.req('GET', `/api/pousadas/${pousadaA}/dashboard`);
+      assert.equal(dash.status, 200);
+      assert.equal(Math.round(dash.json.estatisticas.receita_total * 100), esperado.recebido);
+      assert.ok(dash.json.estatisticas.receita_pendente >= 50, 'o saldo de R$ 50 desta conta está no a receber');
+    });
+
+    it('validação: forma desconhecida e valor zero são recusados', async () => {
+      assert.equal((await recep.req('POST', `/api/reservas/${id}/pagamentos`, { valor: 10, forma: 'cheque' })).status, 400);
+      assert.equal((await recep.req('POST', `/api/reservas/${id}/pagamentos`, { valor: 0, forma: 'pix' })).status, 400);
+      assert.equal((await recep.req('POST', `/api/reservas/${id}/consumos`, { descricao: '', valor_unitario: 5 })).status, 400);
+    });
+
+    it('recepção não apaga pagamento; o dono apaga e a conta recalcula', async () => {
+      const antes = await conta();
+      const ultimo = antes.pagamentos.at(-1).id;
+      assert.equal((await recep.req('DELETE', `/api/reservas/${id}/pagamentos/${ultimo}`)).status, 403);
+      const r = await donoA.req('DELETE', `/api/reservas/${id}/pagamentos/${ultimo}`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.conta.saldoCentavos, 0);
+      assert.equal(await pago(), true);
+      const { rows } = await pool.query(`SELECT action FROM auditoria WHERE entity = 'reserva' AND entity_id = $1 ORDER BY id`, [id]);
+      assert.ok(rows.some((x) => x.action === 'remover_pagamento') && rows.some((x) => x.action === 'lancar_consumo'));
+    });
+
+    it('outra pousada não vê nem lança na conta', async () => {
+      assert.equal((await donoB.req('GET', `/api/reservas/${id}/conta`)).status, 404);
+      assert.equal((await donoB.req('POST', `/api/reservas/${id}/pagamentos`, { valor: 10, forma: 'pix' })).status, 404);
+      const c = await conta();
+      assert.equal((await donoB.req('DELETE', `/api/reservas/${id}/consumos/${c.consumos[0].id}`)).status, 404);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

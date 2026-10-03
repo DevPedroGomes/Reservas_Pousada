@@ -157,6 +157,32 @@ export const reservas = pgTable('reservas', {
   pousadaIdx: index('idx_reservas_pousada').on(table.pousadaId),
 }));
 
+// Conta da reserva (migration 019). Valores em centavos.
+export const pagamentos = pgTable('pagamentos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  reservaId: integer('reserva_id').references(() => reservas.id, { onDelete: 'cascade' }).notNull(),
+  valorCentavos: integer('valor_centavos').notNull(),
+  forma: text('forma').notNull(),
+  tipo: text('tipo').notNull().default('pagamento'),
+  recebidoEm: date('recebido_em').notNull(),
+  observacao: text('observacao'),
+  criadoPor: text('criado_por').references(() => user.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const consumos = pgTable('consumos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  reservaId: integer('reserva_id').references(() => reservas.id, { onDelete: 'cascade' }).notNull(),
+  descricao: text('descricao').notNull(),
+  quantidade: integer('quantidade').notNull().default(1),
+  valorUnitarioCentavos: integer('valor_unitario_centavos').notNull(),
+  lancadoEm: date('lancado_em').notNull(),
+  criadoPor: text('criado_por').references(() => user.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const auditoria = pgTable('auditoria', {
   id: serial('id').primaryKey(),
   userId: text('user_id').references(() => user.id),
@@ -341,6 +367,8 @@ export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
 export type Quarto = typeof quartos.$inferSelect;
 export type Hospede = typeof hospedes.$inferSelect;
+export type Pagamento = typeof pagamentos.$inferSelect;
+export type Consumo = typeof consumos.$inferSelect;
 export type NewHospede = typeof hospedes.$inferInsert;
 export type Assinatura = typeof assinaturas.$inferSelect;
 export type FinanceiroLancamento = typeof financeiroLancamentos.$inferSelect;

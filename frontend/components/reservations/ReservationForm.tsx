@@ -31,6 +31,10 @@ interface ReservationFormProps {
   onSubmit: (data: Reserva) => Promise<void>
   onCancel: () => void
   loading?: boolean
+  /** Com pagamentos lançados, "pago" é calculado pela conta (a caixinha some). */
+  pagoPelaConta?: boolean
+  /** Painel da conta (pagamentos e consumos), entre o formulário e o histórico. */
+  conta?: React.ReactNode
 }
 
 const emptyForm: Reserva = {
@@ -61,6 +65,8 @@ export function ReservationForm({
   onSubmit,
   onCancel,
   loading = false,
+  pagoPelaConta = false,
+  conta,
 }: ReservationFormProps) {
   const [form, setForm] = useState<Reserva>(emptyForm)
 
@@ -261,19 +267,23 @@ export function ReservationForm({
                 <Label htmlFor="pago" className="text-xs">
                   Pago
                 </Label>
-                <label
-                  htmlFor="pago"
-                  className="flex cursor-pointer items-center gap-3 h-10 rounded-lg border border-border bg-white px-3"
-                >
-                  <input
-                    id="pago"
-                    type="checkbox"
-                    checked={form.pago}
-                    onChange={(e) => setForm((prev) => ({ ...prev, pago: e.target.checked }))}
-                    className="h-4 w-4 rounded border border-border accent-primary"
-                  />
-                  <span className="text-sm font-medium">Pagamento recebido</span>
-                </label>
+                {pagoPelaConta ? (
+                  <p className="flex h-10 items-center text-sm text-muted-foreground">Calculado pela conta abaixo.</p>
+                ) : (
+                  <label
+                    htmlFor="pago"
+                    className="flex cursor-pointer items-center gap-3 h-10 rounded-lg border border-border bg-white px-3"
+                  >
+                    <input
+                      id="pago"
+                      type="checkbox"
+                      checked={form.pago}
+                      onChange={(e) => setForm((prev) => ({ ...prev, pago: e.target.checked }))}
+                      className="h-4 w-4 rounded border border-border accent-primary"
+                    />
+                    <span className="text-sm font-medium">Pagamento recebido</span>
+                  </label>
+                )}
               </div>
             </div>
 
@@ -345,6 +355,8 @@ export function ReservationForm({
           </form>
         </CardContent>
       </Card>
+
+      {conta}
 
       {isEditing && auditLogs.length > 0 && (
         <AuditHistory logs={auditLogs} />

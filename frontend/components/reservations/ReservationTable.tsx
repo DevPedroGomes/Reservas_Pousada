@@ -8,6 +8,7 @@ import { Pagination } from "../pagination"
 import { formatarData, formatarValor, getStatusBadgeVariant, getStatusLabel } from "../../lib/formatters"
 import { acaoPrincipal, hojeNaPousada, ROTULO_ACAO, type StatusReserva } from "../../lib/status"
 import { formatarTelefone } from "../../lib/hospedes"
+import { reais, saldoDaReserva } from "../../lib/conta"
 import type { Reserva, PaginationMeta } from "../../lib/types"
 
 interface ReservationTableProps {
@@ -84,9 +85,13 @@ export function ReservationTable({
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>
                   <TableCell>{reserva.valor ? formatarValor(Number(reserva.valor)) : "-"}</TableCell>
                   <TableCell>
-                    <Badge variant={reserva.pago ? "success" : "destructive"}>
-                      {reserva.pago ? "Sim" : "Nao"}
-                    </Badge>
+                    {reserva.pago ? (
+                      <Badge variant="success">Sim</Badge>
+                    ) : (reserva.pago_centavos ?? 0) > 0 ? (
+                      <Badge variant="warning" title={`Falta ${reais(saldoDaReserva(reserva))}`}>Parcial</Badge>
+                    ) : (
+                      <Badge variant="destructive">Não</Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant={getStatusBadgeVariant(reserva.status)}>
@@ -102,7 +107,11 @@ export function ReservationTable({
                             variant="outline"
                             size="sm"
                             disabled={mudando === reserva.id}
-                            onClick={() => onMudarStatus(Number(reserva.id), proximo)}
+                            onClick={() => {
+                              const saldo = saldoDaReserva(reserva)
+                              if (proximo === "finalizada" && saldo > 0 && !window.confirm(`Saldo em aberto de ${reais(saldo)}. Fazer o check-out mesmo assim?`)) return
+                              onMudarStatus(Number(reserva.id), proximo)
+                            }}
                           >
                             {ROTULO_ACAO[proximo]}
                           </Button>

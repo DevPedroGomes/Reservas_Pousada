@@ -243,4 +243,27 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     // Em outra pousada, o mesmo documento é outro cadastro.
     await pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (2, 'Um', 'hash-unico')`);
   });
+
+  it('pagamentos: a 019 dá às reservas já pagas o pagamento equivalente, uma vez só', async () => {
+    const { rows: [r] } = await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, valor, pago)
+      VALUES (1, 'Pagou antes', 'x', 15, '2025-03-01', '2025-03-03', 'finalizada', 300.50, true) RETURNING id`);
+    await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, valor, pago)
+      VALUES (1, 'Não pagou', 'x', 16, '2025-03-01', '2025-03-03', 'finalizada', 200, false)`);
+    const sql = readFileSync(join(MIGRATIONS, '019_pagamentos.sql'), 'utf8');
+    await pool.query(sql);
+    await pool.query(sql);
+    const { rows } = await pool.query(`SELECT valor_centavos, forma FROM pagamentos WHERE reserva_id = $1`, [r.id]);
+    assert.deepEqual(rows, [{ valor_centavos: 30050, forma: 'outro' }]);
+    assert.equal((await pool.query(`SELECT 1 FROM pagamentos p JOIN reservas r ON r.id = p.reserva_id WHERE r.nome = 'Não pagou'`)).rowCount, 0);
+  });
+
+  it('pagamentos: estorno só negativo, pagamento só positivo', async () => {
+    const { rows: [r] } = await pool.query(`SELECT id FROM reservas WHERE nome = 'Pagou antes'`);
+    await assert.rejects(pool.query(
+      `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo) VALUES (1, $1, 100, 'pix', 'estorno')`, [r.id]));
+    await assert.rejects(pool.query(
+      `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo) VALUES (1, $1, -100, 'pix', 'pagamento')`, [r.id]));
+  });
 });

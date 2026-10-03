@@ -216,8 +216,16 @@ export class PousadaModel {
         (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status IN ('pre_reserva', 'confirmada', 'hospedada') AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
         -- Receita realizada exclui cancelada: dinheiro de reserva cancelada foi
         -- devolvido ou virou crédito, não é faturamento.
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true AND status NOT IN ('cancelada', 'no_show')), 0)::numeric AS receita_total,
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')), 0)::numeric AS receita_pendente
+        -- Recebido: o que entrou de fato (pagamentos menos estornos). Sinal
+        -- retido de reserva cancelada também é receita.
+        (SELECT COALESCE(SUM(p.valor_centavos), 0) FROM pagamentos p JOIN reservas rp ON rp.id = p.reserva_id
+          WHERE p.pousada_id = ${pousadaId} AND rp.deleted_at IS NULL)::numeric / 100 AS receita_total,
+        -- A receber: saldo (diárias + consumos - pago) das reservas que valem.
+        COALESCE(SUM(GREATEST(
+          COALESCE(round(valor * 100), 0)
+          + COALESCE((SELECT SUM(c.quantidade * c.valor_unitario_centavos) FROM consumos c WHERE c.reserva_id = reservas.id), 0)
+          - COALESCE((SELECT SUM(p.valor_centavos) FROM pagamentos p WHERE p.reserva_id = reservas.id), 0),
+          0)) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')), 0)::numeric / 100 AS receita_pendente
       FROM reservas
       WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
     `);

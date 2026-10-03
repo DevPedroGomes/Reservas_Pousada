@@ -57,7 +57,10 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
                     size="sm"
                     className="h-7 px-2 text-xs"
                     disabled={mudando === r.id}
-                    onClick={() => onMudarStatus(r.id, proximo)}
+                    onClick={() => {
+                      if (proximo === "finalizada" && !r.pago && !window.confirm(`A conta de ${r.nome} ainda não está quitada. Fazer o check-out mesmo assim?`)) return
+                      onMudarStatus(r.id, proximo)
+                    }}
                   >
                     {ROTULO_ACAO[proximo]}
                   </Button>

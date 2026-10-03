@@ -9,7 +9,7 @@
  *
  * Aceita os dois formatos para não quebrar se um endpoint já vier em snake_case.
  */
-import type { Agenda, Auditoria, EstadiaDoHospede, Hospede, ItemAgenda, MembroEquipe, Pousada, Reserva } from "./types"
+import type { Agenda, Auditoria, ContaDaReserva, EstadiaDoHospede, Hospede, ItemAgenda, MembroEquipe, Pousada, Reserva } from "./types"
 import type { TipoDocumento } from "./hospedes"
 
 type Bruto = Record<string, unknown>
@@ -37,6 +37,8 @@ export function reservaDaApi(r: Bruto): Reserva {
     adultos: Number(r.adultos ?? 1),
     criancas: Number(r.criancas ?? 0),
     canal: texto(r.canal) || "direto",
+    pago_centavos: Number(r.pago_centavos ?? r.pagoCentavos ?? 0),
+    consumos_centavos: Number(r.consumos_centavos ?? r.consumosCentavos ?? 0),
     quarto: (r.quarto as number) ?? "",
     data_entrada: texto(r.data_entrada ?? r.dataEntrada),
     data_saida: texto(r.data_saida ?? r.dataSaida),
@@ -58,7 +60,7 @@ export function reservaDaApi(r: Bruto): Reserva {
 
 export function auditoriaDaApi(a: Bruto): Auditoria {
   const nome = (a.userName ?? (a.user as Bruto | undefined)?.nome) as string | undefined
-  const detalhes = (a.details ?? null) as { antes?: Bruto; depois?: Bruto } | null
+  const detalhes = (a.details ?? null) as { antes?: Bruto; depois?: Bruto; pagamento?: Bruto; consumo?: Bruto } | null
   return {
     id: a.id as number,
     action: texto(a.action),
@@ -68,6 +70,8 @@ export function auditoriaDaApi(a: Bruto): Auditoria {
       ? {
           antes: detalhes.antes ? reservaDaApi(detalhes.antes) : undefined,
           depois: detalhes.depois ? reservaDaApi(detalhes.depois) : undefined,
+          pagamento: detalhes.pagamento as NonNullable<Auditoria["details"]>["pagamento"],
+          consumo: detalhes.consumo as NonNullable<Auditoria["details"]>["consumo"],
         }
       : undefined,
   }
@@ -158,5 +162,33 @@ export function estadiaDaApi(e: Bruto): EstadiaDoHospede {
     canal: texto(e.canal),
     adultos: Number(e.adultos ?? 1),
     criancas: Number(e.criancas ?? 0),
+  }
+}
+
+export function contaDaApi(c: Bruto): ContaDaReserva {
+  const n = (v: unknown) => Number(v ?? 0)
+  return {
+    diarias_centavos: n(c.diariasCentavos),
+    consumos_centavos: n(c.consumosCentavos),
+    total_centavos: n(c.totalCentavos),
+    pago_centavos: n(c.pagoCentavos),
+    saldo_centavos: n(c.saldoCentavos),
+    pagamentos: ((c.pagamentos as Bruto[]) ?? []).map((p) => ({
+      id: p.id as number,
+      valor_centavos: n(p.valorCentavos),
+      forma: texto(p.forma),
+      tipo: p.tipo as ContaDaReserva["pagamentos"][number]["tipo"],
+      recebido_em: texto(p.recebidoEm),
+      observacao: texto(p.observacao),
+      criado_por_nome: texto(p.criadoPorNome),
+    })),
+    consumos: ((c.consumos as Bruto[]) ?? []).map((x) => ({
+      id: x.id as number,
+      descricao: texto(x.descricao),
+      quantidade: n(x.quantidade),
+      valor_unitario_centavos: n(x.valorUnitarioCentavos),
+      lancado_em: texto(x.lancadoEm),
+      criado_por_nome: texto(x.criadoPorNome),
+    })),
   }
 }

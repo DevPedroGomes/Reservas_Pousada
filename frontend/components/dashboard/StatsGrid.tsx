@@ -77,7 +77,7 @@ export function StatsGrid({ quartosOcupados, totalQuartos, taxaOcupacao, chegada
       <StatCard
         title="A receber"
         value={brl(aReceber)}
-        description="Reservas ativas não pagas"
+        description="Saldo das reservas em aberto"
         variant={aReceber > 0 ? "warning" : "default"}
       />
     </div>

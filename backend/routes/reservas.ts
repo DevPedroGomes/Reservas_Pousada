@@ -9,6 +9,7 @@ import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
+import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -225,6 +226,95 @@ router.get('/:id/auditoria', authorize(['admin', 'recepcao', 'auditoria']), asyn
   }
 });
 
+// ---------------------------------------------------------------------------
+// Conta da reserva: pagamentos (sinal, parciais, estornos) e consumos.
+
+/** Reserva desta pousada pelo :id, ou responde 400/404 e devolve null. */
+async function reservaDaRota(req: Request, res: Response) {
+  const id = Number(param(req, 'id'));
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ sucesso: false, codigo: 'VAL_005', mensagem: 'ID inválido' });
+    return null;
+  }
+  const reserva = await ReservaModel.buscarPorIdEPousada(id, req.user!.pousadaId!);
+  if (!reserva) res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
+  return reserva;
+}
+
+async function responderConta(res: Response, reserva: { id: number; valor: string | null; pousadaId: number }, status = 200) {
+  const conta = await ContaReservaModel.resumo(reserva.id, reserva.pousadaId, reserva.valor);
+  res.status(status).json({ sucesso: true, conta });
+}
+
+router.get('/:id/conta', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (reserva) await responderConta(res, reserva);
+  } catch (err) {
+    next(new AppError('Erro ao carregar a conta', 500, 'CTA_001'));
+  }
+});
+
+router.post('/:id/pagamentos', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const { dados, erros } = lerPagamento(req.body);
+    if (erros.length) return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Dados inválidos', erros });
+    const pagamentoId = await ContaReservaModel.lancarPagamento(reserva.pousadaId, reserva.id, dados, req.user!.id);
+    AuditoriaModel.log(req.user!.id, 'lancar_pagamento', 'reserva', reserva.id, { pagamento: { id: pagamentoId, ...dados } }, req.ip || null)
+      .catch((e) => console.error('[Auditoria] pagamento:', e.message));
+    await responderConta(res, reserva, 201);
+  } catch (err) {
+    next(new AppError('Erro ao lançar pagamento', 500, 'CTA_002'));
+  }
+});
+
+// Apagar pagamento é coisa de quem responde pelo caixa (dono/admin); a
+// recepção corrige lançando um estorno, que fica registrado.
+router.delete('/:id/pagamentos/:pagamentoId', authorize(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const removido = await ContaReservaModel.removerPagamento(reserva.pousadaId, reserva.id, Number(param(req, 'pagamentoId')));
+    if (!removido) return res.status(404).json({ sucesso: false, codigo: 'CTA_404', mensagem: 'Pagamento não encontrado' });
+    AuditoriaModel.log(req.user!.id, 'remover_pagamento', 'reserva', reserva.id, { pagamento: removido }, req.ip || null)
+      .catch((e) => console.error('[Auditoria] pagamento:', e.message));
+    await responderConta(res, reserva);
+  } catch (err) {
+    next(new AppError('Erro ao remover pagamento', 500, 'CTA_003'));
+  }
+});
+
+router.post('/:id/consumos', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const { dados, erros } = lerConsumo(req.body);
+    if (erros.length) return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Dados inválidos', erros });
+    const consumoId = await ContaReservaModel.lancarConsumo(reserva.pousadaId, reserva.id, dados, req.user!.id);
+    AuditoriaModel.log(req.user!.id, 'lancar_consumo', 'reserva', reserva.id, { consumo: { id: consumoId, ...dados } }, req.ip || null)
+      .catch((e) => console.error('[Auditoria] consumo:', e.message));
+    await responderConta(res, reserva, 201);
+  } catch (err) {
+    next(new AppError('Erro ao lançar consumo', 500, 'CTA_004'));
+  }
+});
+
+router.delete('/:id/consumos/:consumoId', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const removido = await ContaReservaModel.removerConsumo(reserva.pousadaId, reserva.id, Number(param(req, 'consumoId')));
+    if (!removido) return res.status(404).json({ sucesso: false, codigo: 'CTA_404', mensagem: 'Consumo não encontrado' });
+    AuditoriaModel.log(req.user!.id, 'remover_consumo', 'reserva', reserva.id, { consumo: removido }, req.ip || null)
+      .catch((e) => console.error('[Auditoria] consumo:', e.message));
+    await responderConta(res, reserva);
+  } catch (err) {
+    next(new AppError('Erro ao remover consumo', 500, 'CTA_005'));
+  }
+});
+
 // Get reservation by ID
 router.get('/:id', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -241,7 +331,7 @@ router.get('/:id', authorize(['admin', 'recepcao', 'auditoria']), async (req: Re
     }
 
     const completo = podeVerCpfCompleto(req.user!);
-    if (completo) {
+    if (completo && reserva.documento) {
       // Acesso a dado pessoal fica rastreável: "quem viu o CPF de fulano".
       AuditoriaModel.log(req.user!.id, 'visualizar_cpf', 'reserva', reserva.id, null, req.ip || null)
         .catch(err => console.error('[Auditoria] Erro ao registrar visualização:', err.message));
@@ -451,6 +541,8 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     }
 
     const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
+    // Com pagamentos lançados, "pago" é calculado pela conta, não pela caixinha.
+    const pagoDerivado = await ContaReservaModel.temPagamentos(parseInt(id));
 
     const resultado = await ReservaModel.atualizar(parseInt(id), {
       nome: hospede.nome,
@@ -467,9 +559,10 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
         motivo: typeof req.body.motivo === 'string' ? sanitizarString(req.body.motivo, 300) || null : null,
       }) : {}),
       valor: dadosSanitizados.valor,
-      pago: dadosSanitizados.pago,
+      ...(pagoDerivado ? {} : { pago: dadosSanitizados.pago }),
       observacoes: dadosSanitizados.observacoes,
     } as Partial<NewReserva>, req.user!.pousadaId!, version);
+    if (pagoDerivado) await ContaReservaModel.aposMudarValor(parseInt(id));
 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });

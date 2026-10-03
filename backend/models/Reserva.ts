@@ -110,6 +110,9 @@ const CAMPOS_RESERVA = {
   adultos: reservas.adultos,
   criancas: reservas.criancas,
   canal: reservas.canal,
+  // Conta (migration 019): quanto entrou e quanto foi consumido além das diárias.
+  pagoCentavos: sql<number>`(SELECT COALESCE(sum(p.valor_centavos), 0)::int FROM pagamentos p WHERE p.reserva_id = "reservas"."id")`,
+  consumosCentavos: sql<number>`(SELECT COALESCE(sum(c.quantidade * c.valor_unitario_centavos), 0)::int FROM consumos c WHERE c.reserva_id = "reservas"."id")`,
   quarto: reservas.quarto,
   dataEntrada: reservas.dataEntrada,
   dataSaida: reservas.dataSaida,
