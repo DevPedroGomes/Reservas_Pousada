@@ -17,6 +17,8 @@ export const user = pgTable('user', {
   role: text('role').notNull().default('recepcao'),
   pousadaId: integer('pousada_id'),
   isOwner: boolean('is_owner').default(false),
+  // Primeira origem do visitante (utm_*, gclid, fbclid...). Migration 015.
+  origem: jsonb('origem'),
 });
 
 export const session = pgTable('session', {

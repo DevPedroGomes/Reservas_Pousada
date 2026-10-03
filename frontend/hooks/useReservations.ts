@@ -5,6 +5,7 @@ import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
 import { auditoriaDaApi, reservaDaApi } from "../lib/adaptadores"
+import { rastrear } from "../lib/medicao"
 
 const initialFilters: FiltersState = {
   status: "",
@@ -303,6 +304,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
+        if (!formId) rastrear("reserva_criada")
         return {
           sucesso: true,
           mensagem: formId ? "Reserva atualizada com sucesso." : "Reserva criada com sucesso.",

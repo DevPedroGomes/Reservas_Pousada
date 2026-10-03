@@ -64,6 +64,10 @@ services:
       CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      META_PIXEL_ID: ${META_PIXEL_ID:-}
+      META_CAPI_TOKEN: ${META_CAPI_TOKEN:-}
+      GA_MEASUREMENT_ID: ${GA_MEASUREMENT_ID:-}
+      GA_API_SECRET: ${GA_API_SECRET:-}
       DB_POOL_MAX: ${DB_POOL_MAX:-10}
       DB_POOL_TIMEOUT_MS: ${DB_POOL_TIMEOUT_MS:-5000}
       DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-15000}
@@ -174,7 +178,7 @@ services:
       - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com; frame-ancestors 'none'"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net; frame-ancestors 'none'"
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
       interval: 30s

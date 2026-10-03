@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
 import { origensPermitidas } from '../utils/origens.js';
+import { sanearOrigem } from '../utils/origem.js';
 
 // Better Auth Secret (required)
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -109,9 +110,27 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
+      // Atribuição de marketing enviada no cadastro (saneada no hook abaixo).
+      origem: {
+        type: 'json',
+        required: false,
+        input: true,
+      },
     },
     changeEmail: {
       enabled: true,
+    },
+  },
+
+  // A origem vem do navegador: só chaves conhecidas e texto curto entram.
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (dados) => {
+          const origem = sanearOrigem((dados as { origem?: unknown }).origem);
+          return { data: { ...dados, origem } };
+        },
+      },
     },
   },
 

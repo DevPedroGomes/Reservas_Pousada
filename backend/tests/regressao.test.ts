@@ -253,3 +253,20 @@ describe('sanitização não corrompe texto legítimo', () => {
     assert.ok(r.observacoes.length > 255);
   });
 });
+
+describe('origem de marketing — o navegador não manda no banco', () => {
+  it('guarda só chaves conhecidas, texto curto e o consentimento', async () => {
+    const { sanearOrigem } = await import('../utils/origem.js');
+    const o = sanearOrigem({ utm_source: ' google ', gclid: 'x', lixo: 'y', referrer: 'a'.repeat(500), consentimento_anuncios: true });
+    assert.deepEqual(Object.keys(o!).sort(), ['consentimento_anuncios', 'gclid', 'referrer', 'utm_source']);
+    assert.equal(o!.utm_source, 'google');
+    assert.equal(o!.referrer!.length, 300);
+  });
+
+  it('lixo vira null', async () => {
+    const { sanearOrigem } = await import('../utils/origem.js');
+    assert.equal(sanearOrigem('texto'), null);
+    assert.equal(sanearOrigem([1, 2]), null);
+    assert.equal(sanearOrigem({ outra: 'coisa' }), null);
+  });
+});

@@ -21,6 +21,7 @@ export const FILAS = {
   limpeza: 'limpeza',
   finalizarEstadias: 'finalizar-estadias',
   anonimizarHospedes: 'anonimizar-hospedes',
+  conversao: 'conversao',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;

@@ -218,8 +218,72 @@ export default function MargemPage() {
           O til (~) marca valores estimados. A taxa do Stripe é lida da transação real sempre que
           o provedor a expõe; a estimativa só entra quando ele não expõe.
         </p>
+
+        <Aquisicao />
       </div>
     </main>
+  )
+}
+
+/**
+ * Funil por canal (primeira origem do cadastro). Com o gasto de cada campanha
+ * ao lado, dá o custo por cliente pagante de cada canal.
+ */
+function Aquisicao() {
+  const [dias, setDias] = useState(90)
+  const [canais, setCanais] = useState<Array<{ fonte: string; campanha: string; cadastros: number; criaram_pousada: number; pagantes: number }>>([])
+
+  useEffect(() => {
+    let vivo = true
+    authenticatedFetch(`${API_URL}/admin/aquisicao?dias=${dias}`)
+      .then((r) => r.json())
+      .then((d) => { if (vivo && d.sucesso) setCanais(d.canais) })
+      .catch(() => {})
+    return () => { vivo = false }
+  }, [dias])
+
+  const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : "—")
+
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 p-4">
+        <h2 className="text-base font-semibold">Aquisição por canal</h2>
+        <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-lg border border-border bg-white px-2 py-1 text-sm" aria-label="Período">
+          <option value={30}>Últimos 30 dias</option>
+          <option value={90}>Últimos 90 dias</option>
+          <option value={365}>Últimos 12 meses</option>
+        </select>
+      </div>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/30">
+              <TableHead>Fonte</TableHead>
+              <TableHead>Campanha</TableHead>
+              <TableHead className="text-right">Cadastros</TableHead>
+              <TableHead className="text-right">Criaram pousada</TableHead>
+              <TableHead className="text-right">Pagantes</TableHead>
+              <TableHead className="text-right">Cadastro → pagante</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {canais.length === 0 && (
+              <TableRow><TableCell colSpan={6} className="text-sm text-muted-foreground">Nenhum cadastro no período.</TableCell></TableRow>
+            )}
+            {canais.map((c) => (
+              <TableRow key={`${c.fonte}|${c.campanha}`}>
+                <TableCell className="font-medium">{c.fonte}</TableCell>
+                <TableCell className="text-muted-foreground">{c.campanha || "—"}</TableCell>
+                <TableCell className="text-right">{c.cadastros}</TableCell>
+                <TableCell className="text-right">{c.criaram_pousada}</TableCell>
+                <TableCell className="text-right">{c.pagantes}</TableCell>
+                <TableCell className="text-right">{pct(c.pagantes, c.cadastros)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </Card>
   )
 }
 

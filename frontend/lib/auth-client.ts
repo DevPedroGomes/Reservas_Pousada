@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { origemParaCadastro } from "./origem";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -55,12 +56,14 @@ export async function signInWithEmail(email: string, password: string, options?:
  * Sign up with email and password
  */
 export async function signUpWithEmail(email: string, password: string, name: string, options?: { callbackURL?: string }) {
+  // `origem` é campo adicional do usuário no backend (atribuição de marketing).
   return authClient.signUp.email({
     email,
     password,
     name,
     callbackURL: options?.callbackURL ?? urlDepoisDaConfirmacao(),
-  });
+    origem: origemParaCadastro(),
+  } as Parameters<typeof authClient.signUp.email>[0]);
 }
 
 /**

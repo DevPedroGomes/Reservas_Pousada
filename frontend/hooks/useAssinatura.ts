@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { API_URL, authenticatedFetch } from "../lib/api"
+import { rastrear } from "../lib/medicao"
 import type { Ciclo, LimitesPlano, PlanoDisponivel, SituacaoAssinatura } from "../lib/types"
 
 interface UseAssinaturaReturn {
@@ -85,6 +86,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
    * convida um segundo clique — e uma segunda sessão de checkout.
    */
   const assinar = useCallback(async (plano: string) => {
+    rastrear("inicio_checkout", { plano, ciclo })
     setErro(null)
     setRedirecionando(true)
     try {

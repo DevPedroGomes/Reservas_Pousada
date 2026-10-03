@@ -13,6 +13,7 @@ import { cn } from '../../lib/utils';
 import { useSession } from '../../lib/auth-client';
 import { fixarPousadaDaAba } from '../../lib/tenant';
 import { handleSignOut } from '../../lib/auth-client';
+import { rastrear } from '../../lib/medicao';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -173,6 +174,7 @@ export default function OnboardingPage() {
         // A aba passa a operar a pousada recém-criada (senão, criando a
         // segunda pousada, a aba voltaria para a primeira).
         fixarPousadaDaAba(data.pousada?.id ?? null);
+        rastrear('pousada_criada');
         setMessage({ type: 'success', text: 'Pousada configurada com sucesso! Redirecionando...' });
 
         // Full reload to refresh session with new pousadaId

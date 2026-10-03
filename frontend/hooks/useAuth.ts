@@ -12,6 +12,7 @@ import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
 import { API_BASE_URL, authenticatedFetch } from "../lib/api";
 import { fixarPousadaDaAba } from "../lib/tenant";
 import { pousadaDaApi } from "../lib/adaptadores";
+import { rastrear } from "../lib/medicao";
 
 interface UseAuthReturn {
   // State
@@ -213,6 +214,8 @@ export function useAuth(): UseAuthReturn {
         setMessage({ type: "error", text: result.error.message || "Erro ao criar conta." });
         return false;
       }
+
+      rastrear("cadastro");
 
       // Sem sessão até confirmar o e-mail: o link leva direto ao onboarding
       // (ou ao convite) já autenticado.
