@@ -20,16 +20,9 @@ function prefixoCsvSeguro(v: string): string {
   return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
 }
 
-/**
- * Mask CPF for non-admin/non-owner exports. Keeps the last 2 digits to allow
- * cross-reference without disclosing the full document. Accepts CPFs in any
- * format (with/without dots and dash).
- */
-function mascararCpf(cpf: string): string {
-  if (!cpf) return cpf;
-  const digits = String(cpf).replace(/\D/g, '');
-  if (digits.length < 2) return '***.***.***-**';
-  return `***.***.***-${digits.slice(-2)}`;
+/** Quem opera a reserva vê o CPF completo no detalhe; auditoria vê mascarado. */
+function podeVerCpfCompleto(user: NonNullable<Request['user']>): boolean {
+  return user.isOwner || user.role === 'admin' || user.role === 'recepcao';
 }
 
 // Narrow rate-limit for CSV export: 5 exports/hour per user (prevents bulk
@@ -101,7 +94,9 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
     const { status, data_inicio, data_fim, pago, search = '' } = req.query;
     const pagoBool = pago === 'true' ? true : pago === 'false' ? false : undefined;
 
+    const cpfCompletoNoCsv = req.user!.role === 'admin' || req.user!.isOwner === true;
     const { data } = await ReservaModel.listarTodas({
+      cpfCompleto: cpfCompletoNoCsv,
       page: 1,
       limit: 5000,
       search: search as string,
@@ -112,9 +107,8 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
       pousada_id: req.user!.pousadaId!
     });
 
-    // CPF visibility: full only for admins and owner, masked otherwise.
-    const role = req.user!.role;
-    const cpfMascarado = !(role === 'admin' || req.user!.isOwner === true);
+    // CPF completo no CSV só para admin e dono; os demais recebem mascarado.
+    const cpfMascarado = !cpfCompletoNoCsv;
 
     // Fields where customer-supplied text must be neutralized vs CSV formula
     // injection (Excel/Sheets evaluate cells starting with = + - @ tab CR).
@@ -125,9 +119,7 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
       headers
         .map((h) => {
           let valor = r[h] === undefined || r[h] === null ? '' : r[h];
-          if (h === 'cpf' && cpfMascarado) {
-            valor = mascararCpf(String(valor));
-          }
+
           if (typeof valor === 'string') {
             let texto = valor;
             if (camposInjetaveis.has(h)) {
@@ -199,9 +191,16 @@ router.get('/:id', authorize(['admin', 'recepcao', 'auditoria']), async (req: Re
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    const completo = podeVerCpfCompleto(req.user!);
+    if (completo) {
+      // Acesso a dado pessoal fica rastreável: "quem viu o CPF de fulano".
+      AuditoriaModel.log(req.user!.id, 'visualizar_cpf', 'reserva', reserva.id, null, req.ip || null)
+        .catch(err => console.error('[Auditoria] Erro ao registrar visualização:', err.message));
+    }
+
     res.json({
       sucesso: true,
-      reserva
+      reserva: ReservaModel.paraApi(reserva, !completo),
     });
   } catch (error) {
     next(new AppError('Erro ao buscar reserva', 500, 'SRV_001'));
@@ -306,7 +305,7 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
     res.status(201).json({
       sucesso: true,
       mensagem: 'Reserva criada com sucesso',
-      reserva: reservaCriada
+      reserva: ReservaModel.paraApi(reservaCriada, false)
     });
   } catch (error: any) {
     // Tipo, não substring da mensagem: `error.message.includes('não disponível')`

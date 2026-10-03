@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
+import { auditoriaDaApi, reservaDaApi } from "../lib/adaptadores"
 
 const initialFilters: FiltersState = {
   status: "",
@@ -124,7 +125,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const responses = await Promise.all(fetches)
       const reservasData = await responses[0].json()
       if (reservasData.sucesso) {
-        setDashReservas(reservasData.reservas || [])
+        setDashReservas((reservasData.reservas || []).map(reservaDaApi))
       }
       if (pousadaId && responses[1]) {
         const statsData = await responses[1].json()
@@ -163,7 +164,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        setReservas(data.reservas || [])
+        setReservas((data.reservas || []).map(reservaDaApi))
         if (data.meta) setMeta(data.meta)
       }
     } catch (err) {
@@ -234,7 +235,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        return data.reserva as Reserva
+        return reservaDaApi(data.reserva)
       }
       return null
     } catch (error) {
@@ -309,6 +310,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       } else {
         const detalhesConflito = data.conflitos?.length
           ? ` Conflitos: ${data.conflitos
+              .map(reservaDaApi)
               .map((c: Reserva) =>
                 `Quarto ${c.quarto} entre ${formatarData(c.data_entrada)} e ${formatarData(c.data_saida)}`
               )
@@ -353,7 +355,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        setAuditLogs(data.auditoria || [])
+        setAuditLogs((data.auditoria || []).map(auditoriaDaApi))
       }
     } catch (error) {
       console.error("Erro ao carregar auditoria", error)

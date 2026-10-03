@@ -119,6 +119,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
 
   if (log.action === "criar") return "Reserva criada."
   if (log.action === "excluir") return "Reserva removida."
+  if (log.action === "visualizar_cpf") return "CPF completo visualizado."
 
   return "Atualizacao registrada."
 }

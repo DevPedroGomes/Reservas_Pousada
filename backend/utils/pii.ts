@@ -33,3 +33,14 @@ export function redigirPII(valor: unknown, profundidade = 0): unknown {
   }
   return saida;
 }
+
+/**
+ * CPF mascarado: `***.***.***-NN`. Mantém os 2 últimos dígitos — o bastante
+ * para a recepção conferir com o documento, sem expor o número.
+ */
+export function mascararCpf(cpf: string | null | undefined): string {
+  if (!cpf) return '';
+  const digitos = String(cpf).replace(/\D/g, '');
+  if (digitos.length < 2) return '***.***.***-**';
+  return `***.***.***-${digitos.slice(-2)}`;
+}

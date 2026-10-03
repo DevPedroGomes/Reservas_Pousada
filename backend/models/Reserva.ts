@@ -2,14 +2,29 @@ import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, SQL } fro
 import { db, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
 import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
+import { mascararCpf } from '../utils/pii.js';
 
 /** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
 const PG_EXCLUSION_VIOLATION = '23P01';
 
+/**
+ * O que se mostra de uma reserva que conflita com outra. Só o necessário para
+ * a recepção entender o choque de datas — nunca CPF, valor ou observações de
+ * outro hóspede (antes a linha inteira ia na resposta, com CPF cifrado e hash).
+ */
+export interface ConflitoResumo {
+  id: number;
+  nome: string;
+  quarto: number;
+  dataEntrada: string;
+  dataSaida: string;
+  status: string;
+}
+
 export class ConflitoDeReserva extends Error {
   readonly code = 'QUARTO_INDISPONIVEL';
-  conflitos: Reserva[];
-  constructor(conflitos: Reserva[] = []) {
+  conflitos: ConflitoResumo[];
+  constructor(conflitos: ConflitoResumo[] = []) {
     super('Quarto não disponível para o período selecionado');
     this.name = 'ConflitoDeReserva';
     this.conflitos = conflitos;
@@ -21,6 +36,12 @@ function ehViolacaoDeExclusao(err: unknown): boolean {
 }
 
 interface ListarOptions {
+  /**
+   * CPF completo na resposta. Padrão: mascarado — a listagem nunca precisa do
+   * número inteiro, e devolvê-lo a todo papel tornava a máscara do CSV inútil
+   * (bastava paginar a API). Só a exportação de admin/dono pede completo.
+   */
+  cpfCompleto?: boolean;
   page?: number;
   limit?: number;
   search?: string;
@@ -59,6 +80,15 @@ export class ReservaModel {
   }
 
   /**
+   * Forma pública da reserva: sem `cpfHash` (detalhe interno de busca, não
+   * precisa sair da API) e, quando `mascarar`, com o CPF mascarado.
+   */
+  static paraApi<T extends { cpf: string; cpfHash?: string | null }>(r: T, mascarar: boolean): Omit<T, 'cpfHash'> {
+    const { cpfHash: _cpfHash, ...resto } = r;
+    return mascarar ? { ...resto, cpf: mascararCpf(resto.cpf) } : resto;
+  }
+
+  /**
    * Cifra o CPF e gera o hash de busca.
    *
    * Deliberadamente sem try/catch: se a chave não estiver configurada, isto
@@ -75,7 +105,7 @@ export class ReservaModel {
    * List all reservations with filters and pagination
    */
   static async listarTodas(options: ListarOptions): Promise<{ data: ReservaComCriador[]; count: number }> {
-    const { page = 1, limit = 50, search, status, pago, data_inicio, data_fim, pousada_id } = options;
+    const { page = 1, limit = 50, search, status, pago, data_inicio, data_fim, pousada_id, cpfCompleto = false } = options;
 
     if (!pousada_id) {
       throw new Error('pousada_id é obrigatório');
@@ -158,7 +188,7 @@ export class ReservaModel {
       .offset(offset);
 
     return {
-      data: this.decryptResults(data),
+      data: this.decryptResults(data).map((r) => this.paraApi(r, !cpfCompleto)) as ReservaComCriador[],
       count: countResult?.count || 0,
     };
   }
@@ -247,7 +277,7 @@ export class ReservaModel {
     dataSaida: string,
     reservaIdExcluir: number | null = null,
     pousadaId: number
-  ): Promise<{ disponivel: boolean; conflitos: Reserva[] }> {
+  ): Promise<{ disponivel: boolean; conflitos: ConflitoResumo[] }> {
     const conditions = [
       eq(reservas.quarto, quarto),
       eq(reservas.status, 'ativa'),
@@ -263,7 +293,14 @@ export class ReservaModel {
     }
 
     const conflitos = await db
-      .select()
+      .select({
+        id: reservas.id,
+        nome: reservas.nome,
+        quarto: reservas.quarto,
+        dataEntrada: reservas.dataEntrada,
+        dataSaida: reservas.dataSaida,
+        status: reservas.status,
+      })
       .from(reservas)
       .where(and(...conditions));
 
@@ -439,7 +476,7 @@ export class ReservaModel {
           ? await this.verificarDisponibilidade(
               existente.quarto, existente.dataEntrada, existente.dataSaida, id, pousadaId,
             )
-          : { conflitos: [] as Reserva[] };
+          : { conflitos: [] as ConflitoResumo[] };
         throw new ConflitoDeReserva(conflitos);
       }
       throw err;
@@ -493,82 +530,6 @@ export class ReservaModel {
       ))
       .orderBy(reservas.quarto);
     return rows.map((r) => r.quarto);
-  }
-
-  /**
-   * Find reservations by period
-   */
-  static async buscarPorPeriodo(dataInicio: string, dataFim: string, pousadaId: number): Promise<ReservaComCriador[]> {
-    const data = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(
-        and(
-          eq(reservas.pousadaId, pousadaId),
-          isNull(reservas.deletedAt),
-          or(
-            and(gte(reservas.dataEntrada, dataInicio), lte(reservas.dataEntrada, dataFim)),
-            and(gte(reservas.dataSaida, dataInicio), lte(reservas.dataSaida, dataFim)),
-            and(lte(reservas.dataEntrada, dataInicio), gte(reservas.dataSaida, dataFim))
-          )
-        )
-      )
-      .orderBy(reservas.dataEntrada);
-
-    return this.decryptResults(data);
-  }
-
-  /**
-   * Find reservations by status
-   */
-  static async buscarPorStatus(status: string, pousadaId: number): Promise<ReservaComCriador[]> {
-    const data = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, status), isNull(reservas.deletedAt)))
-      .orderBy(reservas.dataEntrada);
-
-    return this.decryptResults(data);
   }
 }
 

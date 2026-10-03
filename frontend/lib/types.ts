@@ -70,6 +70,7 @@ export interface Reserva {
   pago: boolean
   observacoes?: string
   criado_por?: string // Better Auth user ID
+  criado_por_nome?: string
   pousada_id?: number
   version?: number
 }
