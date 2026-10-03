@@ -141,9 +141,11 @@ export function sanitizarString(
 export function sanitizarNome(nome: string | null | undefined): string {
   if (!nome || typeof nome !== 'string') return '';
 
+  // Qualquer letra (\p{L}) e acento combinante (\p{M}): hóspede estrangeiro
+  // ("Łukasz", "Nguyễn") não pode perder letras do nome.
   return nome
     .trim()
-    .replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '')
+    .replace(/[^\p{L}\p{M}\s'.-]/gu, '')
     .replace(/\s+/g, ' ') // Remove duplicate spaces
     .substring(0, 100);
 }
@@ -153,9 +155,16 @@ interface ValidacaoResult {
   erros: string[];
 }
 
+/** De onde veio a reserva (relatório de receita por canal). */
+export const CANAIS_RESERVA = [
+  'direto', 'whatsapp', 'telefone', 'instagram', 'site', 'booking', 'airbnb', 'expedia', 'decolar', 'outro',
+] as const;
+
 interface ReservaData {
   nome?: string;
-  cpf?: string;
+  adultos?: number | string;
+  criancas?: number | string;
+  canal?: string;
   quarto?: number | string;
   data_entrada?: string;
   data_saida?: string;
@@ -188,9 +197,15 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
     erros.push('Nome deve ter pelo menos 2 caracteres');
   }
 
-  // Validate CPF
-  if (!validarCPF(reserva.cpf)) {
-    erros.push('CPF inválido');
+  // Documento e contato são do hóspede (models/Hospede.ts valida).
+  if (reserva.adultos !== undefined && !(Number.isInteger(reserva.adultos) && Number(reserva.adultos) >= 1 && Number(reserva.adultos) <= 50)) {
+    erros.push('Adultos deve ser de 1 a 50');
+  }
+  if (reserva.criancas !== undefined && !(Number.isInteger(reserva.criancas) && Number(reserva.criancas) >= 0 && Number(reserva.criancas) <= 50)) {
+    erros.push('Crianças deve ser de 0 a 50');
+  }
+  if (reserva.canal !== undefined && !(CANAIS_RESERVA as readonly string[]).includes(reserva.canal)) {
+    erros.push(`Canal inválido. Use: ${CANAIS_RESERVA.join(', ')}`);
   }
 
   // Validate room
@@ -239,7 +254,9 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
 
 interface SanitizedReserva {
   nome: string;
-  cpf: string;
+  adultos?: number;
+  criancas?: number;
+  canal?: string;
   quarto: number;
   data_entrada: string;
   data_saida: string;
@@ -265,7 +282,10 @@ function valorParaNumeroOuNulo(valor: number | string | null | undefined): strin
 export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
   return {
     nome: sanitizarNome(reserva.nome),
-    cpf: reserva.cpf ? reserva.cpf.replace(/[^\d]/g, '') : '',
+    // Ausente fica undefined: o banco aplica o padrão na criação e a edição não mexe.
+    adultos: reserva.adultos === undefined || reserva.adultos === '' ? undefined : Number(reserva.adultos),
+    criancas: reserva.criancas === undefined || reserva.criancas === '' ? undefined : Number(reserva.criancas),
+    canal: reserva.canal ? String(reserva.canal) : undefined,
     quarto: parseInt(String(reserva.quarto)),
     data_entrada: reserva.data_entrada || '',
     data_saida: reserva.data_saida || '',

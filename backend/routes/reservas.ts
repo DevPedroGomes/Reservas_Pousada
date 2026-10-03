@@ -8,6 +8,7 @@ import { sanitizarString, validarReserva, sanitizarReserva, validarQuarto, valid
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
+import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -64,7 +65,7 @@ function prazoDaPreReserva(horas: unknown): Date {
  * A transição de status é permitida? Devolve o motivo da recusa, ou null.
  * No-show só depois do dia de entrada; check-in não antes do dia de entrada.
  */
-function recusaDeTransicao(antes: { status: string; dataEntrada: string }, para: string): string | null {
+function recusaDeTransicao(antes: { status: string; dataEntrada: string }, para: string, temDocumento = true): string | null {
   if (!podeTransitar(antes.status, para)) {
     const de = ROTULO_STATUS[antes.status as keyof typeof ROTULO_STATUS] ?? antes.status;
     const ate = ROTULO_STATUS[para as keyof typeof ROTULO_STATUS] ?? para;
@@ -73,7 +74,21 @@ function recusaDeTransicao(antes: { status: string; dataEntrada: string }, para:
   const hoje = hojeLocal();
   if (para === 'no_show' && antes.dataEntrada > hoje) return 'Não comparecimento só pode ser marcado a partir do dia da entrada.';
   if (para === 'hospedada' && antes.status !== 'hospedada' && antes.dataEntrada > hoje) return 'Check-in só a partir do dia da entrada.';
+  // A ficha do hóspede (FNRH) exige documento: a reserva pode nascer só com o
+  // WhatsApp, mas o check-in não acontece sem ele.
+  if (para === 'hospedada' && antes.status !== 'hospedada' && !temDocumento) return 'Informe o documento do hóspede (CPF ou passaporte) para fazer o check-in.';
   return null;
+}
+
+/** O documento decifrado é utilizável? (não vazio nem marcador de falha de decifra) */
+function documentoValido(documento: string | null | undefined): boolean {
+  return Boolean(documento) && !String(documento).startsWith('[');
+}
+
+/** `hospede_id` do corpo, se for um inteiro positivo. */
+function hospedeIdDoCorpo(corpo: Record<string, unknown>): number | null {
+  const n = Number(corpo.hospede_id ?? corpo.hospedeId);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 // List all reservations
@@ -135,9 +150,12 @@ router.get('/export', authorize(['admin', 'recepcao', 'auditoria']), exportLimit
 
     // Fields where customer-supplied text must be neutralized vs CSV formula
     // injection (Excel/Sheets evaluate cells starting with = + - @ tab CR).
-    const camposInjetaveis = new Set(['nome', 'observacoes']);
+    const camposInjetaveis = new Set(['nome', 'observacoes', 'email', 'nacionalidade']);
 
-    const headers = ['id', 'nome', 'cpf', 'quarto', 'dataEntrada', 'dataSaida', 'valor', 'pago', 'status', 'observacoes'];
+    const headers = [
+      'id', 'nome', 'tipoDocumento', 'documento', 'telefone', 'email', 'nacionalidade', 'quarto', 'dataEntrada', 'dataSaida',
+      'adultos', 'criancas', 'canal', 'valor', 'pago', 'status', 'observacoes',
+    ];
     const linhas = data.map((r: any) =>
       headers
         .map((h) => {
@@ -291,14 +309,17 @@ router.get('/disponibilidade/:quarto', authorize(['admin', 'recepcao', 'auditori
 router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const dadosSanitizados = sanitizarReserva(req.body);
+    const hospedeId = hospedeIdDoCorpo(req.body);
+    const dadosHospede = lerDadosHospede(req.body);
 
     const validacao = validarReserva(dadosSanitizados);
-    if (!validacao.valido) {
+    const errosHospede = validarDadosHospede(dadosHospede, !hospedeId);
+    if (!validacao.valido || errosHospede.length > 0) {
       return res.status(400).json({
         sucesso: false,
         codigo: 'VAL_001',
         mensagem: 'Dados inválidos',
-        erros: validacao.erros
+        erros: [...validacao.erros, ...errosHospede]
       });
     }
 
@@ -316,10 +337,21 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
     if (statusInicial === 'hospedada' && dadosSanitizados.data_entrada > hojeLocal()) {
       return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Check-in só a partir do dia da entrada.' });
     }
+    if (statusInicial === 'hospedada' && !hospedeId && !dadosHospede.documento) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Informe o documento do hóspede (CPF ou passaporte) para fazer o check-in.' });
+    }
+
+    const hospede = await HospedeModel.resolver(req.user!.pousadaId!, dadosHospede, hospedeId);
+    if (statusInicial === 'hospedada' && !documentoValido(hospede.documento)) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Informe o documento do hóspede (CPF ou passaporte) para fazer o check-in.' });
+    }
 
     const novaReserva = {
-      nome: dadosSanitizados.nome,
-      cpf: dadosSanitizados.cpf,
+      nome: hospede.nome,
+      hospedeId: hospede.id,
+      adultos: dadosSanitizados.adultos,
+      criancas: dadosSanitizados.criancas,
+      canal: dadosSanitizados.canal,
       quarto: dadosSanitizados.quarto,
       dataEntrada: dadosSanitizados.data_entrada,
       dataSaida: dadosSanitizados.data_saida,
@@ -351,6 +383,9 @@ router.post('/', authorize(['admin', 'recepcao']), async (req: Request, res: Res
       reserva: ReservaModel.paraApi(reservaCriada, false)
     });
   } catch (error: any) {
+    if (error instanceof HospedeRecusado) {
+      return res.status(error.status).json({ sucesso: false, codigo: 'HSP_001', mensagem: error.message });
+    }
     // Tipo, não substring da mensagem: `error.message.includes('não disponível')`
     // quebrava calado no dia em que alguém reescrevesse o texto do erro.
     if (error instanceof ConflitoDeReserva) {
@@ -379,25 +414,32 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     // Edição permite data no passado: corrigir o nome de quem já fez check-in,
     // marcar como paga ou finalizar uma estadia em andamento são operações do
     // dia a dia, e reusar a validação do POST as rejeitava com 400.
-    const validacao = validarReserva(dadosSanitizados, { permitirDataPassada: true });
-    if (!validacao.valido) {
-      return res.status(400).json({
-        sucesso: false,
-        codigo: 'VAL_001',
-        mensagem: 'Dados inválidos',
-        erros: validacao.erros
-      });
-    }
-
     const reservaAntes = await ReservaModel.buscarPorIdEPousada(parseInt(id), req.user!.pousadaId!);
     if (!reservaAntes) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    // Outro hóspede escolhido no formulário, ou o mesmo (com dados corrigidos).
+    // `hospede_id: null` explícito = trocar por um hóspede novo; ausente = o mesmo de antes.
+    const hospedeId = 'hospede_id' in req.body ? hospedeIdDoCorpo(req.body) : reservaAntes.hospedeId ?? null;
+    const dadosHospede = lerDadosHospede(req.body);
+
+    const validacao = validarReserva(dadosSanitizados, { permitirDataPassada: true });
+    const errosHospede = validarDadosHospede(dadosHospede, !hospedeId);
+    if (!validacao.valido || errosHospede.length > 0) {
+      return res.status(400).json({
+        sucesso: false,
+        codigo: 'VAL_001',
+        mensagem: 'Dados inválidos',
+        erros: [...validacao.erros, ...errosHospede]
+      });
+    }
+
     // Status pelo formulário de edição segue as mesmas regras do PATCH.
     const statusNovo = dadosSanitizados.status || reservaAntes.status;
+    const hospede = await HospedeModel.resolver(req.user!.pousadaId!, dadosHospede, hospedeId);
     if (statusNovo !== reservaAntes.status) {
-      const recusa = recusaDeTransicao(reservaAntes, statusNovo);
+      const recusa = recusaDeTransicao(reservaAntes, statusNovo, documentoValido(hospede.documento));
       if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
     }
 
@@ -411,8 +453,11 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
 
     const resultado = await ReservaModel.atualizar(parseInt(id), {
-      nome: dadosSanitizados.nome,
-      cpf: dadosSanitizados.cpf,
+      nome: hospede.nome,
+      hospedeId: hospede.id,
+      adultos: dadosSanitizados.adultos,
+      criancas: dadosSanitizados.criancas,
+      canal: dadosSanitizados.canal,
       quarto: dadosSanitizados.quarto,
       dataEntrada: dadosSanitizados.data_entrada,
       dataSaida: dadosSanitizados.data_saida,
@@ -447,6 +492,9 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
     ).catch(err => console.error('[Auditoria] Erro ao registrar atualização:', err.message));
 
   } catch (error: any) {
+    if (error instanceof HospedeRecusado) {
+      return res.status(error.status).json({ sucesso: false, codigo: 'HSP_001', mensagem: error.message });
+    }
     if (error.code === 'VERSION_CONFLICT') {
       return res.status(409).json({
         sucesso: false,
@@ -485,7 +533,7 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
-    const recusa = recusaDeTransicao(reservaAntes, status);
+    const recusa = recusaDeTransicao(reservaAntes, status, documentoValido(reservaAntes.documento));
     if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
 
     const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;

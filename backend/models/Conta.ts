@@ -14,7 +14,7 @@
 import { pool } from '../db/index.js';
 import { temAssinaturaViva } from '../utils/assinatura.js';
 
-/** Valor gravado na coluna `cpf` (NOT NULL) quando o hóspede é anonimizado. */
+/** Marcador gravado na coluna legada `cpf` da reserva quando o hóspede é anonimizado. */
 export const CPF_ANONIMIZADO = 'anonimizado';
 export const NOME_ANONIMIZADO = 'Hóspede anonimizado';
 
@@ -134,6 +134,8 @@ export async function excluirPousada(pousadaId: number, confirmacaoNome: string)
       [pousadaId],
     );
     await cliente.query(`DELETE FROM reservas WHERE pousada_id = $1`, [pousadaId]);
+    await cliente.query(`DELETE FROM auditoria WHERE entity = 'hospede' AND entity_id IN (SELECT id FROM hospedes WHERE pousada_id = $1)`, [pousadaId]);
+    await cliente.query(`DELETE FROM hospedes WHERE pousada_id = $1`, [pousadaId]);
     await cliente.query(`DELETE FROM staff_invites WHERE pousada_id = $1`, [pousadaId]);
     await cliente.query(`DELETE FROM user_pousadas WHERE pousada_id = $1`, [pousadaId]);
     // Quem tinha esta pousada como padrão passa a não ter nenhuma (o app manda
@@ -163,6 +165,11 @@ export async function excluirPousada(pousadaId: number, confirmacaoNome: string)
  * Anonimiza hóspedes de estadias encerradas há mais de N meses, conforme a
  * configuração de cada pousada (`configuracoes.retencao_hospedes_meses`).
  * Pousada sem configuração não é tocada. Devolve quantas reservas mudaram.
+ *
+ * A reserva antiga perde o nome, o documento legado e o vínculo com o
+ * cadastro (a estadia deixa de constar no histórico da pessoa). O cadastro
+ * do hóspede só é anonimizado quando nenhuma estadia dele está dentro do
+ * prazo — quem voltou recentemente continua com a ficha.
  */
 export async function anonimizarHospedesAntigos(): Promise<number> {
   const cliente = await pool.connect();
@@ -170,16 +177,39 @@ export async function anonimizarHospedesAntigos(): Promise<number> {
     await cliente.query('BEGIN');
     const { rows } = await cliente.query<{ id: number }>(
       `UPDATE reservas r
-          SET nome = $1, cpf = $2, cpf_hash = NULL, observacoes = NULL, updated_at = now()
+          SET nome = $1, cpf = $2, cpf_hash = NULL, hospede_id = NULL, observacoes = NULL, updated_at = now()
          FROM pousadas p
         WHERE p.id = r.pousada_id
           AND (p.configuracoes->>'retencao_hospedes_meses') ~ '^[0-9]+$'
           AND (p.configuracoes->>'retencao_hospedes_meses')::int > 0
           AND r.data_saida < (current_date - make_interval(months => (p.configuracoes->>'retencao_hospedes_meses')::int))
-          AND r.cpf <> $2
+          AND r.cpf IS DISTINCT FROM $2
       RETURNING r.id`,
       [NOME_ANONIMIZADO, CPF_ANONIMIZADO],
     );
+    // Cadastros sem nenhuma estadia dentro do prazo (e criados antes dele).
+    const { rows: fichas } = await cliente.query<{ id: number }>(
+      `UPDATE hospedes h
+          SET nome = $1, documento = NULL, documento_hash = NULL, telefone = NULL, email = NULL,
+              nacionalidade = NULL, data_nascimento = NULL, observacoes = NULL,
+              anonimizado_em = now(), updated_at = now()
+         FROM pousadas p
+        WHERE p.id = h.pousada_id
+          AND h.anonimizado_em IS NULL
+          AND (p.configuracoes->>'retencao_hospedes_meses') ~ '^[0-9]+$'
+          AND (p.configuracoes->>'retencao_hospedes_meses')::int > 0
+          AND h.created_at < (current_date - make_interval(months => (p.configuracoes->>'retencao_hospedes_meses')::int))
+          AND NOT EXISTS (SELECT 1 FROM reservas r WHERE r.hospede_id = h.id)
+      RETURNING h.id`,
+      [NOME_ANONIMIZADO],
+    );
+    if (fichas.length > 0) {
+      await cliente.query(
+        `UPDATE auditoria SET details = '{"anonimizado":true}'::jsonb
+          WHERE entity = 'hospede' AND entity_id = ANY($1::int[])`,
+        [fichas.map((f) => f.id)],
+      );
+    }
     if (rows.length > 0) {
       // O histórico de alterações guardava nome e observações em `details`.
       await cliente.query(

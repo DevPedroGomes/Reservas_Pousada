@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Pagination } from "../pagination"
 import { formatarData, formatarValor, getStatusBadgeVariant, getStatusLabel } from "../../lib/formatters"
 import { acaoPrincipal, hojeNaPousada, ROTULO_ACAO, type StatusReserva } from "../../lib/status"
+import { formatarTelefone } from "../../lib/hospedes"
 import type { Reserva, PaginationMeta } from "../../lib/types"
 
 interface ReservationTableProps {
@@ -43,7 +44,7 @@ export function ReservationTable({
             <TableRow className="bg-muted/30">
               <TableHead>ID</TableHead>
               <TableHead>Hospede</TableHead>
-              <TableHead>CPF</TableHead>
+              <TableHead>Documento</TableHead>
               <TableHead>Quarto</TableHead>
               <TableHead>Entrada</TableHead>
               <TableHead>Saida</TableHead>
@@ -73,8 +74,11 @@ export function ReservationTable({
               reservas.map((reserva) => (
                 <TableRow key={reserva.id}>
                   <TableCell className="font-medium text-muted-foreground">#{reserva.id}</TableCell>
-                  <TableCell className="font-medium">{reserva.nome}</TableCell>
-                  <TableCell className="text-muted-foreground">{reserva.cpf}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{reserva.nome}</div>
+                    {reserva.telefone && <div className="text-xs text-muted-foreground">{formatarTelefone(reserva.telefone)}</div>}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{reserva.documento || <span className="text-amber-700 text-xs">pendente</span>}</TableCell>
                   <TableCell>{reserva.quarto}</TableCell>
                   <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>

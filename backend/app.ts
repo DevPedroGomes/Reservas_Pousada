@@ -12,6 +12,7 @@ import adminRoutes from './routes/admin.js';
 import telemetriaRoutes from './routes/telemetria.js';
 import contaRoutes from './routes/conta.js';
 import quartoRoutes from './routes/quartos.js';
+import hospedeRoutes from './routes/hospedes.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -210,6 +211,7 @@ const userLimiter = criarLimitador('usuario', {
 app.use('/api/telemetria', telemetriaRoutes);
 app.use('/api/convites', conviteRoutes);
 app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, reservaRoutes);
+app.use('/api/hospedes', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, hospedeRoutes);
 app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 // Sem requerAssinaturaAtiva: cadastro de quartos é configuração.
 app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoutes);

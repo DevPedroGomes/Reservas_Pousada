@@ -213,4 +213,34 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     );
     assert.equal(resultados.filter((r) => r === 'gravou').length, 1);
   });
+
+  it('hóspedes: a 018 é idempotente e transforma reservas antigas em cadastro (um por CPF)', async () => {
+    await pool.query(`INSERT INTO pousadas (id, nome, slug, num_quartos) VALUES (2, 'Migra', 'migra', 5) ON CONFLICT (id) DO NOTHING`);
+    await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, cpf_hash, quarto, data_entrada, data_saida, status, created_at) VALUES
+        (2, 'Ana Antiga', 'cifra-1', 'hash-ana', 1, '2025-01-01', '2025-01-03', 'finalizada', '2025-01-01'),
+        (2, 'Ana Nova',   'cifra-2', 'hash-ana', 2, '2025-06-01', '2025-06-03', 'finalizada', '2025-06-01'),
+        (2, 'Bruno',      'cifra-3', 'hash-bruno', 3, '2025-02-01', '2025-02-03', 'finalizada', '2025-02-01'),
+        (2, 'Anônimo',    'anonimizado', NULL, 4, '2020-02-01', '2020-02-03', 'finalizada', '2020-02-01')`);
+    await pool.query(readFileSync(join(MIGRATIONS, '018_hospedes.sql'), 'utf8'));
+    const { rows: hs } = await pool.query(`SELECT nome, documento, documento_hash FROM hospedes WHERE pousada_id = 2 ORDER BY nome`);
+    assert.deepEqual(hs.map((h) => h.nome), ['Ana Nova', 'Bruno'], 'um cadastro por CPF, com o nome mais recente');
+    assert.ok(['cifra-1', 'cifra-2'].includes(hs[0].documento), 'ciphertext copiado como está');
+    const { rows: rs } = await pool.query(`SELECT nome, cpf, cpf_hash, hospede_id FROM reservas WHERE pousada_id = 2 ORDER BY quarto`);
+    assert.equal(rs[0].hospede_id, rs[1].hospede_id, 'as duas reservas da Ana apontam para o mesmo cadastro');
+    assert.ok(rs.slice(0, 3).every((r) => r.hospede_id && r.cpf === null && r.cpf_hash === null), 'documento sai da reserva');
+    assert.equal(rs[3].hospede_id, null, 'anonimizado não vira cadastro');
+    await pool.query(readFileSync(join(MIGRATIONS, '018_hospedes.sql'), 'utf8'));
+    assert.equal((await pool.query(`SELECT 1 FROM hospedes WHERE pousada_id = 2`)).rowCount, 2, 'rodar de novo não duplica');
+  });
+
+  it('hóspedes: documento repetido na mesma pousada é barrado pelo banco', async () => {
+    await pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (1, 'Um', 'hash-unico')`);
+    await assert.rejects(
+      pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (1, 'Dois', 'hash-unico')`),
+      (e: { code?: string }) => e.code === '23505',
+    );
+    // Em outra pousada, o mesmo documento é outro cadastro.
+    await pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (2, 'Um', 'hash-unico')`);
+  });
 });

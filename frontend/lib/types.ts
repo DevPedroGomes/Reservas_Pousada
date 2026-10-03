@@ -1,4 +1,5 @@
 import type { StatusReserva } from "./status"
+import type { TipoDocumento } from "./hospedes"
 
 /**
  * Tipos compartilhados da aplicacao
@@ -104,7 +105,18 @@ export interface UserPousada {
 export interface Reserva {
   id?: number
   nome: string
-  cpf: string
+  /** Legado: o documento agora é `documento` + `tipo_documento`. */
+  cpf?: string
+  hospede_id?: number | null
+  tipo_documento?: TipoDocumento
+  /** Completo para quem opera; mascarado para auditoria. */
+  documento?: string
+  telefone?: string
+  email?: string
+  nacionalidade?: string
+  adultos?: number
+  criancas?: number
+  canal?: string
   quarto: number | string
   data_entrada: string
   data_saida: string
@@ -125,6 +137,36 @@ export interface Reserva {
   /** Só no formulário: prazo da pré-reserva e motivo do cancelamento enviados à API. */
   prazo_horas?: number
   motivo?: string
+}
+
+export interface Hospede {
+  id: number
+  nome: string
+  tipo_documento: TipoDocumento
+  documento: string
+  nacionalidade: string
+  telefone: string
+  email: string
+  data_nascimento: string
+  observacoes: string
+  anonimizado: boolean
+  /** Só na listagem. */
+  estadias?: number
+  ultima_estadia?: string | null
+  total_gasto?: number
+}
+
+export interface EstadiaDoHospede {
+  id: number
+  quarto: number
+  data_entrada: string
+  data_saida: string
+  status: StatusReserva
+  valor: string | number | null
+  pago: boolean
+  canal: string
+  adultos: number
+  criancas: number
 }
 
 export interface Auditoria {
@@ -198,7 +240,12 @@ export type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoe
 
 export const initialReservaForm: Reserva = {
   nome: "",
-  cpf: "",
+  tipo_documento: "cpf",
+  documento: "",
+  telefone: "",
+  adultos: 1,
+  criancas: 0,
+  canal: "direto",
   quarto: 1,
   data_entrada: "",
   data_saida: "",

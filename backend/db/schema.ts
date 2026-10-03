@@ -103,12 +103,35 @@ export const quartos = pgTable('quartos', {
   numeroIdx: uniqueIndex('uq_quarto_numero').on(table.pousadaId, table.numero),
 }));
 
+// Hóspede como cadastro (migration 018). Documento cifrado + hash de busca.
+export const hospedes = pgTable('hospedes', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  nome: text('nome').notNull(),
+  tipoDocumento: text('tipo_documento').notNull().default('cpf'),
+  documento: text('documento'),
+  documentoHash: text('documento_hash'),
+  nacionalidade: text('nacionalidade'),
+  telefone: text('telefone'),
+  email: text('email'),
+  dataNascimento: date('data_nascimento'),
+  observacoes: text('observacoes'),
+  anonimizadoEm: timestamp('anonimizado_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const reservas = pgTable('reservas', {
   id: serial('id').primaryKey(),
   pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
   nome: text('nome').notNull(),
-  cpf: text('cpf').notNull(),
+  // Legado: o documento mora em `hospedes` (migration 018).
+  cpf: text('cpf'),
   cpfHash: text('cpf_hash'),
+  hospedeId: integer('hospede_id').references(() => hospedes.id),
+  adultos: integer('adultos').notNull().default(1),
+  criancas: integer('criancas').notNull().default(0),
+  canal: text('canal').notNull().default('direto'),
   quarto: integer('quarto').notNull(),
   dataEntrada: date('data_entrada').notNull(),
   dataSaida: date('data_saida').notNull(),
@@ -317,6 +340,8 @@ export type UserPousada = typeof userPousadas.$inferSelect;
 export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
 export type Quarto = typeof quartos.$inferSelect;
+export type Hospede = typeof hospedes.$inferSelect;
+export type NewHospede = typeof hospedes.$inferInsert;
 export type Assinatura = typeof assinaturas.$inferSelect;
 export type FinanceiroLancamento = typeof financeiroLancamentos.$inferSelect;
 export type NewAssinatura = typeof assinaturas.$inferInsert;

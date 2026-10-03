@@ -305,6 +305,126 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('hóspedes', () => {
+    const hoje = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const amanha = () => new Date(Date.now() + 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    let estrangeiro: number;
+
+    it('estrangeiro com passaporte, nome com letras não latinas, nº de hóspedes e canal', async () => {
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Łukasz Nowak', tipo_documento: 'passaporte', documento: 'ab 123456', telefone: '+48 600 100 200',
+        nacionalidade: 'Polônia', email: 'Lukasz@Example.com', quarto: 8, data_entrada: d(80), data_saida: d(83),
+        adultos: 2, criancas: 1, canal: 'booking',
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      const res = r.json.reserva;
+      assert.equal(res.nome, 'Łukasz Nowak');
+      assert.equal(res.tipoDocumento, 'passaporte');
+      assert.equal(res.documento, 'AB123456');
+      assert.equal(res.cpf, '', 'passaporte não aparece como CPF');
+      assert.equal(res.telefone, '48600100200', 'com +, o DDI é o do país (não DDD 48)');
+      assert.equal(res.email, 'lukasz@example.com');
+      assert.deepEqual([res.adultos, res.criancas, res.canal], [2, 1, 'booking']);
+      assert.ok(res.hospedeId);
+      estrangeiro = res.hospedeId;
+      const { rows } = await pool.query(`SELECT documento, documento_hash FROM hospedes WHERE id = $1`, [estrangeiro]);
+      assert.ok(!rows[0].documento.includes('AB123456'), 'documento cifrado no banco');
+    });
+
+    it('mesmo CPF em outra reserva reaproveita o cadastro e soma no histórico', async () => {
+      const det = await donoA.req('GET', `/api/reservas/${reservaA}`);
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Hóspede da A', cpf: CPF, telefone: '48988887777', quarto: 9, data_entrada: d(90), data_saida: d(92),
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.equal(r.json.reserva.hospedeId, det.json.reserva.hospedeId);
+      const lista = await recep.req('GET', `/api/hospedes?busca=${CPF}`);
+      assert.equal(lista.json.total, 1);
+      // O resumo bate com as reservas dele (o CPF aparece em vários testes acima).
+      const { rows: [esperado] } = await pool.query(
+        `SELECT count(*)::int AS n, max(data_entrada)::text AS ultima, COALESCE(sum(valor), 0)::float AS total
+           FROM reservas WHERE hospede_id = $1 AND deleted_at IS NULL AND status NOT IN ('cancelada', 'no_show')`,
+        [r.json.reserva.hospedeId],
+      );
+      assert.ok(esperado.n >= 2);
+      assert.deepEqual(
+        [lista.json.hospedes[0].estadias, lista.json.hospedes[0].ultimaEstadia, lista.json.hospedes[0].totalGasto],
+        [esperado.n, esperado.ultima, esperado.total],
+      );
+      assert.equal(lista.json.hospedes[0].telefone, '5548988887777', 'contato novo completa o cadastro, com DDI');
+      assert.match(lista.json.hospedes[0].documento, /^\*\*\*/, 'lista sempre mascarada');
+      const porTelefone = await recep.req('GET', '/api/hospedes?busca=88887777');
+      assert.equal(porTelefone.json.hospedes[0].nome, 'Hóspede da A');
+    });
+
+    it('reserva só com WhatsApp é aceita, mas o check-in pede o documento', async () => {
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Cliente do Zap', telefone: '48977776666', quarto: 9, data_entrada: hoje(), data_saida: amanha(),
+        canal: 'whatsapp',
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      const id = r.json.reserva.id;
+      const sem = await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'hospedada' });
+      assert.equal(sem.status, 409);
+      assert.match(sem.json.mensagem, /documento/);
+      // Completa o documento pela edição e faz o check-in no mesmo passo.
+      const det = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+      const ed = await recep.req('PUT', `/api/reservas/${id}`, {
+        nome: det.nome, telefone: det.telefone, cpf: '39053344705', quarto: det.quarto,
+        data_entrada: det.dataEntrada, data_saida: det.dataSaida, status: 'hospedada', version: det.version,
+      });
+      assert.equal(ed.status, 200, JSON.stringify(ed.json));
+      assert.equal((await recep.req('GET', `/api/reservas/${id}`)).json.reserva.status, 'hospedada');
+    });
+
+    it('sem documento nem telefone, recusa', async () => {
+      const r = await recep.req('POST', '/api/reservas', { nome: 'Fantasma', quarto: 10, data_entrada: d(95), data_saida: d(96) });
+      assert.equal(r.status, 400);
+      assert.ok(r.json.erros.some((e: string) => /documento ou o telefone/.test(e)));
+    });
+
+    it('ficha: documento completo para a recepção, mascarado para auditoria, histórico junto', async () => {
+      const r = await recep.req('GET', `/api/hospedes/${estrangeiro}`);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.hospede.documento, 'AB123456');
+      assert.equal(r.json.historico.length, 1);
+      const daLista = (await recep.req('GET', '/api/hospedes?busca=Nowak')).json.hospedes[0];
+      assert.deepEqual([daLista.estadias, daLista.ultimaEstadia], [1, d(80)]);
+      // A auditora do começo foi removida da equipe num teste anterior.
+      const aud2 = await convidarEAceitar(donoA, pousadaA, 'aud2@teste.com', 'Auditora Dois', 'auditoria');
+      const a = await aud2.req('GET', `/api/hospedes/${estrangeiro}`);
+      assert.equal(a.json.hospede.documento, '•••••456');
+      assert.equal((await aud2.req('PUT', `/api/hospedes/${estrangeiro}`, { nome: 'X' })).status, 403);
+    });
+
+    it('editar o nome no cadastro vale nas reservas; documento de outro é recusado', async () => {
+      const ok = await recep.req('PUT', `/api/hospedes/${estrangeiro}`, { nome: 'Łukasz Nowak Jr' });
+      assert.equal(ok.status, 200, JSON.stringify(ok.json));
+      const { rows } = await pool.query(`SELECT nome FROM reservas WHERE hospede_id = $1`, [estrangeiro]);
+      assert.equal(rows[0].nome, 'Łukasz Nowak Jr');
+      const dup = await recep.req('PUT', `/api/hospedes/${estrangeiro}`, { tipo_documento: 'cpf', documento: CPF });
+      assert.equal(dup.status, 409);
+    });
+
+    it('outra pousada não vê nem encontra o hóspede', async () => {
+      assert.equal((await donoB.req('GET', `/api/hospedes/${estrangeiro}`)).status, 404);
+      assert.equal((await donoB.req('GET', `/api/hospedes?busca=${CPF}`)).json.total, 0);
+      assert.equal((await donoB.req('PUT', `/api/hospedes/${estrangeiro}`, { nome: 'Invasor' })).status, 404);
+      // Nem usando o id do hóspede da A numa reserva da B.
+      const r = await donoB.req('POST', '/api/reservas', {
+        nome: 'Tentativa', hospede_id: estrangeiro, quarto: 1, data_entrada: d(30), data_saida: d(31),
+      });
+      assert.equal(r.status, 404);
+    });
+
+    it('CSV traz documento, contato, nº de hóspedes e canal', async () => {
+      const r = await donoA.req('GET', '/api/reservas/export');
+      assert.equal(r.status, 200);
+      const [cabecalho] = String(r.json).replace(/^\uFEFF/, '').split('\r\n');
+      for (const col of ['documento', 'telefone', 'adultos', 'criancas', 'canal']) assert.ok(cabecalho.includes(col), col);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

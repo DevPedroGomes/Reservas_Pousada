@@ -1,8 +1,8 @@
 import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, inArray, SQL } from 'drizzle-orm';
-import { db, reservas, user } from '../db/index.js';
+import { db, hospedes, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
-import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
-import { mascararCpf } from '../utils/pii.js';
+import { decryptCpf, hashCpf, hashDocumento, normalizarDocumento } from '../utils/crypto.js';
+import { mascararDocumento } from '../utils/pii.js';
 import { CPF_ANONIMIZADO } from './Conta.js';
 import { STATUS_QUE_OCUPAM } from '../utils/status.js';
 
@@ -54,8 +54,19 @@ interface ListarOptions {
   pousada_id: number;
 }
 
-interface ReservaComCriador extends Reserva {
+/**
+ * Reserva como sai do model: com o hóspede (documento decifrado, contato) e o
+ * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
+ * é o documento quando ele é CPF, senão vazio.
+ */
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash'> {
   criadoPorNome?: string | null;
+  documento: string;
+  tipoDocumento: string;
+  cpf: string;
+  telefone: string | null;
+  email: string | null;
+  nacionalidade: string | null;
 }
 
 /**
@@ -89,8 +100,16 @@ const CAMPOS_RESERVA = {
   id: reservas.id,
   pousadaId: reservas.pousadaId,
   nome: reservas.nome,
-  cpf: reservas.cpf,
-  cpfHash: reservas.cpfHash,
+  hospedeId: reservas.hospedeId,
+  // Documento do cadastro do hóspede; reserva antiga sem cadastro cai na coluna legada.
+  documentoCifrado: sql<string | null>`COALESCE(${hospedes.documento}, ${reservas.cpf})`,
+  tipoDocumento: sql<string>`COALESCE(${hospedes.tipoDocumento}, 'cpf')`,
+  telefone: hospedes.telefone,
+  email: hospedes.email,
+  nacionalidade: hospedes.nacionalidade,
+  adultos: reservas.adultos,
+  criancas: reservas.criancas,
+  canal: reservas.canal,
   quarto: reservas.quarto,
   dataEntrada: reservas.dataEntrada,
   dataSaida: reservas.dataSaida,
@@ -111,51 +130,45 @@ const CAMPOS_RESERVA = {
   criadoPorNome: user.name,
 };
 
+/** SELECT padrão: reserva + hóspede + quem criou. */
+function selecionarReservas() {
+  return db
+    .select(CAMPOS_RESERVA)
+    .from(reservas)
+    .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))
+    .leftJoin(user, eq(reservas.criadoPor, user.id));
+}
+
+type LinhaReserva = Awaited<ReturnType<typeof selecionarReservas>>[number];
+
 export class ReservaModel {
   /**
-   * Decrypt CPF in a reservation result (gracefully handles unencrypted CPFs)
+   * Decifra o documento da linha lida com CAMPOS_RESERVA. Falha de decifra
+   * aparece na tela e no log, sem derrubar a listagem por causa de uma linha.
    */
-  private static decryptResult<T extends { cpf: string }>(result: T): T {
-    // Hóspede anonimizado pela política de retenção: não há CPF a decifrar.
-    if (result.cpf === CPF_ANONIMIZADO) return { ...result, cpf: '' };
-    try {
-      return { ...result, cpf: decryptCpf(result.cpf) };
-    } catch (err) {
-      // Antes isto devolvia o ciphertext como se fosse o CPF e ninguém ficava
-      // sabendo. Agora falha de forma visível (na tela e no log) sem derrubar a
-      // listagem inteira por causa de uma linha ruim.
-      console.error(
-        `[Reserva] Falha ao decifrar CPF (id=${(result as { id?: number }).id ?? '?'}):`,
-        err instanceof Error ? err.message : err,
-      );
-      return { ...result, cpf: '[CPF ilegível — verifique CPF_ENCRYPTION_KEY]' };
+  private static decifrar(linha: LinhaReserva): ReservaComCriador {
+    const { documentoCifrado, ...resto } = linha;
+    let documento = '';
+    // Hóspede anonimizado pela política de retenção: não há documento a decifrar.
+    if (documentoCifrado && documentoCifrado !== CPF_ANONIMIZADO) {
+      try {
+        documento = decryptCpf(documentoCifrado);
+      } catch (err) {
+        console.error(
+          `[Reserva] Falha ao decifrar documento (id=${linha.id}):`,
+          err instanceof Error ? err.message : err,
+        );
+        documento = '[documento ilegível — verifique CPF_ENCRYPTION_KEY]';
+      }
     }
+    return { ...resto, documento, cpf: resto.tipoDocumento === 'cpf' ? documento : '' };
   }
 
-  private static decryptResults<T extends { cpf: string }>(results: T[]): T[] {
-    return results.map(r => this.decryptResult(r));
-  }
-
-  /**
-   * Forma pública da reserva: sem `cpfHash` (detalhe interno de busca, não
-   * precisa sair da API) e, quando `mascarar`, com o CPF mascarado.
-   */
-  static paraApi<T extends { cpf: string; cpfHash?: string | null }>(r: T, mascarar: boolean): Omit<T, 'cpfHash'> {
-    const { cpfHash: _cpfHash, ...resto } = r;
-    return mascarar ? { ...resto, cpf: mascararCpf(resto.cpf) } : resto;
-  }
-
-  /**
-   * Cifra o CPF e gera o hash de busca.
-   *
-   * Deliberadamente sem try/catch: se a chave não estiver configurada, isto
-   * LANÇA. Antes, o catch devolvia null e o insert seguia gravando o CPF em
-   * TEXTO PURO, em silêncio. O boot também valida a chave (assertCpfCrypto-
-   * Configurada), então este caminho só é alcançável se a chave for removida
-   * com o processo já no ar.
-   */
-  private static encryptCpfData(cpf: string): { cpf: string; cpfHash: string } {
-    return { cpf: encryptCpf(cpf), cpfHash: hashCpf(cpf) };
+  /** Forma pública da reserva; com `mascarar`, documento e CPF mascarados. */
+  static paraApi(r: ReservaComCriador, mascarar: boolean): ReservaComCriador {
+    if (!mascarar) return r;
+    const documento = mascararDocumento(r.documento, r.tipoDocumento);
+    return { ...r, documento, cpf: r.tipoDocumento === 'cpf' ? documento : '' };
   }
 
   /**
@@ -195,15 +208,21 @@ export class ReservaModel {
       const searchPattern = `%${search}%`;
       const searchDigits = search.replace(/[^\d]/g, '');
 
-      // CPF só é pesquisável por igualdade exata, via HMAC. Busca parcial é
-      // impossível por construção — a coluna guarda ciphertext, e o `ilike`
-      // que existia aqui nunca casava com nada (falhava em silêncio).
+      // Documento só é pesquisável por igualdade exata, via HMAC. Busca parcial
+      // é impossível por construção — a coluna guarda ciphertext.
       const alvos = [
         ilike(reservas.nome, searchPattern),
         sql`${reservas.quarto}::text = ${search}`,
       ];
+      if (searchDigits.length >= 4) {
+        alvos.push(sql`${hospedes.telefone} LIKE ${'%' + searchDigits + '%'}`);
+      }
       if (searchDigits.length === 11) {
-        alvos.push(eq(reservas.cpfHash, hashCpf(searchDigits)));
+        alvos.push(eq(hospedes.documentoHash, hashCpf(searchDigits)), eq(reservas.cpfHash, hashCpf(searchDigits)));
+      }
+      const alfanum = normalizarDocumento('outro', search);
+      if (alfanum.length >= 5 && /[A-Z]/.test(alfanum)) {
+        alvos.push(eq(hospedes.documentoHash, hashDocumento('passaporte', alfanum)));
       }
 
       conditions.push(or(...alvos)!);
@@ -213,20 +232,17 @@ export class ReservaModel {
     const [countResult] = await db
       .select({ count: count() })
       .from(reservas)
+      .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))
       .where(and(...conditions));
 
-    // Get data with creator name
-    const data = await db
-      .select(CAMPOS_RESERVA)
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const data = await selecionarReservas()
       .where(and(...conditions))
       .orderBy(reservas.dataEntrada)
       .limit(limit)
       .offset(offset);
 
     return {
-      data: this.decryptResults(data).map((r) => this.paraApi(r, !cpfCompleto)) as ReservaComCriador[],
+      data: data.map((r) => this.paraApi(this.decifrar(r), !cpfCompleto)),
       count: countResult?.count || 0,
     };
   }
@@ -235,28 +251,22 @@ export class ReservaModel {
    * Find reservation by ID
    */
   static async buscarPorId(id: number): Promise<ReservaComCriador | null> {
-    const [result] = await db
-      .select(CAMPOS_RESERVA)
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const [result] = await selecionarReservas()
       .where(and(eq(reservas.id, id), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result ? this.decryptResult(result) : null;
+    return result ? this.decifrar(result) : null;
   }
 
   /**
    * Find reservation by ID and pousada (ensures tenant isolation)
    */
   static async buscarPorIdEPousada(id: number, pousadaId: number): Promise<ReservaComCriador | null> {
-    const [result] = await db
-      .select(CAMPOS_RESERVA)
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const [result] = await selecionarReservas()
       .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result ? this.decryptResult(result) : null;
+    return result ? this.decifrar(result) : null;
   }
 
   /**
@@ -311,17 +321,15 @@ export class ReservaModel {
   }
 
   /**
-   * Create a new reservation (with idempotency guard + CPF encryption)
+   * Cria a reserva (o hóspede já resolvido em `hospedeId`).
    */
-  static async criar(reserva: NewReserva): Promise<Reserva> {
-    const cpfData = this.encryptCpfData(reserva.cpf);
-
-    // Idempotency guard: prevent duplicate from double-clicks (same cpf+quarto+dates within 30s)
+  static async criar(reserva: NewReserva & { hospedeId: number }): Promise<ReservaComCriador> {
+    // Duplo clique: mesmo hóspede, quarto e datas nos últimos 30s devolve a existente.
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
       .where(and(
-        eq(reservas.cpfHash, cpfData.cpfHash),
+        eq(reservas.hospedeId, reserva.hospedeId),
         eq(reservas.quarto, reserva.quarto),
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
@@ -352,10 +360,10 @@ export class ReservaModel {
     try {
       const [created] = await db
         .insert(reservas)
-        .values({ ...reserva, cpf: cpfData.cpf, cpfHash: cpfData.cpfHash })
-        .returning();
+        .values({ ...reserva, cpf: null, cpfHash: null })
+        .returning({ id: reservas.id });
 
-      return this.decryptResult(created);
+      return (await this.buscarPorId(created.id))!;
     } catch (err) {
       // Duas requisições simultâneas podem passar as duas pela checagem acima.
       // Quem perde a corrida esbarra na constraint EXCLUDE e cai aqui — que é
@@ -394,12 +402,11 @@ export class ReservaModel {
       }
     }
 
-    // Encrypt CPF if it's being updated
+    // O documento mora no hóspede: trocar de hóspede limpa a coluna legada.
     const updateData: Record<string, unknown> = { ...reserva };
-    if (reserva.cpf) {
-      const cpfData = this.encryptCpfData(reserva.cpf);
-      updateData.cpf = cpfData.cpf;
-      updateData.cpfHash = cpfData.cpfHash;
+    if (reserva.hospedeId) {
+      updateData.cpf = null;
+      updateData.cpfHash = null;
     }
 
     const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];

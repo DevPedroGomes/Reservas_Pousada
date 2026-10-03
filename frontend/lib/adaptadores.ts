@@ -9,17 +9,34 @@
  *
  * Aceita os dois formatos para não quebrar se um endpoint já vier em snake_case.
  */
-import type { Agenda, Auditoria, ItemAgenda, MembroEquipe, Pousada, Reserva } from "./types"
+import type { Agenda, Auditoria, EstadiaDoHospede, Hospede, ItemAgenda, MembroEquipe, Pousada, Reserva } from "./types"
+import type { TipoDocumento } from "./hospedes"
 
 type Bruto = Record<string, unknown>
 
 const texto = (v: unknown): string => (v === null || v === undefined ? "" : String(v))
+
+/** A API guarda o telefone com DDI, só dígitos; aqui ganha o "+" para não confundir DDI com DDD. */
+const telefoneDaApi = (v: unknown): string => {
+  const t = texto(v)
+  return t && !t.startsWith("+") ? `+${t}` : t
+}
 
 export function reservaDaApi(r: Bruto): Reserva {
   return {
     id: r.id as number | undefined,
     nome: texto(r.nome),
     cpf: texto(r.cpf),
+    hospede_id: (r.hospede_id ?? r.hospedeId ?? null) as number | null,
+    tipo_documento: ((r.tipo_documento ?? r.tipoDocumento) as TipoDocumento | undefined) ?? "cpf",
+    // Reserva antiga ou payload legado: só `cpf`.
+    documento: texto(r.documento ?? r.cpf),
+    telefone: telefoneDaApi(r.telefone),
+    email: texto(r.email),
+    nacionalidade: texto(r.nacionalidade),
+    adultos: Number(r.adultos ?? 1),
+    criancas: Number(r.criancas ?? 0),
+    canal: texto(r.canal) || "direto",
     quarto: (r.quarto as number) ?? "",
     data_entrada: texto(r.data_entrada ?? r.dataEntrada),
     data_saida: texto(r.data_saida ?? r.dataSaida),
@@ -108,5 +125,38 @@ export function agendaDaApi(a: Bruto): Agenda {
     saidas: lista("saidas"),
     hospedados: lista("hospedados"),
     proximas: lista("proximas"),
+  }
+}
+
+export function hospedeDaApi(h: Bruto): Hospede {
+  return {
+    id: h.id as number,
+    nome: texto(h.nome),
+    tipo_documento: ((h.tipo_documento ?? h.tipoDocumento) as TipoDocumento | undefined) ?? "cpf",
+    documento: texto(h.documento),
+    nacionalidade: texto(h.nacionalidade),
+    telefone: telefoneDaApi(h.telefone),
+    email: texto(h.email),
+    data_nascimento: texto(h.data_nascimento ?? h.dataNascimento),
+    observacoes: texto(h.observacoes),
+    anonimizado: Boolean(h.anonimizado),
+    estadias: h.estadias as number | undefined,
+    ultima_estadia: (h.ultima_estadia ?? h.ultimaEstadia ?? null) as string | null,
+    total_gasto: (h.total_gasto ?? h.totalGasto) as number | undefined,
+  }
+}
+
+export function estadiaDaApi(e: Bruto): EstadiaDoHospede {
+  return {
+    id: e.id as number,
+    quarto: e.quarto as number,
+    data_entrada: texto(e.data_entrada ?? e.dataEntrada),
+    data_saida: texto(e.data_saida ?? e.dataSaida),
+    status: e.status as EstadiaDoHospede["status"],
+    valor: (e.valor as EstadiaDoHospede["valor"]) ?? null,
+    pago: Boolean(e.pago),
+    canal: texto(e.canal),
+    adultos: Number(e.adultos ?? 1),
+    criancas: Number(e.criancas ?? 0),
   }
 }

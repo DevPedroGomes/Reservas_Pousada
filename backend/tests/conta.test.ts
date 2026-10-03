@@ -36,6 +36,11 @@ describe('LGPD — exportar, excluir e reter', { skip: !temBanco && 'DATABASE_UR
         (11, 1, 'Hóspede Recente', 'cifrado', 'hash', 2, current_date - 10, current_date - 8, 'nada', 'recep');
       INSERT INTO auditoria (user_id, action, entity, entity_id, details) VALUES
         ('recep', 'criar', 'reserva', 10, '{"depois":{"nome":"Hóspede Antigo"}}');
+      INSERT INTO hospedes (id, pousada_id, nome, documento, documento_hash, telefone, created_at) VALUES
+        (1, 1, 'Hóspede Antigo', 'cifrado', 'h-antigo', '48911112222', '2024-01-01'),
+        (2, 1, 'Hóspede Recente', 'cifrado', 'h-recente', '48933334444', '2024-01-01');
+      UPDATE reservas SET hospede_id = 1 WHERE id = 10;
+      UPDATE reservas SET hospede_id = 2 WHERE id = 11;
       INSERT INTO financeiro_lancamentos (pousada_id, competencia, categoria, valor_centavos) VALUES
         (1, '2026-09', 'receita_assinatura', 14900);
     `);
@@ -62,6 +67,16 @@ describe('LGPD — exportar, excluir e reter', { skip: !temBanco && 'DATABASE_UR
     assert.equal(rows[1].nome, 'Hóspede Recente');
     const { rows: aud } = await pool.query(`SELECT details FROM auditoria WHERE entity_id = 10`);
     assert.deepEqual(aud[0].details, { anonimizado: true });
+    // A ficha de quem só tem estadia antiga também some; a de quem voltou fica.
+    const { rows: fichas } = await pool.query(`SELECT id, nome, documento, telefone, anonimizado_em FROM hospedes ORDER BY id`);
+    assert.equal(fichas[0].nome, Conta.NOME_ANONIMIZADO);
+    assert.equal(fichas[0].documento, null);
+    assert.equal(fichas[0].telefone, null);
+    assert.ok(fichas[0].anonimizado_em);
+    assert.equal(fichas[1].nome, 'Hóspede Recente');
+    assert.equal(fichas[1].telefone, '48933334444');
+    const { rows: [antiga] } = await pool.query(`SELECT hospede_id FROM reservas WHERE id = 10`);
+    assert.equal(antiga.hospede_id, null, 'estadia antiga sai do histórico da pessoa');
     assert.equal(await Conta.anonimizarHospedesAntigos(), 0, 'idempotente');
   });
 
@@ -91,6 +106,7 @@ describe('LGPD — exportar, excluir e reter', { skip: !temBanco && 'DATABASE_UR
   it('excluir pousada apaga hóspedes e vínculos, preserva o financeiro do SaaS', async () => {
     await Conta.excluirPousada(1, 'Pousada Sol');
     assert.equal((await pool.query(`SELECT 1 FROM reservas WHERE pousada_id = 1`)).rowCount, 0);
+    assert.equal((await pool.query(`SELECT 1 FROM hospedes WHERE pousada_id = 1`)).rowCount, 0);
     assert.equal((await pool.query(`SELECT 1 FROM user_pousadas WHERE pousada_id = 1`)).rowCount, 0);
     assert.equal((await pool.query(`SELECT 1 FROM auditoria WHERE entity = 'reserva'`)).rowCount, 0);
     const { rows: [p] } = await pool.query(`SELECT nome, excluida_em FROM pousadas WHERE id = 1`);

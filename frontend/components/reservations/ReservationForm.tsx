@@ -11,6 +11,8 @@ import { Select } from "../ui/select"
 import { Textarea } from "../ui/textarea"
 import { formatarDataHora, renderResumoAuditoria } from "../../lib/formatters"
 import type { Reserva, Auditoria, Quarto } from "../../lib/types"
+import { SecaoHospede } from "./SecaoHospede"
+import { CANAIS, formatarTelefone, mascaraCpf } from "../../lib/hospedes"
 import { proximosStatus, hojeNaPousada, ROTULO_STATUS, STATUS_INICIAIS, type StatusReserva } from "../../lib/status"
 
 /** Como cada status aparece na criação, onde o significado precisa ficar claro. */
@@ -33,7 +35,15 @@ interface ReservationFormProps {
 
 const emptyForm: Reserva = {
   nome: "",
-  cpf: "",
+  hospede_id: null,
+  tipo_documento: "cpf",
+  documento: "",
+  telefone: "",
+  email: "",
+  nacionalidade: "",
+  adultos: 1,
+  criancas: 0,
+  canal: "direto",
   quarto: 1,
   data_entrada: "",
   data_saida: "",
@@ -56,10 +66,10 @@ export function ReservationForm({
 
   // Reserva nova começa no primeiro quarto ativo (o quarto 1 pode não existir).
   useEffect(() => {
-    if (!initialData && quartos.length > 0) {
+    if (!isEditing && quartos.length > 0) {
       setForm((f) => (quartos.some((q) => q.numero === Number(f.quarto)) ? f : { ...f, quarto: quartos[0].numero }))
     }
-  }, [initialData, quartos])
+  }, [isEditing, quartos])
 
   useEffect(() => {
     if (initialData) {
@@ -68,6 +78,10 @@ export function ReservationForm({
         valor: initialData.valor ?? null,
         pago: Boolean(initialData.pago),
         observacoes: initialData.observacoes || "",
+        telefone: formatarTelefone(initialData.telefone),
+        documento: initialData.tipo_documento === "passaporte" || initialData.tipo_documento === "outro"
+          ? initialData.documento ?? ""
+          : mascaraCpf(initialData.documento ?? ""),
       })
     } else {
       setForm(emptyForm)
@@ -93,6 +107,8 @@ export function ReservationForm({
     ? [statusSalvo, ...proximosStatus(statusSalvo, initialData?.data_entrada ?? "", hojeNaPousada())]
     : [...STATUS_INICIAIS]
   const mudouStatus = form.status !== statusSalvo
+  const quartoEscolhido = quartos.find((q) => q.numero === Number(form.quarto))
+  const pessoas = (form.adultos ?? 1) + (form.criancas ?? 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -111,47 +127,13 @@ export function ReservationForm({
       <Card>
         <CardContent className="pt-5">
           <form className="space-y-5" onSubmit={handleSubmit}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="nome" className="text-xs">
-                  Nome do Hospede *
-                </Label>
-                <Input
-                  id="nome"
-                  value={form.nome}
-                  onChange={(e) => {
-                    const filtered = e.target.value.replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '').slice(0, 100);
-                    setForm((prev) => ({ ...prev, nome: filtered }));
-                  }}
-                  required
-                  className=""
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cpf" className="text-xs">
-                  CPF *
-                </Label>
-                <Input
-                  id="cpf"
-                  value={form.cpf}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
-                    let formatted = digits;
-                    if (digits.length > 9) {
-                      formatted = `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-                    } else if (digits.length > 6) {
-                      formatted = `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
-                    } else if (digits.length > 3) {
-                      formatted = `${digits.slice(0, 3)}.${digits.slice(3)}`;
-                    }
-                    setForm((prev) => ({ ...prev, cpf: formatted }));
-                  }}
-                  placeholder="000.000.000-00"
-                  required
-                  className=""
-                />
-              </div>
-            </div>
+            <SecaoHospede
+              form={form}
+              isEditing={isEditing}
+              onChange={(mudanca) => setForm((prev) => ({ ...prev, ...mudanca }))}
+            />
+
+            <div className="border-t border-border pt-4 text-sm font-semibold">Estadia</div>
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
@@ -201,6 +183,42 @@ export function ReservationForm({
                 />
               </div>
             </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="adultos" className="text-xs">Adultos</Label>
+                <Input
+                  id="adultos"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={form.adultos ?? 1}
+                  onChange={(e) => setForm((prev) => ({ ...prev, adultos: Number(e.target.value) }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="criancas" className="text-xs">Crianças</Label>
+                <Input
+                  id="criancas"
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={form.criancas ?? 0}
+                  onChange={(e) => setForm((prev) => ({ ...prev, criancas: Number(e.target.value) }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="canal" className="text-xs">Canal</Label>
+                <Select id="canal" value={form.canal ?? "direto"} onChange={handleChange("canal")}>
+                  {CANAIS.map((c) => <option key={c.valor} value={c.valor}>{c.rotulo}</option>)}
+                </Select>
+              </div>
+            </div>
+            {quartoEscolhido && pessoas > quartoEscolhido.capacidade && (
+              <p className="-mt-2 text-xs text-amber-700">
+                {quartoEscolhido.nome} comporta até {quartoEscolhido.capacidade} pessoa{quartoEscolhido.capacidade > 1 ? "s" : ""}; esta reserva tem {pessoas}.
+              </p>
+            )}
 
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">

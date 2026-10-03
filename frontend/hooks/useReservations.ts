@@ -254,10 +254,20 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     if (!isAuthenticated) return { sucesso: false, mensagem: "Nao autenticado" }
 
     const erros: string[] = []
-    const cpfNormalizado = normalizarCpf(form.cpf)
+    const tipo = form.tipo_documento ?? "cpf"
+    const documento = tipo === "cpf"
+      ? normalizarCpf(form.documento ?? "")
+      : (form.documento ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "")
+    // O "+" marca número estrangeiro (DDI); sem ele, o servidor entende como brasileiro.
+    const telefoneDigitos = (form.telefone ?? "").replace(/\D/g, "")
+    const telefone = telefoneDigitos && (form.telefone ?? "").trim().startsWith("+") ? `+${telefoneDigitos}` : telefoneDigitos
 
-    if (cpfNormalizado.length !== 11) {
-      erros.push("CPF deve ter 11 digitos.")
+    if (tipo === "cpf" && documento && documento.length !== 11) {
+      erros.push("CPF deve ter 11 dígitos.")
+    }
+    // Reserva pode nascer só com o WhatsApp; o documento é exigido no check-in.
+    if (!form.hospede_id && !documento && !telefone) {
+      erros.push("Informe o documento ou o WhatsApp do hóspede.")
     }
 
     if (!form.data_entrada || !form.data_saida) {
@@ -285,14 +295,17 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
 
     const payload: Record<string, unknown> = {
       ...form,
-      cpf: cpfNormalizado,
+      documento,
+      telefone,
       valor: form.valor ? Number(form.valor) : null,
       pago: Boolean(form.pago),
     }
 
     // Datas do ciclo (check-in, expiração...) são do servidor; vão só o status
     // e, se for o caso, o prazo da pré-reserva e o motivo do cancelamento.
-    for (const campo of ["expira_em", "check_in_em", "check_out_em", "cancelada_em", "motivo_cancelamento"]) {
+    // `cpf` é legado (o documento vai em `documento`); hóspede já escolhido sem
+    // documento digitado mantém o que está no cadastro.
+    for (const campo of ["cpf", "expira_em", "check_in_em", "check_out_em", "cancelada_em", "motivo_cancelamento"]) {
       delete payload[campo]
     }
 

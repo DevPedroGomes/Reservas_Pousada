@@ -53,7 +53,6 @@ describe('datas — fuso da operação, não UTC', () => {
 describe('reserva — validação de criação vs edição', () => {
   const base = {
     nome: 'Maria Souza',
-    cpf: CPF_VALIDO,
     quarto: 3,
     data_entrada: '2020-01-10',
     data_saida: '2020-01-12',

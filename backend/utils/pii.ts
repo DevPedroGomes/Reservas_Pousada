@@ -12,7 +12,7 @@
  * rota nova não consegue reintroduzir o vazamento por esquecimento.
  */
 
-const CAMPOS_PII = new Set(['cpf', 'cpfhash', 'cpf_hash']);
+const CAMPOS_PII = new Set(['cpf', 'cpfhash', 'cpf_hash', 'documento', 'documentohash', 'documento_hash']);
 const REDIGIDO = '[redigido]';
 const PROFUNDIDADE_MAX = 8;
 
@@ -43,4 +43,15 @@ export function mascararCpf(cpf: string | null | undefined): string {
   const digitos = String(cpf).replace(/\D/g, '');
   if (digitos.length < 2) return '***.***.***-**';
   return `***.***.***-${digitos.slice(-2)}`;
+}
+
+/**
+ * Documento mascarado conforme o tipo: CPF como acima; passaporte e outros
+ * mostram só os 3 últimos caracteres.
+ */
+export function mascararDocumento(documento: string | null | undefined, tipo: string | null | undefined): string {
+  if (!documento) return '';
+  if (!tipo || tipo === 'cpf') return mascararCpf(documento);
+  const limpo = String(documento).replace(/\s/g, '');
+  return limpo.length <= 3 ? '•••' : `•••••${limpo.slice(-3)}`;
 }
