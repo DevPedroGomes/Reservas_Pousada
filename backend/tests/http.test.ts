@@ -264,6 +264,49 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('quartos', () => {
+    it('pousada nasce com os quartos do onboarding, nomeados', async () => {
+      const r = await donoA.req('GET', '/api/quartos');
+      assert.equal(r.json.quartos.length, 10);
+      assert.equal(r.json.quartos[0].nome, 'Quarto 1');
+    });
+
+    it('cria quarto com nome, tipo, capacidade e preço; aceita reserva nele', async () => {
+      const r = await donoA.req('POST', '/api/quartos', { nome: 'Suíte Mar', tipo: 'Suíte', capacidade: 4, preco_base: 350 });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.deepEqual([r.json.quarto.numero, r.json.quarto.preco_base, r.json.quarto.capacidade], [11, 350, 4]);
+      const res = await donoA.req('POST', '/api/reservas', { nome: 'Na suíte', cpf: CPF, quarto: 11, data_entrada: d(50), data_saida: d(52) });
+      assert.equal(res.status, 201, JSON.stringify(res.json));
+    });
+
+    it('não desativa quarto com reserva a partir de hoje', async () => {
+      const lista = await donoA.req('GET', '/api/quartos');
+      const suite = lista.json.quartos.find((q: { numero: number }) => q.numero === 11);
+      const r = await donoA.req('PUT', `/api/quartos/${suite.id}`, { ativo: false });
+      assert.equal(r.status, 409);
+    });
+
+    it('quarto desativado não recebe reserva; sem histórico, remover apaga', async () => {
+      const lista = await donoA.req('GET', '/api/quartos');
+      const q10 = lista.json.quartos.find((q: { numero: number }) => q.numero === 10);
+      assert.equal((await donoA.req('PUT', `/api/quartos/${q10.id}`, { ativo: false })).status, 200);
+      const res = await donoA.req('POST', '/api/reservas', { nome: 'Q10', cpf: CPF, quarto: 10, data_entrada: d(60), data_saida: d(61) });
+      assert.equal(res.status, 400);
+      assert.equal((await donoA.req('DELETE', `/api/quartos/${q10.id}`)).json.resultado, 'removido');
+    });
+
+    it('recepção vê os quartos mas não altera', async () => {
+      assert.equal((await recep.req('GET', '/api/quartos')).status, 200);
+      assert.equal((await recep.req('POST', '/api/quartos', { nome: 'X' })).status, 403);
+    });
+
+    it('reduzir o número de quartos recusa quando sairia um com reserva', async () => {
+      const r = await donoA.req('PUT', `/api/pousadas/${pousadaA}`, { num_quartos: 2 });
+      assert.equal(r.status, 409);
+      assert.match(r.json.mensagem, /quartos/);
+    });
+  });
+
   describe('onboarding', () => {
     it('cria a pousada só com nome e quartos (endereço e contato depois)', async () => {
       const c = await novoUsuario('minimo@teste.com', 'Dona Mínima');

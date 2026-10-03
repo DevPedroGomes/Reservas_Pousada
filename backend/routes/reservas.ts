@@ -5,7 +5,7 @@ import AuditoriaModel from '../models/Auditoria.js';
 import { validarReserva, sanitizarReserva, validarQuarto, validarData, validarPeriodo, validarStatus } from '../utils/validation.js';
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
-import PousadaModel from '../models/Pousada.js';
+import QuartoModel from '../models/Quarto.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -46,12 +46,8 @@ const exportLimiter = criarLimitador('export', {
  * ocupação e nunca conflita com nada.
  */
 async function quartoInexistente(pousadaId: number, quarto: number): Promise<string | null> {
-  const pousada = await PousadaModel.buscarPorId(pousadaId);
-  if (!pousada) return 'Pousada não encontrada';
-  if (quarto > pousada.numQuartos) {
-    return `A pousada tem ${pousada.numQuartos} quartos; o quarto ${quarto} não existe.`;
-  }
-  return null;
+  if (await QuartoModel.existeAtivo(pousadaId, quarto)) return null;
+  return `O quarto ${quarto} não existe ou está desativado nesta pousada.`;
 }
 
 // List all reservations

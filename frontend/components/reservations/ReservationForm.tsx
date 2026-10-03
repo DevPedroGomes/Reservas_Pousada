@@ -10,12 +10,13 @@ import { Label } from "../ui/label"
 import { Select } from "../ui/select"
 import { Textarea } from "../ui/textarea"
 import { formatarDataHora, renderResumoAuditoria } from "../../lib/formatters"
-import type { Reserva, Auditoria } from "../../lib/types"
+import type { Reserva, Auditoria, Quarto } from "../../lib/types"
 
 interface ReservationFormProps {
   initialData?: Reserva | null
   isEditing: boolean
-  totalQuartos: number
+  /** Quartos ativos da pousada (cadastro). A reserva em edição pode estar num quarto hoje inativo. */
+  quartos: Quarto[]
   auditLogs: Auditoria[]
   onSubmit: (data: Reserva) => Promise<void>
   onCancel: () => void
@@ -37,13 +38,20 @@ const emptyForm: Reserva = {
 export function ReservationForm({
   initialData,
   isEditing,
-  totalQuartos,
+  quartos,
   auditLogs,
   onSubmit,
   onCancel,
   loading = false,
 }: ReservationFormProps) {
   const [form, setForm] = useState<Reserva>(emptyForm)
+
+  // Reserva nova começa no primeiro quarto ativo (o quarto 1 pode não existir).
+  useEffect(() => {
+    if (!initialData && quartos.length > 0) {
+      setForm((f) => (quartos.some((q) => q.numero === Number(f.quarto)) ? f : { ...f, quarto: quartos[0].numero }))
+    }
+  }, [initialData, quartos])
 
   useEffect(() => {
     if (initialData) {
@@ -142,9 +150,11 @@ export function ReservationForm({
                   required
                   className=""
                 >
-                  {Array.from({ length: totalQuartos }, (_, idx) => idx + 1).map((num) => (
-                    <option key={num} value={num}>
-                      Quarto {num}
+                  {quartos.map((q) => (
+                    <option key={q.numero} value={q.numero}>
+                      {q.nome === `Quarto ${q.numero}` ? q.nome : `${q.numero} · ${q.nome}`}
+                      {q.capacidade ? ` (até ${q.capacidade})` : ""}
+                      {q.ativo ? "" : " — inativo"}
                     </option>
                   ))}
                 </Select>

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PousadaModel, { LimiteDoPlano } from '../models/Pousada.js';
-import ReservaModel from '../models/Reserva.js';
+import QuartoModel, { QuartoRecusado } from '../models/Quarto.js';
 import { excluirPousada, ExclusaoRecusada } from '../models/Conta.js';
 import { hojeLocal } from '../utils/datas.js';
 import { billingHabilitado } from '../lib/stripe.js';
@@ -266,24 +266,22 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
         return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
       }
 
-      // Reduzir quartos não pode deixar reserva vigente num quarto que deixa
-      // de existir.
-      const orfaos = await ReservaModel.quartosComReservaVigenteAcimaDe(
-        parseInt(id), dadosSanitizados.num_quartos as number, hojeLocal(),
-      );
-      if (orfaos.length > 0) {
-        return res.status(409).json({
-          sucesso: false,
-          codigo: 'POU_001',
-          mensagem: `Há reservas ativas nos quartos ${orfaos.join(', ')}. Mova ou finalize essas reservas antes de reduzir para ${dadosSanitizados.num_quartos} quartos.`,
-          quartos: orfaos,
-        });
+      // "Número de quartos" é atalho: cria/reativa ou desativa quartos no
+      // cadastro (a fonte da verdade é a tabela quartos). Recusa se algum
+      // quarto que sairia tiver reserva vigente.
+      try {
+        await QuartoModel.ajustarQuantidade(parseInt(id), dadosSanitizados.num_quartos as number, hojeLocal());
+      } catch (err) {
+        if (err instanceof QuartoRecusado) {
+          return res.status(409).json({ sucesso: false, codigo: 'POU_001', mensagem: err.message });
+        }
+        throw err;
       }
     }
 
     const pousadaAtualizada = await PousadaModel.atualizar(parseInt(id), {
       nome: dadosSanitizados.nome,
-      numQuartos: dadosSanitizados.num_quartos as number | undefined,
+      // num_quartos é cache mantido por trigger; o ajuste já foi feito acima.
       endereco: dadosSanitizados.endereco,
       cidade: dadosSanitizados.cidade,
       estado: dadosSanitizados.estado,
@@ -356,7 +354,7 @@ router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Respo
       });
     }
 
-    const quartos = await PousadaModel.listarQuartos(parseInt(id));
+    const quartos = (await QuartoModel.listar(parseInt(id), false)).map((q) => q.numero);
 
     res.json({
       sucesso: true,

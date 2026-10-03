@@ -196,20 +196,6 @@ export class PousadaModel {
   }
 
   /**
-   * List all rooms (1 to numQuartos)
-   */
-  static async listarQuartos(pousadaId: number): Promise<number[]> {
-    const pousada = await this.buscarPorId(pousadaId);
-    if (!pousada) throw new Error('Pousada não encontrada');
-
-    const quartos: number[] = [];
-    for (let i = 1; i <= pousada.numQuartos; i++) {
-      quartos.push(i);
-    }
-    return quartos;
-  }
-
-  /**
    * Get pousada statistics (SQL-optimized)
    */
   static async obterEstatisticas(pousadaId: number) {

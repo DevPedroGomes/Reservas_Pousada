@@ -549,28 +549,6 @@ export class ReservaModel {
 
     return { dia, chegadas, saidas, hospedados, proximas };
   }
-
-  /**
-   * Quartos acima de `limite` com reserva ativa que ainda não terminou.
-   *
-   * Usado antes de reduzir o número de quartos da pousada: sem isso, a
-   * pousada passava de 12 para 8 quartos e as reservas dos quartos 9–12
-   * ficavam apontando para quartos que não existem mais.
-   */
-  static async quartosComReservaVigenteAcimaDe(pousadaId: number, limite: number, hoje: string): Promise<number[]> {
-    const rows = await db
-      .selectDistinct({ quarto: reservas.quarto })
-      .from(reservas)
-      .where(and(
-        eq(reservas.pousadaId, pousadaId),
-        eq(reservas.status, 'ativa'),
-        isNull(reservas.deletedAt),
-        gt(reservas.quarto, limite),
-        gt(reservas.dataSaida, hoje),
-      ))
-      .orderBy(reservas.quarto);
-    return rows.map((r) => r.quarto);
-  }
 }
 
 export default ReservaModel;

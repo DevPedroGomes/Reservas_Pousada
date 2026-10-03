@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useApp } from "../../../components/app/ContextoApp"
 import { Button } from "../../../components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card"
@@ -86,7 +87,11 @@ function DadosDaPousada() {
           <Aviso m={msg} />
           <fieldset disabled={!podeEditar || salvando} className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-nome">Nome</Label><Input id="cfg-nome" value={form.nome} onChange={campo("nome")} required /></div>
-            <div className="space-y-1.5"><Label htmlFor="cfg-quartos">Número de quartos</Label><Input id="cfg-quartos" type="number" min={1} max={100} value={form.num_quartos} onChange={campo("num_quartos")} required /></div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cfg-quartos">Número de quartos</Label>
+              <Input id="cfg-quartos" type="number" min={1} max={100} value={form.num_quartos} onChange={campo("num_quartos")} required />
+              <p className="text-xs text-muted-foreground">Nome, tipo e preço de cada um em <Link href="/quartos" className="underline">Quartos</Link>.</p>
+            </div>
             <div className="space-y-1.5"><Label htmlFor="cfg-tel">Telefone / WhatsApp</Label><Input id="cfg-tel" value={form.telefone} onChange={campo("telefone")} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-end">Endereço</Label><Input id="cfg-end" value={form.endereco} onChange={campo("endereco")} /></div>
             <div className="space-y-1.5"><Label htmlFor="cfg-cid">Cidade</Label><Input id="cfg-cid" value={form.cidade} onChange={campo("cidade")} /></div>

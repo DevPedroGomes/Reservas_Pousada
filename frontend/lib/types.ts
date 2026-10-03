@@ -47,6 +47,18 @@ export interface Pousada {
   ativa?: boolean
 }
 
+export interface Quarto {
+  id: number
+  numero: number
+  nome: string
+  tipo: string | null
+  capacidade: number
+  preco_base: number | null
+  descricao: string | null
+  ativo: boolean
+  ordem: number
+}
+
 export interface MembroEquipe {
   id: string
   nome: string

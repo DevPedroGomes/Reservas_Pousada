@@ -84,6 +84,25 @@ export const pousadas = pgTable('pousadas', {
   slugIdx: index('idx_pousadas_slug').on(table.slug),
 }));
 
+// Fonte da verdade dos quartos (migration 016). `pousadas.num_quartos` é cache
+// da quantidade de quartos ativos, mantido por trigger.
+export const quartos = pgTable('quartos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  numero: integer('numero').notNull(),
+  nome: text('nome').notNull(),
+  tipo: text('tipo'),
+  capacidade: integer('capacidade').notNull().default(2),
+  precoBaseCentavos: integer('preco_base_centavos'),
+  descricao: text('descricao'),
+  ativo: boolean('ativo').notNull().default(true),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  numeroIdx: uniqueIndex('uq_quarto_numero').on(table.pousadaId, table.numero),
+}));
+
 export const reservas = pgTable('reservas', {
   id: serial('id').primaryKey(),
   pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
@@ -291,6 +310,7 @@ export type NewAuditoria = typeof auditoria.$inferInsert;
 export type UserPousada = typeof userPousadas.$inferSelect;
 export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
+export type Quarto = typeof quartos.$inferSelect;
 export type Assinatura = typeof assinaturas.$inferSelect;
 export type FinanceiroLancamento = typeof financeiroLancamentos.$inferSelect;
 export type NewAssinatura = typeof assinaturas.$inferInsert;

@@ -11,6 +11,7 @@ import billingRoutes from './routes/billing.js';
 import adminRoutes from './routes/admin.js';
 import telemetriaRoutes from './routes/telemetria.js';
 import contaRoutes from './routes/conta.js';
+import quartoRoutes from './routes/quartos.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
 import { activityLogger } from './middleware/activity.js';
@@ -210,6 +211,8 @@ app.use('/api/telemetria', telemetriaRoutes);
 app.use('/api/convites', conviteRoutes);
 app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, reservaRoutes);
 app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
+// Sem requerAssinaturaAtiva: cadastro de quartos é configuração.
+app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoutes);
 // Sem requerAssinaturaAtiva de proposito: quem esta bloqueado precisa
 // conseguir ver o proprio estado e escolher um plano.
 app.use('/api/billing', authMiddleware, userLimiter, billingRoutes);

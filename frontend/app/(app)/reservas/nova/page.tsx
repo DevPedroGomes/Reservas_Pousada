@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useApp } from "../../../../components/app/ContextoApp"
 import { ReservationForm } from "../../../../components/reservations/ReservationForm"
 import { useReservations } from "../../../../hooks/useReservations"
+import { useQuartos } from "../../../../hooks/useQuartos"
 import type { Reserva } from "../../../../lib/types"
 
 export default function NovaReserva() {
@@ -12,6 +13,9 @@ export default function NovaReserva() {
   const { auth } = useApp()
   const r = useReservations(true, auth.pousada?.id)
   const [salvando, setSalvando] = useState(false)
+  const { quartos, carregar: carregarQuartos } = useQuartos()
+  useEffect(() => { void carregarQuartos() }, [carregarQuartos])
+  const quartosDoFormulario = quartos.filter((q) => q.ativo)
 
   async function salvar(dados: Reserva) {
     setSalvando(true)
@@ -25,7 +29,7 @@ export default function NovaReserva() {
     <ReservationForm
       initialData={null}
       isEditing={false}
-      totalQuartos={auth.pousada?.num_quartos ?? 0}
+      quartos={quartosDoFormulario}
       auditLogs={[]}
       onSubmit={salvar}
       onCancel={() => router.push("/reservas")}
