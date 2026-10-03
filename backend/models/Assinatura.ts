@@ -1,9 +1,10 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, assinaturas, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
 import {
   avaliarAcesso,
   limitesVigentes,
+  temAssinaturaViva,
   type EstadoAssinatura,
   type Limites,
   type StatusAssinatura,
@@ -82,6 +83,9 @@ export class AssinaturaModel {
     limites: Limites;
     usuarios: number;
     pousadasDoDono: number;
+    ciclo: string | null;
+    assinaturaViva: boolean;
+    cancelaNoFim: boolean;
   } | null> {
     const row = await this.buscarPorPousada(pousadaId);
     if (!row) return null;
@@ -98,14 +102,21 @@ export class AssinaturaModel {
       limites: limitesVigentes(estado),
       usuarios: Number(usuarios) || 0,
       pousadasDoDono: 0,
+      ciclo: row.ciclo,
+      assinaturaViva: temAssinaturaViva(row),
+      cancelaNoFim: row.cancelaNoFim,
     };
   }
 
+  /**
+   * Liga o customer do Stripe à pousada — só se ainda não houver um. Dois
+   * cliques simultâneos não podem trocar o customer de quem já tem histórico.
+   */
   static async vincularCustomer(pousadaId: number, stripeCustomerId: string) {
     await db
       .update(assinaturas)
       .set({ stripeCustomerId, updatedAt: new Date() })
-      .where(eq(assinaturas.pousadaId, pousadaId));
+      .where(and(eq(assinaturas.pousadaId, pousadaId), isNull(assinaturas.stripeCustomerId)));
   }
 
   /**

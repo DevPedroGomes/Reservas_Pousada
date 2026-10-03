@@ -12,6 +12,8 @@ import {
   avaliarAcesso,
   limitesVigentes,
   mensagemDeBloqueio,
+  motivosParaNaoCaber,
+  temAssinaturaViva,
   type EstadoAssinatura,
   type MotivoBloqueio,
 } from '../utils/assinatura.js';
@@ -148,5 +150,39 @@ describe('mensagem de bloqueio', () => {
       assert.ok(msg.length > 10, `mensagem vazia para ${m}`);
       assert.ok(!/stripe|subscription|past_due|webhook/i.test(msg), `mensagem de ${m} vaza detalhe interno`);
     }
+  });
+});
+
+describe('checkout x assinatura existente (cobrança em dobro)', () => {
+  it('assinatura ativa no Stripe bloqueia checkout novo', () => {
+    assert.equal(temAssinaturaViva({ status: 'ativa', stripeSubscriptionId: 'sub_1' }), true);
+  });
+
+  it('pagamento pendente e pausada também — o caminho é o portal', () => {
+    assert.equal(temAssinaturaViva({ status: 'inadimplente', stripeSubscriptionId: 'sub_1' }), true);
+    assert.equal(temAssinaturaViva({ status: 'suspensa', stripeSubscriptionId: 'sub_1' }), true);
+  });
+
+  it('trial, cancelada encerrada e sem id no Stripe podem assinar', () => {
+    assert.equal(temAssinaturaViva({ status: 'trial', stripeSubscriptionId: null }), false);
+    assert.equal(temAssinaturaViva({ status: 'cancelada', stripeSubscriptionId: 'sub_1' }), false);
+    assert.equal(temAssinaturaViva({ status: 'ativa', stripeSubscriptionId: null }), false);
+  });
+});
+
+describe('troca de plano — o uso atual precisa caber', () => {
+  it('downgrade com quartos demais é recusado com o motivo', () => {
+    const m = motivosParaNaoCaber({ quartos: 20, usuarios: 2, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'essencial' }));
+    assert.equal(m.length, 1);
+    assert.match(m[0], /20 quartos/);
+  });
+
+  it('downgrade com equipe grande demais para o Essencial', () => {
+    const m = motivosParaNaoCaber({ quartos: 5, usuarios: 4, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'essencial' }));
+    assert.match(m.join(' '), /4 usuários/);
+  });
+
+  it('upgrade sempre cabe', () => {
+    assert.deepEqual(motivosParaNaoCaber({ quartos: 20, usuarios: 9, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'rede' })), []);
   });
 });

@@ -92,6 +92,10 @@ export interface SituacaoAssinatura {
   status: StatusAssinatura
   plano: string | null
   planoNome: string | null
+  ciclo: "mensal" | "anual" | null
+  /** Há assinatura no Stripe que ainda vale: troca de plano, não checkout novo. */
+  assinaturaViva: boolean
+  cancelaNoFim: boolean
   trialTerminaEm: string | null
   periodoTerminaEm: string | null
   liberado: boolean

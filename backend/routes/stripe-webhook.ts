@@ -217,6 +217,15 @@ async function aplicarAssinatura(sub: Stripe.Subscription, tx: Executor): Promis
 }
 
 /**
+ * Aplica uma assinatura fora do fluxo de webhook — usado logo após a troca de
+ * plano, para a tela refletir o novo estado sem esperar o evento chegar. O
+ * webhook que vier depois reaplica o mesmo estado (idempotente).
+ */
+export async function aplicarAssinaturaAgora(sub: Stripe.Subscription): Promise<void> {
+  await db.transaction((tx) => aplicarAssinatura(sub, tx));
+}
+
+/**
  * Lança receita e custo de uma fatura paga.
  *
  * A competência sai do PERÍODO da fatura, não da data do pagamento: uma fatura

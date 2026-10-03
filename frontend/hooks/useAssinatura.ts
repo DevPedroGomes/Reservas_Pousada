@@ -17,7 +17,9 @@ interface UseAssinaturaReturn {
   setCiclo: (c: Ciclo) => void
   recarregar: () => Promise<void>
   assinar: (plano: string) => Promise<void>
+  trocarPlano: (plano: string) => Promise<void>
   abrirPortal: () => Promise<void>
+  aviso: string | null
 }
 
 export function useAssinatura(autenticado: boolean, pousadaId?: number | null): UseAssinaturaReturn {
@@ -30,6 +32,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
   const [carregando, setCarregando] = useState(false)
   const [redirecionando, setRedirecionando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const recarregar = useCallback(async () => {
     if (!autenticado) return
@@ -98,6 +101,33 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
     }
   }, [ciclo])
 
+  /**
+   * Troca o plano da assinatura existente (pró-rata no Stripe). Para quem já
+   * assina, "Assinar" abriria um segundo checkout — e uma segunda cobrança.
+   */
+  const trocarPlano = useCallback(async (plano: string) => {
+    setErro(null)
+    setAviso(null)
+    setRedirecionando(true)
+    try {
+      const r = await authenticatedFetch(`${API_URL}/billing/trocar-plano`, {
+        method: "POST",
+        body: JSON.stringify({ plano, ciclo }),
+      })
+      const data = await r.json()
+      if (data.sucesso) {
+        setAviso(data.mensagem || "Plano alterado.")
+        await recarregar()
+      } else {
+        setErro(data.mensagem || "Não foi possível trocar o plano.")
+      }
+    } catch {
+      setErro("Não foi possível conectar ao servidor.")
+    } finally {
+      setRedirecionando(false)
+    }
+  }, [ciclo, recarregar])
+
   const abrirPortal = useCallback(async () => {
     setErro(null)
     setRedirecionando(true)
@@ -119,7 +149,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
   return {
     situacao, limites, usuarios, billingHabilitado, planos, ciclo,
     carregando, redirecionando, erro,
-    setCiclo, recarregar, assinar, abrirPortal,
+    setCiclo, recarregar, assinar, trocarPlano, abrirPortal, aviso,
   }
 }
 

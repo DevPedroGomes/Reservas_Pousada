@@ -75,7 +75,9 @@ function ConteudoAssinatura() {
   }
 
   const ehDono = Boolean(user?.is_owner)
-  const temAssinatura = Boolean(a.situacao && a.situacao.status !== "trial")
+  // Portal e troca de plano só fazem sentido com assinatura viva no Stripe.
+  const temAssinatura = Boolean(a.situacao?.assinaturaViva)
+  const podeTrocar = temAssinatura && a.situacao?.status === "ativa"
 
   return (
     <main className="min-h-screen bg-background">
@@ -110,6 +112,12 @@ function ConteudoAssinatura() {
         {a.erro && (
           <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3">
             <p className="text-sm text-rose-800">{a.erro}</p>
+          </div>
+        )}
+
+        {a.aviso && (
+          <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-4 py-3">
+            <p className="text-sm text-emerald-800">{a.aviso}</p>
           </div>
         )}
 
@@ -175,7 +183,10 @@ function ConteudoAssinatura() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   {a.planos.map((p) => {
-                    const atual = a.situacao?.plano === p.codigo
+                    // "Atual" é plano E ciclo: quem paga mensal pode passar
+                    // para o anual do mesmo plano.
+                    const atual = temAssinatura && a.situacao?.plano === p.codigo &&
+                      (a.situacao?.ciclo ?? a.ciclo) === a.ciclo
                     return (
                       <Card key={p.codigo} className={cn(atual && "border-primary ring-1 ring-primary/20")}>
                         <CardHeader>
@@ -205,10 +216,22 @@ function ConteudoAssinatura() {
                             <Button
                               className="w-full"
                               variant={atual ? "outline" : "default"}
-                              disabled={atual || a.redirecionando}
-                              onClick={() => a.assinar(p.codigo)}
+                              disabled={atual || a.redirecionando || (temAssinatura && !podeTrocar)}
+                              onClick={() => {
+                                if (!podeTrocar) return a.assinar(p.codigo)
+                                const ok = window.confirm(
+                                  `Mudar para o plano ${p.nome} (${a.ciclo})? A diferença é calculada proporcionalmente pelo Stripe.`,
+                                )
+                                if (ok) a.trocarPlano(p.codigo)
+                              }}
                             >
-                              {atual ? "Plano atual" : a.redirecionando ? "Aguarde..." : "Assinar"}
+                              {atual
+                                ? "Plano atual"
+                                : a.redirecionando
+                                  ? "Aguarde..."
+                                  : podeTrocar
+                                    ? "Mudar para este plano"
+                                    : "Assinar"}
                             </Button>
                           ) : (
                             <p className="text-xs text-muted-foreground text-center">
@@ -264,8 +287,10 @@ function CartaoSituacao({ situacao }: { situacao: SituacaoAssinatura | null }) {
         <CardDescription>
           {situacao.status === "trial" && situacao.liberado &&
             `Restam ${dias} ${dias === 1 ? "dia" : "dias"} de teste${situacao.trialTerminaEm ? ` — até ${formatarData(situacao.trialTerminaEm)}` : ""}.`}
-          {situacao.status === "ativa" && situacao.periodoTerminaEm &&
+          {situacao.status === "ativa" && situacao.periodoTerminaEm && !situacao.cancelaNoFim &&
             `Próxima renovação em ${formatarData(situacao.periodoTerminaEm)}.`}
+          {situacao.status === "ativa" && situacao.periodoTerminaEm && situacao.cancelaNoFim &&
+            `Cancelamento agendado: o acesso continua até ${formatarData(situacao.periodoTerminaEm)}.`}
           {situacao.status === "inadimplente" &&
             `Não conseguimos confirmar o pagamento. Você tem ${dias} ${dias === 1 ? "dia" : "dias"} para regularizar antes do bloqueio.`}
           {situacao.status === "cancelada" && situacao.liberado &&

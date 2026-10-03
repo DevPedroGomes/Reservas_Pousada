@@ -131,3 +131,46 @@ export function mensagemDeBloqueio(motivo: MotivoBloqueio): string {
       return 'Sua assinatura foi cancelada. Escolha um plano para voltar a usar.';
   }
 }
+
+/**
+ * Existe uma assinatura no Stripe que ainda vale (ou que ainda pode voltar a
+ * valer)? Nesse caso NÃO se abre checkout novo — trocar de plano é atualizar a
+ * assinatura existente; regularizar pagamento é no portal.
+ *
+ * Abrir um segundo checkout para quem já assina criava uma SEGUNDA assinatura
+ * no mesmo customer: cobrança em dobro, e a primeira seguia cobrando sem
+ * aparecer em lugar nenhum do sistema.
+ *
+ * `cancelada` só chega aqui depois do fim do período pago (cancelamento
+ * agendado continua `ativa` com cancelaNoFim), então ali checkout novo é o
+ * caminho certo.
+ */
+export function temAssinaturaViva(e: { status: string; stripeSubscriptionId: string | null }): boolean {
+  if (!e.stripeSubscriptionId) return false;
+  return e.status === 'ativa' || e.status === 'inadimplente' || e.status === 'suspensa';
+}
+
+export interface UsoAtual {
+  quartos: number;
+  usuarios: number;
+  pousadas: number;
+}
+
+/**
+ * O uso atual cabe nos limites de outro plano? Devolve a lista de motivos
+ * quando não cabe — é o que impede um downgrade que deixaria a conta acima do
+ * limite (e bloquearia a operação no dia seguinte).
+ */
+export function motivosParaNaoCaber(uso: UsoAtual, limites: Limites): string[] {
+  const motivos: string[] = [];
+  if (uso.quartos > limites.maxQuartos) {
+    motivos.push(`a pousada tem ${uso.quartos} quartos e o plano permite ${limites.maxQuartos}`);
+  }
+  if (limites.maxUsuarios !== null && uso.usuarios > limites.maxUsuarios) {
+    motivos.push(`a equipe tem ${uso.usuarios} usuários e o plano permite ${limites.maxUsuarios}`);
+  }
+  if (uso.pousadas > limites.maxPousadas) {
+    motivos.push(`a conta tem ${uso.pousadas} pousadas e o plano permite ${limites.maxPousadas}`);
+  }
+  return motivos;
+}
