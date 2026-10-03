@@ -26,6 +26,12 @@ pool.on('error', (err) => {
 // Create Drizzle ORM instance with schema
 export const db = drizzle(pool, { schema });
 
+/**
+ * Quem executa a consulta: o `db` (autocommit) ou uma transação aberta.
+ * Models que participam de uma escrita composta recebem isto como parâmetro.
+ */
+export type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // Export pool for direct access if needed
 export { pool };
 

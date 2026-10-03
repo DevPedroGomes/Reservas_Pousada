@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, assinaturas, stripeEvents, userPousadas } from '../db/index.js';
+import { db, assinaturas, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
 import {
   avaliarAcesso,
@@ -37,8 +37,8 @@ export class AssinaturaModel {
     return row ?? null;
   }
 
-  static async buscarPorCustomer(stripeCustomerId: string) {
-    const [row] = await db
+  static async buscarPorCustomer(stripeCustomerId: string, executor: Executor = db) {
+    const [row] = await executor
       .select()
       .from(assinaturas)
       .where(eq(assinaturas.stripeCustomerId, stripeCustomerId))
@@ -66,6 +66,16 @@ export class AssinaturaModel {
    * consumiu deles. É o que a tela de assinatura mostra e o que o middleware
    * usa para decidir.
    */
+  /** O evento já foi processado? Checagem barata antes de chamar a API do Stripe. */
+  static async eventoJaProcessado(id: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: stripeEvents.id })
+      .from(stripeEvents)
+      .where(eq(stripeEvents.id, id))
+      .limit(1);
+    return Boolean(row);
+  }
+
   static async situacao(pousadaId: number): Promise<{
     estado: EstadoAssinatura;
     veredito: Veredito;
@@ -113,8 +123,8 @@ export class AssinaturaModel {
     ciclo: Ciclo | null;
     periodoTerminaEm: Date | null;
     cancelaNoFim: boolean;
-  }): Promise<boolean> {
-    const r = await db
+  }, executor: Executor = db): Promise<boolean> {
+    const r = await executor
       .update(assinaturas)
       .set({
         stripeSubscriptionId: params.stripeSubscriptionId,
@@ -135,9 +145,13 @@ export class AssinaturaModel {
    * O Stripe reenvia até receber 2xx e pode entregar o mesmo evento mais de uma
    * vez após o sucesso; sem esta checagem, um retry de `invoice.paid`
    * reprocessaria a mesma cobrança.
+   *
+   * Deve rodar NA MESMA transação dos efeitos do evento. Registrado sozinho,
+   * antes dos efeitos, uma falha no meio fazia o reenvio do Stripe ser tratado
+   * como duplicado — e o evento nunca era aplicado.
    */
-  static async registrarEvento(id: string, tipo: string): Promise<boolean> {
-    const r = await db
+  static async registrarEvento(id: string, tipo: string, executor: Executor = db): Promise<boolean> {
+    const r = await executor
       .insert(stripeEvents)
       .values({ id, tipo })
       .onConflictDoNothing()

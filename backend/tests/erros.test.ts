@@ -28,7 +28,7 @@ before(async () => {
   app.use(notFoundHandler);
   app.use(errorHandler);
   await new Promise<void>((ok) => {
-    servidor = app.listen(0, ok);
+    servidor = app.listen(0, () => ok());
   });
   base = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}`;
 });
@@ -41,7 +41,7 @@ describe('tratamento de erro', () => {
   it('rejeição em handler async vira 500 — e o processo continua de pé', async () => {
     const r = await fetch(`${base}/async-falha`);
     assert.equal(r.status, 500);
-    const corpo = await r.json();
+    const corpo = (await r.json()) as { codigo: string; mensagem: string };
     assert.equal(corpo.codigo, 'ERR_INTERNAL');
     assert.equal(corpo.mensagem, 'Erro interno do servidor');
 
@@ -57,7 +57,7 @@ describe('tratamento de erro', () => {
       body: '{malformado',
     });
     assert.equal(r.status, 400);
-    assert.equal((await r.json()).codigo, 'ERR_REQUEST');
+    assert.equal(((await r.json()) as { codigo: string }).codigo, 'ERR_REQUEST');
   });
 
   it('500 nunca devolve a mensagem interna ao cliente', async () => {
