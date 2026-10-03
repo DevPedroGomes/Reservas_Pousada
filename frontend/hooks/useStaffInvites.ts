@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import type { StaffInvite, Message } from "../lib/types";
-import { API_BASE_URL } from "../lib/api";
+import { API_BASE_URL, authenticatedFetch } from "../lib/api";
 
 interface UseStaffInvitesReturn {
   convites: StaffInvite[];
@@ -22,9 +22,7 @@ export function useStaffInvites(): UseStaffInvitesReturn {
   const carregarConvites = useCallback(async (pousadaId: number) => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites`, {
-        credentials: "include",
-      });
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites`);
       const data = await response.json();
 
       if (data.sucesso) {
@@ -42,10 +40,8 @@ export function useStaffInvites(): UseStaffInvitesReturn {
       setLoading(true);
       setMessage(null);
 
-      const response = await fetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, role }),
       });
 
@@ -73,9 +69,8 @@ export function useStaffInvites(): UseStaffInvitesReturn {
       setLoading(true);
       setMessage(null);
 
-      const response = await fetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites/${inviteId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/${pousadaId}/convites/${inviteId}`, {
         method: "DELETE",
-        credentials: "include",
       });
 
       const data = await response.json();

@@ -55,7 +55,7 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: origensPermitidas(),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Pousada-Id'],
   credentials: true
 }));
 

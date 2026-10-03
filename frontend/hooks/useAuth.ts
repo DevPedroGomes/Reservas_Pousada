@@ -10,7 +10,8 @@ import {
   handleSignOut
 } from "../lib/auth-client";
 import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
-import { API_BASE_URL } from "../lib/api";
+import { API_BASE_URL, authenticatedFetch } from "../lib/api";
+import { fixarPousadaDaAba } from "../lib/tenant";
 
 interface UseAuthReturn {
   // State
@@ -80,8 +81,8 @@ export function useAuth(): UseAuthReturn {
 
     try {
       const [minhaRes, minhasRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/pousadas/minha`, { credentials: 'include' }),
-        fetch(`${API_BASE_URL}/api/pousadas/minhas`, { credentials: 'include' }),
+        authenticatedFetch(`${API_BASE_URL}/api/pousadas/minha`),
+        authenticatedFetch(`${API_BASE_URL}/api/pousadas/minhas`),
       ]);
 
       const minhaData = await minhaRes.json();
@@ -89,8 +90,12 @@ export function useAuth(): UseAuthReturn {
 
       if (minhaData.sucesso && minhaData.pousada) {
         setPousada(minhaData.pousada);
+        // Fixa a pousada nesta aba: a partir daqui, trocar em outra aba não
+        // muda esta.
+        fixarPousadaDaAba(minhaData.pousada.id);
       } else {
         setPousada(null);
+        fixarPousadaDaAba(null);
       }
 
       if (minhasData.sucesso && minhasData.pousadas) {
@@ -151,16 +156,17 @@ export function useAuth(): UseAuthReturn {
   // Switch active pousada (client-side state update, no reload)
   const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/pousadas/trocar`, {
+      // /trocar grava a escolha como padrão para abas NOVAS; esta aba passa a
+      // mandar o id novo no header.
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/trocar`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pousadaId }),
       });
 
       const data = await response.json();
 
       if (data.sucesso) {
+        fixarPousadaDaAba(data.pousada.id);
         setPousada(data.pousada);
         setUser(prev => prev ? {
           ...prev,
@@ -251,6 +257,7 @@ export function useAuth(): UseAuthReturn {
   const logout = useCallback(async () => {
     try {
       await handleSignOut();
+      fixarPousadaDaAba(null);
       setUser(null);
       setPousada(null);
       setPousadas([]);

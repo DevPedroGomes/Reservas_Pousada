@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../../../components/ui/card';
 import { useSession } from '../../../lib/auth-client';
 import type { InviteInfo } from '../../../lib/types';
+import { fixarPousadaDaAba } from '../../../lib/tenant';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -66,6 +67,8 @@ export default function ConvitePage() {
       const data = await res.json();
 
       if (data.sucesso) {
+        // Entrou na equipe: a aba passa a operar a pousada do convite.
+        fixarPousadaDaAba(data.pousadaId ?? null);
         setState('accepted');
         setTimeout(() => {
           window.location.href = '/';
