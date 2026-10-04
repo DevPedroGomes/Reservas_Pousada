@@ -67,13 +67,19 @@ export async function signUpWithEmail(email: string, password: string, name: str
 }
 
 /**
- * Sign in with Google OAuth
+ * Entrar (ou se cadastrar) com o Google. Os caminhos são do app:
+ * - `destino`: para onde vai quem já tem conta (convite, página que pediu login);
+ * - `destinoNovo`: para onde vai quem acabou de se cadastrar (onboarding, ou o convite);
+ * - `retornoErro`: tela que mostra o erro se o Google falhar ou a pessoa cancelar.
+ * A origem de marketing vai junto, como no cadastro por e-mail.
  */
-export async function signInWithGoogle(options?: { callbackURL?: string; newUserCallbackURL?: string }) {
+export async function signInWithGoogle(options?: { destino?: string; destinoNovo?: string; retornoErro?: string }) {
   return authClient.signIn.social({
     provider: "google",
-    callbackURL: options?.callbackURL || `${APP_URL}/painel`,
-    newUserCallbackURL: options?.newUserCallbackURL || `${APP_URL}/onboarding`,
+    callbackURL: `${APP_URL}${options?.destino || "/painel"}`,
+    newUserCallbackURL: `${APP_URL}${options?.destinoNovo || "/onboarding"}`,
+    errorCallbackURL: `${APP_URL}${options?.retornoErro || "/entrar"}`,
+    additionalData: { origem: origemParaCadastro() },
   });
 }
 

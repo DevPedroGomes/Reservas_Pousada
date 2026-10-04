@@ -1,9 +1,10 @@
 import { betterAuth } from 'better-auth';
+import { getOAuthState } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
-import { origensPermitidas } from '../utils/origens.js';
+import { origensPermitidas, urlDoApp } from '../utils/origens.js';
 import { sanearOrigem } from '../utils/origem.js';
 
 // Better Auth Secret (required)
@@ -13,7 +14,8 @@ if (!secret) {
   process.exit(1);
 }
 
-const googleConfigurado = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+/** O frontend pergunta (GET /api/config) para só mostrar o botão quando funciona. */
+export const googleConfigurado = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 // Base URL for Better Auth
 const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:4000';
@@ -127,8 +129,16 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (dados) => {
-          const origem = sanearOrigem((dados as { origem?: unknown }).origem);
-          return { data: { ...dados, origem } };
+          let bruto = (dados as { origem?: unknown }).origem;
+          if (!bruto) {
+            // Cadastro pelo Google: a origem viaja no state do OAuth
+            // (additionalData do signIn.social). Fora de um fluxo OAuth não há
+            // state, e a leitura pode falhar — aí fica sem origem.
+            try {
+              bruto = ((await getOAuthState()) as Record<string, unknown> | null)?.origem;
+            } catch { /* cadastro por e-mail */ }
+          }
+          return { data: { ...dados, origem: sanearOrigem(bruto) } };
         },
       },
     },
@@ -146,6 +156,12 @@ export const auth = betterAuth({
 
   // Trust host header for proper URL construction
   trustedOrigins: [...origensPermitidas(), baseURL],
+
+  // Erro no retorno do Google (cancelou, link velho...) volta para a tela de
+  // login do app com ?error=<código>, em vez da página crua da API.
+  onAPIError: {
+    errorURL: `${urlDoApp()}/entrar`,
+  },
 
   // Rate limiting
   rateLimit: {

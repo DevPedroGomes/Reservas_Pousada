@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { toNodeHandler } from 'better-auth/node';
-import { auth } from './lib/auth.js';
+import { auth, googleConfigurado } from './lib/auth.js';
 import { bancoResponde, pool } from './db/index.js';
 import reservaRoutes from './routes/reservas.js';
 import pousadaRoutes from './routes/pousadas.js';
@@ -267,6 +267,11 @@ app.get('/', (req, res) => {
 
 // Liveness: o processo está de pé e o event loop responde. É o que o Docker
 // consulta — uma oscilação do banco não deve tirar o container do Traefik.
+// O que o navegador precisa saber da instalação antes do login (nada secreto).
+app.get('/api/config', (_req, res) => {
+  res.json({ sucesso: true, google: googleConfigurado });
+});
+
 app.get('/health/live', (req, res) => {
   res.json({ status: 'alive', timestamp: new Date().toISOString() });
 });

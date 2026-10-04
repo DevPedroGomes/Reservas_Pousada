@@ -93,6 +93,22 @@ jobs:
       # permite rollback para uma versão exata) e latest (o que o auto-pull da
       # VPS consome). Antes só existia latest: voltar uma versão exigia rebuild.
       - name: Build + push (so os servicos buildados, nao upstream)
+        # O frontend embute as NEXT_PUBLIC_* no BUILD, e o runner nao tem o
+        # .env da VPS. Elas vem das Variables do repositorio (Settings ->
+        # Secrets and variables -> Actions -> Variables). Sao valores publicos
+        # (vao para o navegador); segredo nenhum entra aqui. Vazia = o
+        # docker-compose usa o padrao (paginas legais mostram "[a definir]",
+        # GA/Pixel desligados).
+        env:
+          NEXT_PUBLIC_EMPRESA_RAZAO_SOCIAL: ${{ vars.NEXT_PUBLIC_EMPRESA_RAZAO_SOCIAL }}
+          NEXT_PUBLIC_EMPRESA_CNPJ: ${{ vars.NEXT_PUBLIC_EMPRESA_CNPJ }}
+          NEXT_PUBLIC_EMPRESA_ENDERECO: ${{ vars.NEXT_PUBLIC_EMPRESA_ENDERECO }}
+          NEXT_PUBLIC_EMPRESA_FORO: ${{ vars.NEXT_PUBLIC_EMPRESA_FORO }}
+          NEXT_PUBLIC_CONTATO_EMAIL: ${{ vars.NEXT_PUBLIC_CONTATO_EMAIL }}
+          NEXT_PUBLIC_PRIVACIDADE_EMAIL: ${{ vars.NEXT_PUBLIC_PRIVACIDADE_EMAIL }}
+          NEXT_PUBLIC_ENCARREGADO_NOME: ${{ vars.NEXT_PUBLIC_ENCARREGADO_NOME }}
+          NEXT_PUBLIC_GA_ID: ${{ vars.NEXT_PUBLIC_GA_ID }}
+          NEXT_PUBLIC_META_PIXEL_ID: ${{ vars.NEXT_PUBLIC_META_PIXEL_ID }}
         run: |
           export IMAGE_TAG="${GITHUB_SHA::12}"
           docker compose build
