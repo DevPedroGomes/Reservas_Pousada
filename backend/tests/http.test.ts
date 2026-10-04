@@ -15,6 +15,8 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { prepararBanco, temBanco } from './helpers/banco.js';
+import { createHmac } from 'node:crypto';
+import type { MensagemLLM, RespostaLLM } from '../lib/llm.js';
 
 type Resposta = { status: number; json: any };
 
@@ -955,6 +957,310 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const anon = new Cliente(base, '198.51.100.223');
       assert.equal((await anon.req('POST', `/api/publico/checkin/${token}`, ficha())).status, 409);
       assert.equal((await anon.req('GET', `/api/publico/checkin/${token}`)).json.reserva.aberto, false);
+    });
+  });
+
+  describe('WhatsApp Business e atendente virtual', () => {
+    const SEGREDO = 'segredo-do-app-de-teste';
+    const NUMERO = '1111111111';
+    const enviadas: { phone: string; token: string; para: string; texto: string }[] = [];
+    const modelosCriados: string[] = [];
+    const desassinadas: string[] = [];
+    type Passo = (sistema: string, msgs: MensagemLLM[]) => RespostaLLM;
+    let roteiro: Passo[] = [];
+    let seq = 0;
+    let envAntes: NodeJS.ProcessEnv;
+
+    const anon = () => new Cliente(base, `203.0.113.${ipSeq++}`);
+    const assinar = (corpo: unknown) => `sha256=${createHmac('sha256', SEGREDO).update(JSON.stringify(corpo)).digest('hex')}`;
+    const webhook = (corpo: unknown, assinatura = assinar(corpo)) =>
+      anon().req('POST', '/api/webhooks/whatsapp', corpo, { 'X-Hub-Signature-256': assinatura });
+    const mensagem = (de: string, texto: string | null, extra: { wamid?: string; phone?: string } = {}) => ({
+      object: 'whatsapp_business_account',
+      entry: [{ id: 'waba', changes: [{ field: 'messages', value: {
+        messaging_product: 'whatsapp', metadata: { display_phone_number: '554830000000', phone_number_id: extra.phone ?? NUMERO },
+        contacts: [{ wa_id: de, profile: { name: 'Joana Zap' } }],
+        messages: [{ from: de, id: extra.wamid ?? `wamid.E${seq++}`, timestamp: '1', ...(texto === null ? { type: 'image', image: { id: 'm1' } } : { type: 'text', text: { body: texto } }) }],
+      } }] }],
+    });
+    const conversaDe = async (contato: string) =>
+      (await pool.query(`SELECT * FROM whatsapp_conversas WHERE pousada_id = $1 AND contato = $2`, [pousadaA, contato])).rows[0];
+    const ultimaPara = (contato: string) => enviadas.filter((e) => e.para === contato).at(-1)?.texto ?? '';
+    const ferramenta = (nome: string, argumentos: Record<string, unknown>): Passo => () => ({ texto: null, chamadas: [{ id: `t${seq++}`, nome, argumentos }] });
+    const resultado = (msgs: MensagemLLM[]) => { const m = msgs.at(-1)!; assert.equal(m.papel, 'ferramenta'); return JSON.parse((m as { resultado: string }).resultado); };
+
+    before(async () => {
+      envAntes = { ...process.env };
+      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste' });
+      const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
+      usarClienteMetaDeTeste({
+        async trocarCodigo(code) { if (code !== 'codigo-ok') throw new Error('código expirado'); return 'token-da-pousada'; },
+        async assinarWebhooks() {},
+        async desassinarWebhooks(waba) { desassinadas.push(waba); },
+        async registrarNumero() {},
+        async dadosDoNumero() { return { numero: '+55 48 3000-0000', nome: 'Pousada A' }; },
+        async enviarTexto(phone, token, para, texto) { enviadas.push({ phone, token, para, texto }); return `wamid.S${seq++}`; },
+        async enviarModelo() { return `wamid.M${seq++}`; },
+        async criarModelo(_waba, _token, m) { modelosCriados.push(m.nome); },
+      });
+      const { usarModeloDeTeste } = await import('../lib/llm.js');
+      usarModeloDeTeste({
+        async responder(sistema, msgs) {
+          const passo = roteiro.shift();
+          if (!passo) throw new Error('modelo fora do ar');
+          return passo(sistema, msgs);
+        },
+      });
+    });
+
+    after(async () => {
+      (await import('../lib/metaWhatsapp.js')).usarClienteMetaDeTeste(null);
+      (await import('../lib/llm.js')).usarModeloDeTeste(null);
+      process.env = envAntes;
+    });
+
+    it('navegador recebe só o que é público; conectar é do dono/admin', async () => {
+      const cfg = await recep.req('GET', '/api/whatsapp/config');
+      assert.equal(cfg.status, 200);
+      assert.deepEqual([cfg.json.disponivel, cfg.json.appId, cfg.json.configId, cfg.json.agenteDisponivel], [true, '123', '456', true]);
+      assert.ok(!JSON.stringify(cfg.json).includes(SEGREDO));
+      assert.equal((await recep.req('POST', '/api/whatsapp/conectar', { code: 'codigo-ok', waba_id: '100200300', phone_number_id: NUMERO })).status, 403);
+      assert.equal((await aud.req('GET', '/api/whatsapp/conversas')).status, 403, 'auditoria não lê conversa de hóspede');
+    });
+
+    it('conectar troca o código, guarda o token cifrado e cria os modelos de mensagem', async () => {
+      const ruim = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'velho', waba_id: '100200300', phone_number_id: NUMERO });
+      assert.equal(ruim.status, 502);
+      assert.match(ruim.json.mensagem, /código expirado/);
+      const r = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'codigo-ok', waba_id: '100200300', phone_number_id: NUMERO, coexistencia: true });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.deepEqual([r.json.conta.conectado, r.json.conta.numero, r.json.conta.coexistencia, r.json.conta.agenteAtivo, r.json.conta.modelosCriados], [true, '+55 48 3000-0000', true, false, true]);
+      assert.ok(!JSON.stringify(r.json).includes('token-da-pousada'), 'o token nunca volta');
+      const { rows: [c] } = await pool.query(`SELECT token_cifrado FROM whatsapp_contas WHERE pousada_id = $1`, [pousadaA]);
+      assert.ok(!c.token_cifrado.includes('token-da-pousada'), 'cifrado no banco');
+      assert.deepEqual(modelosCriados, ['lembrete_chegada', 'reserva_confirmada']);
+      const outra = await donoB.req('POST', '/api/whatsapp/conectar', { code: 'codigo-ok', waba_id: '900900900', phone_number_id: NUMERO });
+      assert.equal(outra.status, 409, 'o número já é de outra pousada');
+    });
+
+    it('webhook: valida o endereço com o token e recusa assinatura errada', async () => {
+      const ok = await anon().req('GET', '/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=verifica-123&hub.challenge=987');
+      assert.deepEqual([ok.status, ok.json], [200, 987]);
+      assert.equal((await anon().req('GET', '/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=errado&hub.challenge=1')).status, 403);
+      const corpo = mensagem('5548900000001', 'Oi');
+      assert.equal((await webhook(corpo, 'sha256=' + '0'.repeat(64))).status, 401);
+      assert.equal((await webhook(corpo, '')).status, 401);
+      assert.equal(await conversaDe('5548900000001'), undefined, 'nada gravado');
+    });
+
+    it('atendente desligado: a conversa fica gravada (cifrada) e ninguém responde sozinho', async () => {
+      assert.equal((await webhook(mensagem('5548900000002', 'Oi, tem vaga para o feriado?'))).status, 200);
+      assert.equal(enviadas.length, 0);
+      const lista = await recep.req('GET', '/api/whatsapp/conversas');
+      assert.equal(lista.status, 200);
+      const c = lista.json.conversas.find((x: { contato: string }) => x.contato === '5548900000002');
+      assert.deepEqual([c.nome, c.ultima, c.janelaAberta], ['Joana Zap', 'Oi, tem vaga para o feriado?', true]);
+      const { rows } = await pool.query(`SELECT texto_cifrado FROM whatsapp_mensagens WHERE conversa_id = $1`, [c.id]);
+      assert.ok(!rows[0].texto_cifrado.includes('feriado'), 'texto cifrado no banco');
+    });
+
+    it('atendente ligado: avisa da privacidade, consulta vagas e faz a pré-reserva no telefone de quem escreve', async () => {
+      assert.equal((await recep.req('PUT', '/api/whatsapp/agente', { ativo: true })).status, 403);
+      assert.equal((await donoA.req('PUT', '/api/whatsapp/agente', { ativo: true })).status, 200);
+      const contato = '5548981812020';
+      roteiro = [
+        (sistema, msgs) => {
+          assert.match(sistema, /Pousada A/);
+          assert.deepEqual(msgs, [{ papel: 'usuario', texto: 'Tem quarto para 2 de ' + d(340) + ' a ' + d(342) + '?' }]);
+          return ferramenta('consultar_disponibilidade', { entrada: d(340), saida: d(342), adultos: 2 })(sistema, msgs);
+        },
+        (_s, msgs) => {
+          const livres = resultado(msgs);
+          assert.ok(livres.some((q: { quarto: number; total: string }) => q.quarto === 4 && /400,00/.test(q.total)), JSON.stringify(livres));
+          return { texto: 'Temos o quarto 4 por R$ 400,00 as duas noites.', chamadas: [] };
+        },
+      ];
+      assert.equal((await webhook(mensagem(contato, `Tem quarto para 2 de ${d(340)} a ${d(342)}?`))).status, 200);
+      const paraEle = enviadas.filter((e) => e.para === contato);
+      assert.equal(paraEle.length, 2);
+      assert.match(paraEle[0].texto, /atendente virtual da Pousada A/);
+      assert.equal(paraEle[1].texto, 'Temos o quarto 4 por R$ 400,00 as duas noites.');
+      assert.deepEqual([paraEle[1].phone, paraEle[1].token], [NUMERO, 'token-da-pousada'], 'sai pelo número da pousada, com o token dela');
+
+      let reservaId = 0;
+      roteiro = [
+        (s, msgs) => {
+          assert.equal(msgs.at(-2)?.papel, 'assistente', 'histórico vai junto');
+          return ferramenta('criar_pre_reserva', { quarto: 4, entrada: d(340), saida: d(342), adultos: 2, nome_completo: 'Joana Zap Silva' })(s, msgs);
+        },
+        (_s, msgs) => {
+          const r = resultado(msgs);
+          assert.ok(r.reserva, JSON.stringify(r));
+          reservaId = r.reserva;
+          assert.match(r.pix.copia_e_cola, /^000201/, 'Pix pela chave da pousada');
+          return { texto: `Pré-reserva feita! Pix: ${r.pix.copia_e_cola}`, chamadas: [] };
+        },
+      ];
+      await webhook(mensagem(contato, 'Pode reservar, sou Joana Zap Silva'));
+      assert.match(ultimaPara(contato), /^Pré-reserva feita! Pix: 000201/);
+      const { rows: [res] } = await pool.query(
+        `SELECT r.status, r.canal, h.telefone, h.nome FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [reservaId]);
+      assert.deepEqual(res, { status: 'pre_reserva', canal: 'whatsapp', telefone: contato, nome: 'Joana Zap Silva' });
+
+      roteiro = [
+        ferramenta('minhas_reservas', {}),
+        (_s, msgs) => {
+          const r = resultado(msgs);
+          assert.equal(r[0].reserva, reservaId);
+          assert.match(r[0].situacao, /pré-reserva/);
+          return { texto: 'Sua pré-reserva está guardada.', chamadas: [] };
+        },
+      ];
+      await webhook(mensagem(contato, 'Como está minha reserva?'));
+      assert.equal(ultimaPara(contato), 'Sua pré-reserva está guardada.');
+      assert.equal(roteiro.length, 0);
+    });
+
+    it('as reservas consultadas são só do número que escreveu', async () => {
+      roteiro = [
+        ferramenta('minhas_reservas', {}),
+        (_s, msgs) => {
+          assert.deepEqual(resultado(msgs), { mensagem: 'Nenhuma reserva ativa neste número.' });
+          return { texto: 'Não achei reservas neste número.', chamadas: [] };
+        },
+      ];
+      await webhook(mensagem('5548966660000', 'Tenho reserva?'));
+      assert.equal(ultimaPara('5548966660000'), 'Não achei reservas neste número.');
+    });
+
+    it('mensagem repetida pela Meta não é respondida duas vezes', async () => {
+      const corpo = mensagem('5548966660000', 'Obrigada!', { wamid: 'wamid.REPETIDA' });
+      roteiro = [() => ({ texto: 'Por nada!', chamadas: [] })];
+      await webhook(corpo);
+      const antes = enviadas.length;
+      await webhook(corpo);
+      assert.equal(enviadas.length, antes);
+    });
+
+    it('pedir atendente passa para a equipe; o agente fica calado; a equipe responde e devolve', async () => {
+      const contato = '5548950505050';
+      await webhook(mensagem(contato, 'Quero falar com um atendente'));
+      assert.match(ultimaPara(contato), /equipe/);
+      let c = await conversaDe(contato);
+      assert.equal(c.modo, 'humano');
+      const antes = enviadas.length;
+      await webhook(mensagem(contato, 'Alô?'));
+      assert.equal(enviadas.length, antes, 'agente não responde com a equipe na conversa');
+
+      const r = await recep.req('POST', `/api/whatsapp/conversas/${c.id}/responder`, { texto: 'Oi! Aqui é a Ana, da recepção.' });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(ultimaPara(contato), 'Oi! Aqui é a Ana, da recepção.');
+      const msgs = await recep.req('GET', `/api/whatsapp/conversas/${c.id}`);
+      assert.deepEqual(msgs.json.mensagens.map((m: { direcao: string }) => m.direcao), ['entrada', 'sistema', 'agente', 'entrada', 'equipe']);
+
+      assert.equal((await recep.req('POST', `/api/whatsapp/conversas/${c.id}/agente`)).status, 200);
+      c = await conversaDe(contato);
+      assert.deepEqual([c.modo, c.humano_ate], ['agente', null]);
+      roteiro = [() => ({ texto: 'Posso ajudar em algo mais?', chamadas: [] })];
+      await webhook(mensagem(contato, 'Obrigado'));
+      assert.equal(ultimaPara(contato), 'Posso ajudar em algo mais?');
+    });
+
+    it('fora da janela de 24h a equipe não manda texto livre', async () => {
+      const c = await conversaDe('5548950505050');
+      await pool.query(`UPDATE whatsapp_conversas SET janela_ate = now() - interval '1 minute' WHERE id = $1`, [c.id]);
+      const r = await recep.req('POST', `/api/whatsapp/conversas/${c.id}/responder`, { texto: 'Oi?' });
+      assert.equal(r.status, 409);
+      assert.match(r.json.mensagem, /24 horas/);
+    });
+
+    it('resposta pelo app do celular (coexistência) põe a equipe na conversa', async () => {
+      const contato = '5548944443333';
+      roteiro = [() => ({ texto: 'Olá!', chamadas: [] })];
+      await webhook(mensagem(contato, 'Bom dia'));
+      const eco = {
+        object: 'whatsapp_business_account',
+        entry: [{ id: 'waba', changes: [{ field: 'smb_message_echoes', value: {
+          messaging_product: 'whatsapp', metadata: { display_phone_number: '554830000000', phone_number_id: NUMERO },
+          message_echoes: [{ from: '554830000000', to: contato, id: 'wamid.ECO1', timestamp: '2', type: 'text', text: { body: 'Bom dia! Aqui é o Carlos.' } }],
+        } }] }],
+      };
+      assert.equal((await webhook(eco)).status, 200);
+      const c = await conversaDe(contato);
+      assert.equal(c.modo, 'humano');
+      const antes = enviadas.length;
+      await webhook(mensagem(contato, 'Oi Carlos'));
+      assert.equal(enviadas.length, antes, 'o agente não atravessa a conversa do Carlos');
+      const msgs = await recep.req('GET', `/api/whatsapp/conversas/${c.id}`);
+      assert.equal(msgs.json.mensagens.find((m: { direcao: string }) => m.direcao === 'equipe').texto, 'Bom dia! Aqui é o Carlos.');
+    });
+
+    it('"parar" desliga as mensagens; "voltar" religa', async () => {
+      const contato = '5548930303030';
+      await webhook(mensagem(contato, 'Parar'));
+      assert.match(ultimaPara(contato), /não vai mais receber/);
+      assert.equal((await conversaDe(contato)).optout, true);
+      const antes = enviadas.length;
+      await webhook(mensagem(contato, 'oi'));
+      assert.equal(enviadas.length, antes);
+      await webhook(mensagem(contato, 'voltar'));
+      assert.match(ultimaPara(contato), /voltou a receber/);
+      assert.equal((await conversaDe(contato)).optout, false);
+    });
+
+    it('áudio ou foto e modelo fora do ar vão para a equipe, sem deixar o hóspede sem resposta', async () => {
+      await webhook(mensagem('5548922221111', null));
+      assert.match(ultimaPara('5548922221111'), /só mensagens de texto/);
+      assert.equal((await conversaDe('5548922221111')).modo, 'humano');
+      roteiro = [];
+      await webhook(mensagem('5548911110000', 'Oi'));
+      assert.match(ultimaPara('5548911110000'), /problema para responder/);
+      assert.equal((await conversaDe('5548911110000')).modo, 'humano');
+    });
+
+    it('isolamento: outra pousada não vê as conversas; número desconhecido é ignorado', async () => {
+      const c = await conversaDe('5548981812020');
+      assert.deepEqual((await donoB.req('GET', '/api/whatsapp/conversas')).json.conversas, []);
+      assert.equal((await donoB.req('GET', `/api/whatsapp/conversas/${c.id}`)).status, 404);
+      assert.equal((await donoB.req('POST', `/api/whatsapp/conversas/${c.id}/responder`, { texto: 'x' })).status, 404);
+      assert.equal((await donoB.req('POST', `/api/whatsapp/conversas/${c.id}/agente`)).status, 404);
+      assert.equal((await webhook(mensagem('5548900000009', 'Oi', { phone: '999999999' }))).status, 200);
+      const { rows } = await pool.query(`SELECT 1 FROM whatsapp_conversas WHERE contato = '5548900000009'`);
+      assert.equal(rows.length, 0);
+    });
+
+    it('lembrete de chegada sai pelo número da pousada; quem pediu para parar não recebe', async () => {
+      const { lembretesDeChegada } = await import('../jobs/lembretes.js');
+      const amanha = new Date(Date.now() + 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      await pool.query(`UPDATE pousadas SET configuracoes = configuracoes || '{"whatsapp_lembrete": true}' WHERE id = $1`, [pousadaA]);
+      for (const [nome, tel, quarto] of [['Lia Lembrete', '48930303030', 1], ['Rui Lembrete', '48912340000', 2]] as const) {
+        const r = await recep.req('POST', '/api/reservas', { nome, telefone: tel, quarto, data_entrada: amanha, data_saida: d(5), valor: 300 });
+        assert.equal(r.status, 201, JSON.stringify(r.json));
+      }
+      await pool.query(`UPDATE whatsapp_conversas SET optout = true WHERE pousada_id = $1 AND contato = '5548930303030'`, [pousadaA]);
+      const metaMod = await import('../lib/metaWhatsapp.js');
+      const modelos: { para: string; modelo: string; parametros: string[] }[] = [];
+      const falso = metaMod.meta();
+      metaMod.usarClienteMetaDeTeste({ ...falso, async enviarModelo(_p, _t, para, modelo, parametros) { modelos.push({ para, modelo, parametros }); return 'wamid.L'; } });
+      try {
+        const r = await lembretesDeChegada(async () => { throw new Error('não deveria usar o número da plataforma'); });
+        assert.deepEqual(r, { enviados: 1, falhas: 0 });
+        assert.deepEqual(modelos.map((m) => [m.para, m.modelo, m.parametros[0]]), [['5548912340000', 'lembrete_chegada', 'Rui']]);
+      } finally {
+        metaMod.usarClienteMetaDeTeste(falso);
+        await pool.query(`UPDATE pousadas SET configuracoes = configuracoes - 'whatsapp_lembrete' WHERE id = $1`, [pousadaA]);
+      }
+    });
+
+    it('desconectar apaga o token; o número deixa de ser atendido', async () => {
+      assert.equal((await recep.req('POST', '/api/whatsapp/desconectar')).status, 403);
+      const r = await donoA.req('POST', '/api/whatsapp/desconectar');
+      assert.deepEqual(r.json.conta, { conectado: false });
+      assert.deepEqual(desassinadas, ['100200300'], 'a Meta para de mandar eventos da conta');
+      assert.equal((await pool.query(`SELECT 1 FROM whatsapp_contas WHERE pousada_id = $1`, [pousadaA])).rows.length, 0);
+      const antes = enviadas.length;
+      await webhook(mensagem('5548981812020', 'Oi de novo'));
+      assert.equal(enviadas.length, antes);
     });
   });
 

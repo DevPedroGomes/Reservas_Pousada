@@ -10,6 +10,7 @@ import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../m
 import { lerConfigMotor } from '../models/Motor.js';
 import { lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
 import { whatsappApiConfigurada } from '../lib/whatsapp.js';
+import { pool } from '../db/index.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
@@ -371,9 +372,10 @@ router.put('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) 
   }
 });
 
-/** GET /api/pousadas/:id/whatsapp — a plataforma tem a API oficial ligada? */
-router.get('/:id/whatsapp', requirePousadaAccess, (req: Request, res: Response) => {
-  res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() });
+/** GET /api/pousadas/:id/whatsapp — dá para mandar mensagem automática (número da pousada ou da plataforma)? */
+router.get('/:id/whatsapp', requirePousadaAccess, async (req: Request, res: Response) => {
+  const { rows } = await pool.query(`SELECT 1 FROM whatsapp_contas WHERE pousada_id = $1`, [parseInt(param(req, 'id'))]);
+  res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() || rows.length > 0, numeroProprio: rows.length > 0 });
 });
 
 router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {

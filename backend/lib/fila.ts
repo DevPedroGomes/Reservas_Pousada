@@ -27,6 +27,7 @@ export const FILAS = {
   expirarPreReservas: 'expirar-pre-reservas',
   sincronizarIcal: 'sincronizar-ical',
   lembretesWhatsapp: 'lembretes-whatsapp',
+  whatsappEntrada: 'whatsapp-entrada',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;

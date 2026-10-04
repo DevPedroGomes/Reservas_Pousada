@@ -15,6 +15,7 @@ import { useEquipe } from "../../../hooks/useEquipe"
 import { useStaffInvites } from "../../../hooks/useStaffInvites"
 import type { Message } from "../../../lib/types"
 import { MODELOS, preencher, VARIAVEIS, type Modelo } from "../../../lib/mensagens"
+import { WhatsappBusinessCard } from "../../../components/whatsapp/WhatsappBusiness"
 
 const PAPEIS: Record<string, string> = { admin: "Administração", recepcao: "Recepção", auditoria: "Auditoria" }
 
@@ -532,7 +533,7 @@ function MensagensWhatsApp() {
           {apiOficial && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={lembrete} onChange={(e) => setLembrete(e.target.checked)} className="h-4 w-4 accent-primary" />
-              Enviar lembrete automático na véspera da chegada (WhatsApp oficial)
+              Enviar lembrete automático na véspera da chegada (pelo WhatsApp oficial)
             </label>
           )}
           <Button type="submit">Salvar mensagens</Button>
@@ -666,6 +667,7 @@ export default function Configuracoes() {
           <PixDaPousada />
         </div>
       )}
+      {gerencia && <WhatsappBusinessCard />}
       {gerencia && <MensagensWhatsApp />}
       <div className="grid gap-5 lg:grid-cols-2">
         <Seguranca />

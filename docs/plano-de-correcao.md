@@ -78,12 +78,12 @@ Legenda: **[P0]** bloqueia produção · **[P1]** robustez · **[LG]** LGPD/lega
 | 2.3 | **[DF]** WhatsApp: links prontos (wa.me) já; API oficial atrás de env |
 | 2.4 | **[DF]** Pré-check-in online com os campos da FNRH |
 | 2.5 | **[DF]** PWA instalável para o dono |
-| 2.6 | **[DF]** Recepcionista IA no WhatsApp — só depois de 2.2/2.3 e cobrança ativa (ver `docs/chat-ia-dashboard.md`) |
+| 2.6 | **[DF]** WhatsApp Business da própria pousada (Embedded Signup, coexistência com o app do celular) + recepcionista IA com passagem para a equipe — configuração da Meta em `docs/whatsapp-meta.md`; o atendente só liga com `AGENTE_*` definido |
 
 ## Fora do código (ação do dono do produto)
 
 - Registrar domínio próprio e e-mail da marca; configurar SPF/DKIM/DMARC no Resend.
 - Dados da empresa (razão social, CNPJ, endereço, e-mail do encarregado LGPD) para as variáveis das páginas legais — e revisão jurídica dos textos.
 - Testar restauração do backup da `central-db`; guardar `CPF_ENCRYPTION_KEY` fora do backup.
-- Conta de gateway Pix, Meta Business (WhatsApp), GA4/Meta Ads, Sentry.
+- Conta de gateway Pix, Meta Business (WhatsApp — checklist em `docs/whatsapp-meta.md`: verificação da empresa, app Tech Provider, App Review), chave do modelo do atendente (`AGENTE_API_KEY`), GA4/Meta Ads, Sentry.
 - Ligar `BILLING_ENABLED` só depois da Fase 0 completa.

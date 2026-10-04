@@ -41,6 +41,7 @@ export default function Privacidade() {
         <li><strong>Pousada:</strong> nome, endereço, telefone, e-mail e configurações.</li>
         <li><strong>Hóspedes</strong> (inseridos pela pousada): nome, CPF, datas da estadia, quarto, valores, situação de pagamento e observações.</li>
         <li><strong>Cobrança:</strong> plano contratado e situação da assinatura. Dados de cartão são tratados diretamente pela Stripe; o Diária não os recebe nem armazena.</li>
+        <li><strong>WhatsApp da pousada</strong> (quando ela conecta o número): número e nome de perfil de quem escreve e o texto das mensagens trocadas, guardados cifrados por até 90 dias.</li>
       </ul>
 
       <h2>3. Para que usamos e com qual base legal</h2>
@@ -49,6 +50,7 @@ export default function Privacidade() {
         <li>Segurança, prevenção a fraude e trilha de auditoria — legítimo interesse (art. 7º, IX) e exercício regular de direitos.</li>
         <li>Cobrança da assinatura — execução de contrato.</li>
         <li>E-mails de serviço (confirmação de conta, redefinição de senha, convites) — execução de contrato.</li>
+        <li>Atendimento pelo WhatsApp da pousada, inclusive pelo atendente virtual (consultar vagas e preços, fazer pré-reserva, passar a conversa para a equipe) — em nome da pousada, para os procedimentos preliminares do contrato de hospedagem que o hóspede pediu (art. 7º, V). O hóspede pode pedir uma pessoa a qualquer momento escrevendo “atendente”, e parar as mensagens automáticas escrevendo “parar”.</li>
         <li>Medição de audiência e anúncios — somente com o seu consentimento (art. 7º, I), que pode ser retirado a qualquer momento.</li>
       </ul>
 
@@ -67,6 +69,9 @@ export default function Privacidade() {
         <li><strong>Resend</strong> — envio de e-mails do sistema (Estados Unidos).</li>
         <li><strong>Stripe</strong> — processamento de pagamentos da assinatura (Estados Unidos).</li>
         <li><strong>Google</strong> — apenas se você escolher entrar com a conta Google.</li>
+        <li><strong>Meta (WhatsApp Business)</strong> — apenas para pousadas que conectam o próprio WhatsApp: entrega das mensagens entre a pousada e o hóspede.</li>
+        <li><strong>Provedor do modelo de linguagem do atendente virtual</strong> — apenas quando a pousada liga o atendente: recebe o texto da conversa para redigir a resposta, sem uso para treinar modelos.</li>
+        <li><strong>Asaas</strong> — apenas para pousadas que ligam a confirmação automática do Pix: geração e consulta da cobrança do sinal, na conta da própria pousada.</li>
         <li><strong>Sentry</strong> — quando habilitado, recebe relatórios de erro técnico, sem conteúdo de reservas, cookies ou dados de hóspedes.</li>
       </ul>
       <p>

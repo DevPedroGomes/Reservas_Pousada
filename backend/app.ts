@@ -18,6 +18,8 @@ import icalRoutes from './routes/ical.js';
 import relatorioRoutes from './routes/relatorios.js';
 import publicoRoutes from './routes/publico.js';
 import webhookPixRoutes from './routes/webhookPix.js';
+import webhookWhatsappRoutes from './routes/webhookWhatsapp.js';
+import whatsappRoutes from './routes/whatsapp.js';
 import { calendarioExportado } from './models/Ical.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
@@ -83,7 +85,7 @@ const limiter = criarLimitador('global', {
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1500,
   keyGenerator: (req) => chaveDeRateLimit(req.ip),
-  skip: (req) => req.originalUrl.startsWith('/api/webhooks/stripe'),
+  skip: (req) => req.originalUrl.startsWith('/api/webhooks/stripe') || req.originalUrl.startsWith('/api/webhooks/whatsapp'),
   standardHeaders: true,
   legacyHeaders: false,
   message: { sucesso: false, mensagem: 'Muitas requisições deste IP, tente novamente após 15 minutos' }
@@ -184,6 +186,8 @@ app.all('/api/auth/{*caminho}', toNodeHandler(auth));
 // Se o express.json() rodar antes, o JSON é reserializado, os bytes mudam e
 // toda verificação falha. A rota usa express.raw internamente.
 app.use('/api/webhooks/stripe', stripeWebhookRoutes);
+// Webhook da Meta (WhatsApp): mesma razão — assinatura sobre o corpo cru.
+app.use('/api/webhooks/whatsapp', webhookWhatsappRoutes);
 
 // ==========================================
 // Body Parser (after Better Auth)
@@ -231,6 +235,7 @@ app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoute
 app.use('/api/tarifas', authMiddleware, userLimiter, requirePousada, tarifaRoutes);
 app.use('/api/ical', authMiddleware, userLimiter, requirePousada, icalRoutes);
 app.use('/api/relatorios', authMiddleware, userLimiter, requirePousada, relatorioRoutes);
+app.use('/api/whatsapp', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, whatsappRoutes);
 
 // Calendário exportado de um quarto: público, protegido pelo token secreto
 // do link. A OTA consulta de tempos em tempos; o limite segura varredura.

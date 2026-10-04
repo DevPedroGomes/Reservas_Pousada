@@ -72,14 +72,23 @@ export interface PousadaPublica {
 /** Pousada com o motor ligado (e assinatura em dia), ou null. */
 export async function pousadaPublica(slug: string): Promise<PousadaPublica | null> {
   if (!/^[a-z0-9-]{1,80}$/.test(slug)) return null;
+  const p = await carregarPousada('slug', slug);
+  return p?.motor.ativo ? p : null;
+}
+
+/** Pousada para o atendente virtual (não exige o motor ligado; exige assinatura em dia). */
+export async function pousadaPorId(id: number): Promise<PousadaPublica | null> {
+  return carregarPousada('id', id);
+}
+
+async function carregarPousada(campo: 'slug' | 'id', valor: string | number): Promise<PousadaPublica | null> {
   const { rows: [p] } = await pool.query(
     `SELECT id, slug, nome, cidade, estado, telefone, email, descricao, logo_url, configuracoes
-       FROM pousadas WHERE slug = $1 AND excluida_em IS NULL AND ativa IS NOT FALSE`,
-    [slug],
+       FROM pousadas WHERE ${campo === 'slug' ? 'slug' : 'id'} = $1 AND excluida_em IS NULL AND ativa IS NOT FALSE`,
+    [valor],
   );
   if (!p) return null;
   const motor = configMotor(p.configuracoes);
-  if (!motor.ativo) return null;
   if (billingHabilitado()) {
     const efetiva = await AssinaturaModel.efetiva(p.id);
     if (efetiva && !avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row)).liberado) return null;
@@ -198,7 +207,8 @@ export function lerPedido(corpo: Record<string, unknown>): { pedido: PedidoPubli
 }
 
 /** Cria a pré-reserva do pedido público. */
-export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico) {
+/** Pedido do site ou do atendente virtual no WhatsApp (canal da reserva). */
+export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico, canal: 'site' | 'whatsapp' = 'site') {
   const erroDatas = validarEstadia(pedido.entrada, pedido.saida);
   if (erroDatas) throw new PedidoRecusado(erroDatas);
   const pessoas = pedido.adultos + pedido.criancas;
@@ -210,8 +220,8 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico)
   // Freio contra robô: o mesmo WhatsApp com 3 pedidos em aberto não abre outro.
   const { rows: [abertas] } = await pool.query(
     `SELECT count(*)::int AS n FROM reservas r JOIN hospedes h ON h.id = r.hospede_id
-      WHERE r.pousada_id = $1 AND h.telefone = $2 AND r.status = 'pre_reserva' AND r.canal = 'site' AND r.deleted_at IS NULL`,
-    [p.id, pedido.telefone],
+      WHERE r.pousada_id = $1 AND h.telefone = $2 AND r.status = 'pre_reserva' AND r.canal = $3 AND r.deleted_at IS NULL`,
+    [p.id, pedido.telefone, canal],
   );
   if (abertas.n >= 3) throw new PedidoRecusado('Já há pedidos em aberto com este WhatsApp. A pousada vai responder em breve.', 409);
 
@@ -237,8 +247,8 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico)
       valor: String((quarto.totalCentavos ?? 0) / 100),
       adultos: pedido.adultos,
       criancas: pedido.criancas,
-      canal: 'site',
-      observacoes: ['Pedido pelo site.', pedido.observacoes].filter(Boolean).join(' '),
+      canal,
+      observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes].filter(Boolean).join(' '),
     });
     const totalCentavos = quarto.totalCentavos ?? 0;
     return {

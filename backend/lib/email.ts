@@ -217,6 +217,18 @@ export async function enviarPedidoRecebido(para: string, d: DadosPedidoSite): Pr
   await enfileirarEmail(para, `Pedido de reserva #${d.reservaId} recebido — ${d.pousada}`, html);
 }
 
+/** Aviso à equipe: o atendente virtual passou uma conversa do WhatsApp. */
+export async function enviarAtendimentoSolicitado(para: string[], d: { pousada: string; contato: string; nome: string | null; motivo: string; link: string }): Promise<void> {
+  const html = baseTemplate(`
+    ${titulo('Um hóspede quer falar com a equipe')}
+    ${p(`<strong>${escapeHtml(d.nome || d.contato)}</strong> (+${escapeHtml(d.contato)}) está no WhatsApp da <strong>${escapeHtml(d.pousada)}</strong> e o atendente virtual passou a conversa para vocês.`)}
+    ${p(`Motivo: ${escapeHtml(d.motivo)}`)}
+    ${ctaButton(d.link, 'Ver a conversa')}
+    ${pequeno('Responda pelo WhatsApp do celular ou pelo painel. Enquanto a equipe estiver na conversa, o atendente virtual não responde.')}
+  `, 'Atendimento no WhatsApp');
+  for (const email of para) await enfileirarEmail(email, `WhatsApp: ${d.nome || '+' + d.contato} quer falar com a equipe`, html);
+}
+
 // ==========================================
 // Fila
 // ==========================================

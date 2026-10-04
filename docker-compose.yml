@@ -97,6 +97,23 @@ services:
       # Custo fixo mensal de infra a ratear entre os pagantes. 0 = nao
       # configurado, e o painel avisa em vez de mostrar margem inflada.
       CUSTO_INFRA_MENSAL_CENTAVOS: ${CUSTO_INFRA_MENSAL_CENTAVOS:-0}
+      # --- WhatsApp Business das pousadas (Embedded Signup) e atendente virtual ---
+      # Passo a passo da Meta em docs/whatsapp-meta.md. Sem META_*, o card de
+      # conexão aparece como "não liberado"; sem AGENTE_*, o atendente fica
+      # desligado e as conversas só vão para a equipe.
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_CONFIG_ID: ${META_CONFIG_ID:-}
+      META_GRAPH_VERSAO: ${META_GRAPH_VERSAO:-v21.0}
+      WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}
+      AGENTE_PROVEDOR: ${AGENTE_PROVEDOR:-anthropic}
+      AGENTE_API_KEY: ${AGENTE_API_KEY:-}
+      AGENTE_MODELO: ${AGENTE_MODELO:-}
+      AGENTE_BASE_URL: ${AGENTE_BASE_URL:-}
+      AGENTE_LIMITE_DIARIO: ${AGENTE_LIMITE_DIARIO:-300}
+      # Número da PLATAFORMA para lembretes de quem não conectou o próprio (opcional).
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
     networks:
       - internal
       - proxy
@@ -178,7 +195,7 @@ services:
       - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net; frame-ancestors 'none'"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
       interval: 30s
