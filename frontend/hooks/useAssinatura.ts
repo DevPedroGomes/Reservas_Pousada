@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { API_URL, authenticatedFetch } from "../lib/api"
+import { rastrear } from "../lib/medicao"
 import type { Ciclo, LimitesPlano, PlanoDisponivel, SituacaoAssinatura } from "../lib/types"
 
 interface UseAssinaturaReturn {
   situacao: SituacaoAssinatura | null
+  /** Pousada coberta pelo plano Rede de outra: a assinatura é gerida lá. */
+  cobertaPor: { pousadaId: number; nome: string } | null
   limites: LimitesPlano | null
   usuarios: number
   billingHabilitado: boolean
@@ -17,11 +20,14 @@ interface UseAssinaturaReturn {
   setCiclo: (c: Ciclo) => void
   recarregar: () => Promise<void>
   assinar: (plano: string) => Promise<void>
+  trocarPlano: (plano: string) => Promise<void>
   abrirPortal: () => Promise<void>
+  aviso: string | null
 }
 
 export function useAssinatura(autenticado: boolean, pousadaId?: number | null): UseAssinaturaReturn {
   const [situacao, setSituacao] = useState<SituacaoAssinatura | null>(null)
+  const [cobertaPor, setCobertaPor] = useState<{ pousadaId: number; nome: string } | null>(null)
   const [limites, setLimites] = useState<LimitesPlano | null>(null)
   const [usuarios, setUsuarios] = useState(0)
   const [billingHabilitado, setBillingHabilitado] = useState(false)
@@ -30,6 +36,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
   const [carregando, setCarregando] = useState(false)
   const [redirecionando, setRedirecionando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
 
   const recarregar = useCallback(async () => {
     if (!autenticado) return
@@ -39,6 +46,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
       const data = await r.json()
       if (data.sucesso) {
         setSituacao(data.assinatura ?? null)
+        setCobertaPor(data.cobertaPor ?? null)
         setLimites(data.limites ?? null)
         setUsuarios(data.uso?.usuarios ?? 0)
         setBillingHabilitado(Boolean(data.billingHabilitado))
@@ -78,6 +86,7 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
    * convida um segundo clique — e uma segunda sessão de checkout.
    */
   const assinar = useCallback(async (plano: string) => {
+    rastrear("inicio_checkout", { plano, ciclo })
     setErro(null)
     setRedirecionando(true)
     try {
@@ -98,6 +107,33 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
     }
   }, [ciclo])
 
+  /**
+   * Troca o plano da assinatura existente (pró-rata no Stripe). Para quem já
+   * assina, "Assinar" abriria um segundo checkout — e uma segunda cobrança.
+   */
+  const trocarPlano = useCallback(async (plano: string) => {
+    setErro(null)
+    setAviso(null)
+    setRedirecionando(true)
+    try {
+      const r = await authenticatedFetch(`${API_URL}/billing/trocar-plano`, {
+        method: "POST",
+        body: JSON.stringify({ plano, ciclo }),
+      })
+      const data = await r.json()
+      if (data.sucesso) {
+        setAviso(data.mensagem || "Plano alterado.")
+        await recarregar()
+      } else {
+        setErro(data.mensagem || "Não foi possível trocar o plano.")
+      }
+    } catch {
+      setErro("Não foi possível conectar ao servidor.")
+    } finally {
+      setRedirecionando(false)
+    }
+  }, [ciclo, recarregar])
+
   const abrirPortal = useCallback(async () => {
     setErro(null)
     setRedirecionando(true)
@@ -117,9 +153,9 @@ export function useAssinatura(autenticado: boolean, pousadaId?: number | null): 
   }, [])
 
   return {
-    situacao, limites, usuarios, billingHabilitado, planos, ciclo,
+    situacao, cobertaPor, limites, usuarios, billingHabilitado, planos, ciclo,
     carregando, redirecionando, erro,
-    setCiclo, recarregar, assinar, abrirPortal,
+    setCiclo, recarregar, assinar, trocarPlano, abrirPortal, aviso,
   }
 }
 

@@ -1,3 +1,6 @@
+import type { StatusReserva } from "./status"
+import type { TipoDocumento } from "./hospedes"
+
 /**
  * Tipos compartilhados da aplicacao
  */
@@ -42,7 +45,57 @@ export interface Pousada {
   cep?: string
   telefone?: string
   email?: string
+  descricao?: string
+  configuracoes?: {
+    retencao_hospedes_meses?: number
+    motor?: { ativo?: boolean; prazo_horas?: number; sinal_percentual?: number; politicas?: string }
+    mensagens?: Partial<Record<"confirmacao" | "sinal" | "chegada" | "agradecimento", string>>
+    whatsapp_lembrete?: boolean
+  }
   ativa?: boolean
+}
+
+export interface Quarto {
+  id: number
+  numero: number
+  nome: string
+  tipo: string | null
+  capacidade: number
+  preco_base: number | null
+  descricao: string | null
+  ativo: boolean
+  ordem: number
+}
+
+export interface MembroEquipe {
+  id: string
+  nome: string
+  email: string
+  role: string
+  is_owner: boolean
+}
+
+export interface ItemAgenda {
+  id: number
+  nome: string
+  quarto: number
+  data_entrada: string
+  data_saida: string
+  valor: string | number | null
+  pago: boolean
+  status: string
+  telefone?: string
+  pago_centavos?: number
+  consumos_centavos?: number
+  precheckin_em?: string | null
+}
+
+export interface Agenda {
+  dia: string
+  chegadas: ItemAgenda[]
+  saidas: ItemAgenda[]
+  hospedados: ItemAgenda[]
+  proximas: ItemAgenda[]
 }
 
 export interface UserPousada {
@@ -61,17 +114,104 @@ export interface UserPousada {
 export interface Reserva {
   id?: number
   nome: string
-  cpf: string
+  /** Legado: o documento agora é `documento` + `tipo_documento`. */
+  cpf?: string
+  hospede_id?: number | null
+  tipo_documento?: TipoDocumento
+  /** Completo para quem opera; mascarado para auditoria. */
+  documento?: string
+  telefone?: string
+  email?: string
+  nacionalidade?: string
+  adultos?: number
+  criancas?: number
+  canal?: string
+  /** Conta: o que já entrou e o que foi consumido além das diárias (centavos). */
+  pago_centavos?: number
+  consumos_centavos?: number
+  /** Veio do calendário de uma OTA: datas e cancelamento seguem o que vier de lá. */
+  ical_importacao_id?: number | null
+  /** Quando o hóspede enviou a ficha de pré-check-in. */
+  precheckin_em?: string | null
   quarto: number | string
   data_entrada: string
   data_saida: string
-  status: "ativa" | "finalizada" | "cancelada"
+  status: StatusReserva
   valor?: number | string | null
   pago: boolean
   observacoes?: string
   criado_por?: string // Better Auth user ID
+  criado_por_nome?: string
   pousada_id?: number
   version?: number
+  /** Pré-reserva: até quando segura o quarto sem confirmação. */
+  expira_em?: string | null
+  check_in_em?: string | null
+  check_out_em?: string | null
+  cancelada_em?: string | null
+  motivo_cancelamento?: string | null
+  /** Só no formulário: prazo da pré-reserva e motivo do cancelamento enviados à API. */
+  prazo_horas?: number
+  motivo?: string
+}
+
+export interface Hospede {
+  id: number
+  nome: string
+  tipo_documento: TipoDocumento
+  documento: string
+  nacionalidade: string
+  telefone: string
+  email: string
+  data_nascimento: string
+  observacoes: string
+  anonimizado: boolean
+  /** Só na listagem. */
+  estadias?: number
+  ultima_estadia?: string | null
+  total_gasto?: number
+}
+
+export interface EstadiaDoHospede {
+  id: number
+  quarto: number
+  data_entrada: string
+  data_saida: string
+  status: StatusReserva
+  valor: string | number | null
+  pago: boolean
+  canal: string
+  adultos: number
+  criancas: number
+}
+
+export interface PagamentoDaConta {
+  id: number
+  valor_centavos: number
+  forma: string
+  tipo: "sinal" | "pagamento" | "estorno"
+  recebido_em: string
+  observacao: string
+  criado_por_nome: string
+}
+
+export interface ConsumoDaConta {
+  id: number
+  descricao: string
+  quantidade: number
+  valor_unitario_centavos: number
+  lancado_em: string
+  criado_por_nome: string
+}
+
+export interface ContaDaReserva {
+  diarias_centavos: number
+  consumos_centavos: number
+  total_centavos: number
+  pago_centavos: number
+  saldo_centavos: number
+  pagamentos: PagamentoDaConta[]
+  consumos: ConsumoDaConta[]
 }
 
 export interface Auditoria {
@@ -82,6 +222,9 @@ export interface Auditoria {
   details?: {
     antes?: Partial<Reserva>
     depois?: Partial<Reserva>
+    /** Lançamentos da conta (centavos, como a API grava). */
+    pagamento?: { valorCentavos?: number; valor_centavos?: number; forma?: string; tipo?: string }
+    consumo?: { descricao?: string; quantidade?: number; valorUnitarioCentavos?: number; valor_unitario_centavos?: number }
   }
 }
 
@@ -92,6 +235,10 @@ export interface SituacaoAssinatura {
   status: StatusAssinatura
   plano: string | null
   planoNome: string | null
+  ciclo: "mensal" | "anual" | null
+  /** Há assinatura no Stripe que ainda vale: troca de plano, não checkout novo. */
+  assinaturaViva: boolean
+  cancelaNoFim: boolean
   trialTerminaEm: string | null
   periodoTerminaEm: string | null
   liberado: boolean
@@ -141,11 +288,16 @@ export type PageType = "dashboard" | "reservas" | "nova-reserva" | "configuracoe
 
 export const initialReservaForm: Reserva = {
   nome: "",
-  cpf: "",
+  tipo_documento: "cpf",
+  documento: "",
+  telefone: "",
+  adultos: 1,
+  criancas: 0,
+  canal: "direto",
   quarto: 1,
   data_entrada: "",
   data_saida: "",
-  status: "ativa",
+  status: "confirmada",
   valor: null,
   pago: false,
   observacoes: "",

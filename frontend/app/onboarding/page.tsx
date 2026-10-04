@@ -6,489 +6,170 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
-import { Select } from '../../components/ui/select';
-import { Textarea } from '../../components/ui/textarea';
-import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
-import { useSession } from '../../lib/auth-client';
+import { useSession, handleSignOut } from '../../lib/auth-client';
+import { authenticatedFetch } from '../../lib/api';
+import { fixarPousadaDaAba } from '../../lib/tenant';
+import { rastrear } from '../../lib/medicao';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-interface PousadaForm {
-  nome: string;
-  num_quartos: number;
-  endereco: string;
-  cidade: string;
-  estado: string;
-  cep: string;
-  telefone: string;
-  email: string;
-  descricao: string;
-}
-
-const initialForm: PousadaForm = {
-  nome: '',
-  num_quartos: 10,
-  endereco: '',
-  cidade: '',
-  estado: '',
-  cep: '',
-  telefone: '',
-  email: '',
-  descricao: ''
-};
-
-const estados = [
-  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
-  'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
-  'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO'
+const ESTADOS = [
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA',
+  'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
 ];
 
+/**
+ * Onboarding em UM passo: nome e número de quartos.
+ *
+ * Antes eram 3 etapas exigindo endereço, telefone e e-mail antes de a pessoa
+ * ver o produto — cada campo obrigatório no primeiro minuto é gente que
+ * desiste no meio do trial que o anúncio pagou para trazer. Cidade e UF são
+ * opcionais; o resto se completa em Configurações quando fizer sentido.
+ */
 export default function OnboardingPage() {
   const router = useRouter();
-  const { data: session, isPending: sessionLoading } = useSession();
-  const [step, setStep] = useState(1);
-  const [form, setForm] = useState<PousadaForm>(initialForm);
-  const [loading, setLoading] = useState(false);
-  const [checkingPousada, setCheckingPousada] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { data: session, isPending } = useSession();
+  const [nome, setNome] = useState('');
+  const [quartos, setQuartos] = useState('8');
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [verificando, setVerificando] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [criandoOutra, setCriandoOutra] = useState(false);
 
-  // Redirect if not authenticated
   useEffect(() => {
-    if (!sessionLoading && !session?.user) {
-      router.push('/');
-    }
-  }, [session, sessionLoading, router]);
+    if (!isPending && !session?.user) router.push('/entrar?proximo=/onboarding');
+  }, [session, isPending, router]);
 
-  // Check if user already has a pousada
   useEffect(() => {
     if (!session?.user) return;
-
-    async function checkPousada() {
+    const outra = new URLSearchParams(window.location.search).has('nova');
+    setCriandoOutra(outra);
+    // Quem já tem pousada só fica aqui se veio criar OUTRA (?nova=1).
+    void (async () => {
       try {
-        const response = await fetch(`${API_URL}/api/pousadas/minha`, {
-          credentials: 'include',
-        });
-        const data = await response.json();
-
-        if (data.sucesso && data.pousada) {
-          // User already has a pousada, redirect to dashboard
-          router.push('/');
+        const r = await authenticatedFetch(`${API_URL}/api/pousadas/minha`);
+        const d = await r.json();
+        if (d.sucesso && d.pousada && !outra) {
+          router.push('/painel');
           return;
         }
-      } catch (error) {
-        console.error('Erro ao verificar pousada:', error);
-      } finally {
-        setCheckingPousada(false);
+      } catch {
+        /* segue para o formulário */
       }
-    }
-
-    checkPousada();
+      setVerificando(false);
+    })();
   }, [session, router]);
 
-  function validateStep1(): boolean {
-    if (!form.nome.trim()) {
-      setMessage({ type: 'error', text: 'Nome da pousada é obrigatório.' });
-      return false;
-    }
-    if (form.nome.trim().length < 3) {
-      setMessage({ type: 'error', text: 'Nome da pousada deve ter pelo menos 3 caracteres.' });
-      return false;
-    }
-    if (form.num_quartos < 1 || form.num_quartos > 100) {
-      setMessage({ type: 'error', text: 'Número de quartos deve ser entre 1 e 100.' });
-      return false;
-    }
-    return true;
-  }
+  async function criar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro(null);
+    const n = Number(quartos);
+    if (nome.trim().length < 2) return setErro('Dê um nome à pousada (pelo menos 2 letras).');
+    if (!Number.isInteger(n) || n < 1 || n > 100) return setErro('Informe de 1 a 100 quartos.');
 
-  function validateStep2(): boolean {
-    if (!form.endereco.trim()) {
-      setMessage({ type: 'error', text: 'Endereço é obrigatório.' });
-      return false;
-    }
-    if (!form.cidade.trim()) {
-      setMessage({ type: 'error', text: 'Cidade é obrigatória.' });
-      return false;
-    }
-    if (!form.estado) {
-      setMessage({ type: 'error', text: 'Estado é obrigatório.' });
-      return false;
-    }
-    if (!form.telefone.trim()) {
-      setMessage({ type: 'error', text: 'Telefone é obrigatório.' });
-      return false;
-    }
-    const phoneDigits = form.telefone.replace(/\D/g, '');
-    if (phoneDigits.length < 10 || phoneDigits.length > 11) {
-      setMessage({ type: 'error', text: 'Telefone deve ter 10 ou 11 dígitos.' });
-      return false;
-    }
-    if (!form.email.trim()) {
-      setMessage({ type: 'error', text: 'Email é obrigatório.' });
-      return false;
-    }
-    // Validar formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(form.email)) {
-      setMessage({ type: 'error', text: 'Email inválido.' });
-      return false;
-    }
-    return true;
-  }
-
-  function nextStep() {
-    setMessage(null);
-    if (step === 1 && !validateStep1()) return;
-    if (step === 2 && !validateStep2()) return;
-    setStep(step + 1);
-  }
-
-  function prevStep() {
-    setMessage(null);
-    setStep(step - 1);
-  }
-
-  async function handleSubmit() {
-    if (!session?.user) return;
-    setLoading(true);
-    setMessage(null);
-
+    setSalvando(true);
     try {
-      const response = await fetch(`${API_URL}/api/pousadas`, {
+      const r = await authenticatedFetch(`${API_URL}/api/pousadas`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(form)
+        body: JSON.stringify({
+          nome: nome.trim(),
+          num_quartos: n,
+          ...(cidade.trim() ? { cidade: cidade.trim() } : {}),
+          ...(estado ? { estado } : {}),
+        }),
       });
-
-      const data = await response.json();
-
-      if (data.sucesso) {
-        setMessage({ type: 'success', text: 'Pousada configurada com sucesso! Redirecionando...' });
-
-        // Full reload to refresh session with new pousadaId
-        setTimeout(() => {
-          window.location.replace('/');
-        }, 1200);
-      } else {
-        setMessage({ type: 'error', text: data.mensagem || 'Erro ao configurar pousada.' });
+      const d = await r.json();
+      if (d.sucesso) {
+        // A aba passa a operar a pousada recém-criada.
+        fixarPousadaDaAba(d.pousada?.id ?? null);
+        rastrear('pousada_criada');
+        window.location.replace('/painel');
+        return;
       }
-    } catch (error) {
-      console.error('Erro ao criar pousada:', error);
-      setMessage({ type: 'error', text: 'Erro ao configurar pousada. Tente novamente.' });
+      setErro(
+        r.status === 402
+          ? `${d.mensagem} Veja os planos em Assinatura.`
+          : [d.mensagem, ...(d.erros ?? [])].filter(Boolean).join(' ') || 'Não foi possível criar a pousada.',
+      );
+    } catch {
+      setErro('Não foi possível conectar ao servidor. Tente novamente.');
     } finally {
-      setLoading(false);
+      setSalvando(false);
     }
   }
 
-  if (sessionLoading || checkingPousada) {
+  function cancelar() {
+    // Criando a 2ª pousada: volta ao painel. Primeira pousada: não há painel
+    // ainda, então "cancelar" é sair da conta.
+    if (criandoOutra) router.push('/painel');
+    else void handleSignOut().then(() => window.location.assign('/'));
+  }
+
+  if (isPending || verificando) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-slate-600">
-        Carregando...
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background px-4 py-16">
-      <div className="mx-auto max-w-2xl space-y-8">
-        {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <img src="/logo.png" alt="Logo" className="h-12 w-12 rounded-lg object-cover" />
+    <main className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <div className="mb-2 flex items-center gap-2.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="text-sm font-semibold">Diária</span>
           </div>
-          <div>
-            <Badge className="mb-2">Configuracao inicial</Badge>
-            <h1 className="text-2xl font-semibold">
-              Configure sua Pousada
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              Preencha as informacoes para comecar a usar o sistema.
-            </p>
-          </div>
-        </div>
-
-        {/* Step Indicator */}
-        <div className="flex items-center justify-center">
-          {[
-            { num: 1, label: 'Dados Basicos' },
-            { num: 2, label: 'Contato' },
-            { num: 3, label: 'Finalizar' },
-          ].map((s, idx) => (
-            <div key={s.num} className="flex items-center">
-              <div className="flex flex-col items-center gap-1.5">
-                <div
-                  className={cn(
-                    'flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors',
-                    step === s.num
-                      ? 'bg-primary text-primary-foreground'
-                      : step > s.num
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-muted text-muted-foreground'
-                  )}
-                >
-                  {step > s.num ? '✓' : s.num}
-                </div>
-                <span
-                  className={cn(
-                    'text-xs',
-                    step >= s.num ? 'text-primary font-medium' : 'text-muted-foreground'
-                  )}
-                >
-                  {s.label}
-                </span>
-              </div>
-              {idx < 2 && (
-                <div
-                  className={cn(
-                    'h-1 w-16 mx-3 mb-6 rounded-full transition-colors',
-                    step > s.num ? 'bg-emerald-500' : 'bg-muted'
-                  )}
-                />
-              )}
+          <CardTitle className="text-xl">{criandoOutra ? 'Nova pousada' : 'Vamos cadastrar sua pousada'}</CardTitle>
+          <CardDescription>
+            Só o essencial para você lançar a primeira reserva. Endereço e contato ficam para depois, em Configurações.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={criar} className="space-y-4">
+            {erro && (
+              <div className={cn('rounded-lg border px-3 py-2 text-sm border-rose-200 bg-rose-50 text-rose-700')}>{erro}</div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="nome">Nome da pousada</Label>
+              <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pousada Sol e Mar" autoFocus required />
             </div>
-          ))}
-        </div>
-
-        {/* Form Card */}
-        <Card className="shadow-lg border-slate-200/80">
-          <CardHeader>
-            <CardTitle>
-              {step === 1 && 'Informacoes Basicas'}
-              {step === 2 && 'Endereco e Contato'}
-              {step === 3 && 'Revisao e Finalizacao'}
-            </CardTitle>
-            <CardDescription>
-              {step === 1 && 'Informe o nome da pousada e quantidade de quartos.'}
-              {step === 2 && 'Dados de localizacao e contato da pousada.'}
-              {step === 3 && 'Revise as informacoes e finalize a configuracao.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Step 1: Basic Info */}
-            {step === 1 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nome">Nome da Pousada *</Label>
-                  <Input
-                    id="nome"
-                    value={form.nome}
-                    onChange={(e) => setForm((prev) => ({ ...prev, nome: e.target.value }))}
-                    placeholder="Ex: Pousada Mar Azul"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="num_quartos">Numero de Quartos *</Label>
-                  <Input
-                    id="num_quartos"
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={form.num_quartos}
-                    onChange={(e) => setForm((prev) => ({ ...prev, num_quartos: parseInt(e.target.value) || 1 }))}
-                    required
-                  />
-                  <p className="text-xs text-slate-500">De 1 a 100 quartos</p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="descricao">Descricao (opcional)</Label>
-                  <Textarea
-                    id="descricao"
-                    rows={3}
-                    value={form.descricao}
-                    onChange={(e) => setForm((prev) => ({ ...prev, descricao: e.target.value }))}
-                    placeholder="Breve descricao da pousada..."
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Contact Info */}
-            {step === 2 && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="endereco">Endereco *</Label>
-                  <Input
-                    id="endereco"
-                    value={form.endereco}
-                    onChange={(e) => setForm((prev) => ({ ...prev, endereco: e.target.value }))}
-                    placeholder="Rua, numero, complemento"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="cidade">Cidade *</Label>
-                    <Input
-                      id="cidade"
-                      value={form.cidade}
-                      onChange={(e) => setForm((prev) => ({ ...prev, cidade: e.target.value }))}
-                      placeholder="Nome da cidade"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="estado">Estado *</Label>
-                    <Select
-                      id="estado"
-                      value={form.estado}
-                      onChange={(e) => setForm((prev) => ({ ...prev, estado: e.target.value }))}
-                      required
-                    >
-                      <option value="">Selecione</option>
-                      {estados.map((uf) => (
-                        <option key={uf} value={uf}>{uf}</option>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="cep">CEP</Label>
-                  <Input
-                    id="cep"
-                    value={form.cep}
-                    onChange={(e) => setForm((prev) => ({ ...prev, cep: e.target.value.replace(/\D/g, '').slice(0, 8) }))}
-                    placeholder="00000000"
-                    maxLength={8}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="telefone">Telefone *</Label>
-                    <Input
-                      id="telefone"
-                      value={form.telefone}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
-                        let formatted = digits;
-                        if (digits.length > 6) {
-                          formatted = `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-                        } else if (digits.length > 2) {
-                          formatted = `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-                        } else if (digits.length > 0) {
-                          formatted = `(${digits}`;
-                        }
-                        setForm((prev) => ({ ...prev, telefone: formatted }));
-                      }}
-                      placeholder="(00) 00000-0000"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={form.email}
-                      onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-                      placeholder="contato@pousada.com"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3: Review */}
-            {step === 3 && (
-              <div className="space-y-6">
-                <div className="rounded-xl bg-slate-50 p-4 space-y-3">
-                  <h4 className="font-medium text-slate-900">Dados Basicos</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <span className="text-slate-500">Nome:</span>
-                    <span className="text-slate-900">{form.nome}</span>
-                    <span className="text-slate-500">Quartos:</span>
-                    <span className="text-slate-900">{form.num_quartos}</span>
-                    {form.descricao && (
-                      <>
-                        <span className="text-slate-500">Descricao:</span>
-                        <span className="text-slate-900">{form.descricao}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 p-4 space-y-3">
-                  <h4 className="font-medium text-slate-900">Endereco e Contato</h4>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <span className="text-slate-500">Endereco:</span>
-                    <span className="text-slate-900">{form.endereco}</span>
-                    <span className="text-slate-500">Cidade/UF:</span>
-                    <span className="text-slate-900">{form.cidade} - {form.estado}</span>
-                    {form.cep && (
-                      <>
-                        <span className="text-slate-500">CEP:</span>
-                        <span className="text-slate-900">{form.cep}</span>
-                      </>
-                    )}
-                    <span className="text-slate-500">Telefone:</span>
-                    <span className="text-slate-900">{form.telefone}</span>
-                    <span className="text-slate-500">Email:</span>
-                    <span className="text-slate-900">{form.email}</span>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
-                  <p className="text-sm text-indigo-800">
-                    Ao finalizar, sua pousada estara configurada e voce podera comecar a gerenciar reservas imediatamente.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Message */}
-            {message && (
-              <div
-                className={cn(
-                  'rounded-xl border px-4 py-3 text-sm',
-                  message.type === 'success'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                    : 'border-rose-200 bg-rose-50 text-rose-700'
-                )}
-              >
-                {message.text}
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-            <div className="flex justify-between pt-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={step === 1 ? () => router.push('/') : prevStep}
-              >
-                {step === 1 ? 'Cancelar' : 'Voltar'}
-              </Button>
-
-              {step < 3 ? (
-                <Button type="button" onClick={nextStep}>
-                  Continuar
-                </Button>
-              ) : (
-                <Button type="button" onClick={handleSubmit} disabled={loading}>
-                  {loading ? 'Configurando...' : 'Finalizar Configuracao'}
-                </Button>
-              )}
+            <div className="space-y-1.5">
+              <Label htmlFor="num_quartos">Quantos quartos?</Label>
+              <Input id="num_quartos" type="number" min={1} max={100} value={quartos} onChange={(e) => setQuartos(e.target.value)} required />
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Help text */}
-        <p className="text-center text-sm text-slate-500">
-          Precisa de ajuda? Entre em contato com o suporte.
-        </p>
-      </div>
+            <div className="grid grid-cols-[1fr_6rem] gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="cidade">Cidade <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+                <Input id="cidade" value={cidade} onChange={(e) => setCidade(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="estado">UF</Label>
+                <select
+                  id="estado"
+                  value={estado}
+                  onChange={(e) => setEstado(e.target.value)}
+                  className="flex h-10 w-full rounded-lg border border-border bg-white px-2 text-sm"
+                >
+                  <option value="">—</option>
+                  {ESTADOS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              </div>
+            </div>
+            <Button type="submit" className="w-full h-11" disabled={salvando}>
+              {salvando ? 'Criando...' : 'Criar pousada e começar'}
+            </Button>
+            <button type="button" onClick={cancelar} className="w-full text-center text-sm text-muted-foreground hover:text-foreground">
+              {criandoOutra ? 'Voltar ao painel' : 'Sair'}
+            </button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }

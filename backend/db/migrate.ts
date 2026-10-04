@@ -68,6 +68,11 @@ export async function runMigrations(): Promise<void> {
 
   const client = await pool.connect();
   try {
+    // Migration pode legitimamente demorar (criar indice numa tabela grande):
+    // o statement_timeout do pool nao vale aqui.
+    await client.query('SET statement_timeout = 0');
+    await client.query('SET idle_in_transaction_session_timeout = 0');
+
     // Lock de SESSAO: sobrevive aos commits abaixo, cai no unlock/release.
     await client.query('SELECT pg_advisory_lock($1)', [LOCK_KEY]);
 
@@ -98,6 +103,7 @@ export async function runMigrations(): Promise<void> {
     }
   } finally {
     await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]).catch(() => {});
-    client.release();
+    // Conexao volta ao pool sem os SETs acima: descarta em vez de reaproveitar.
+    client.release(true);
   }
 }

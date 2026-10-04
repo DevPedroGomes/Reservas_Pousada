@@ -1,18 +1,27 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import PousadaModel from '../models/Pousada.js';
+import PousadaModel, { LimiteDoPlano } from '../models/Pousada.js';
+import QuartoModel, { QuartoRecusado } from '../models/Quarto.js';
+import { excluirPousada, ExclusaoRecusada } from '../models/Conta.js';
+import { hojeLocal } from '../utils/datas.js';
+import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
+import { lerConfigMotor } from '../models/Motor.js';
+import { lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
+import { whatsappApiConfigurada } from '../lib/whatsapp.js';
+import { pool } from '../db/index.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
 import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
 // Middleware to check if user has access to the pousada
 const requirePousadaAccess = (req: Request, res: Response, next: NextFunction) => {
-  const pousadaId = parseInt(req.params.id);
+  const pousadaId = parseInt(param(req, 'id'));
   if (!req.user?.pousadaId || req.user.pousadaId !== pousadaId) {
     return res.status(403).json({
       sucesso: false,
@@ -24,7 +33,7 @@ const requirePousadaAccess = (req: Request, res: Response, next: NextFunction) =
 
 // Middleware to verify owner access for specific pousada
 const requirePousadaOwner = (req: Request, res: Response, next: NextFunction) => {
-  const pousadaId = parseInt(req.params.id);
+  const pousadaId = parseInt(param(req, 'id'));
   if (!req.user?.pousadaId || req.user.pousadaId !== pousadaId) {
     return res.status(403).json({
       sucesso: false,
@@ -65,15 +74,8 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const estouro = await excedeLimiteDeQuartos(
-      req.user!.pousadaId ?? null,
-      dadosSanitizados.num_quartos as number,
-    );
-    if (estouro) {
-      return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
-    }
-
-    // Create pousada with owner
+    // Limites (número de pousadas e de quartos) são decididos dentro da
+    // transação de criação — ver PousadaModel.criarComOwner.
     const pousada = await PousadaModel.criarComOwner({
       nome: dadosSanitizados.nome!,
       numQuartos: dadosSanitizados.num_quartos as number,
@@ -86,7 +88,7 @@ router.post('/', async (req: Request, res: Response) => {
       logoUrl: dadosSanitizados.logo_url,
       descricao: dadosSanitizados.descricao,
       configuracoes: dadosSanitizados.configuracoes,
-    }, req.user!.id);
+    }, req.user!.id, { aplicarLimites: billingHabilitado() });
 
     res.status(201).json({
       sucesso: true,
@@ -94,6 +96,9 @@ router.post('/', async (req: Request, res: Response) => {
       pousada
     });
   } catch (error: any) {
+    if (error instanceof LimiteDoPlano) {
+      return res.status(402).json({ sucesso: false, codigo: error.codigo, mensagem: error.message, precisaUpgrade: true });
+    }
     console.error('Erro ao criar pousada:', error);
     res.status(500).json({
       sucesso: false,
@@ -200,7 +205,7 @@ router.post('/trocar', async (req: Request, res: Response) => {
  */
 router.get('/:id', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -237,7 +242,7 @@ router.get('/:id', requirePousadaAccess, async (req: Request, res: Response) => 
  */
 router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -264,11 +269,23 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
       if (estouro) {
         return res.status(402).json({ sucesso: false, codigo: 'BILLING_002', mensagem: estouro, precisaUpgrade: true });
       }
+
+      // "Número de quartos" é atalho: cria/reativa ou desativa quartos no
+      // cadastro (a fonte da verdade é a tabela quartos). Recusa se algum
+      // quarto que sairia tiver reserva vigente.
+      try {
+        await QuartoModel.ajustarQuantidade(parseInt(id), dadosSanitizados.num_quartos as number, hojeLocal());
+      } catch (err) {
+        if (err instanceof QuartoRecusado) {
+          return res.status(409).json({ sucesso: false, codigo: 'POU_001', mensagem: err.message });
+        }
+        throw err;
+      }
     }
 
     const pousadaAtualizada = await PousadaModel.atualizar(parseInt(id), {
       nome: dadosSanitizados.nome,
-      numQuartos: dadosSanitizados.num_quartos as number | undefined,
+      // num_quartos é cache mantido por trigger; o ajuste já foi feito acima.
       endereco: dadosSanitizados.endereco,
       cidade: dadosSanitizados.cidade,
       estado: dadosSanitizados.estado,
@@ -300,9 +317,70 @@ router.put('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
  * GET /api/pousadas/:id/dashboard
  * Get dashboard statistics
  */
+/**
+ * PUT /api/pousadas/:id/motor
+ * Motor de reservas pelo site: liga/desliga, prazo, sinal, políticas e endereço.
+ */
+router.put('/:id/motor', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(param(req, 'id'));
+    const { config, erros } = lerConfigMotor(req.body ?? {});
+    if (req.body?.slug !== undefined) {
+      const erroSlug = await PousadaModel.definirSlug(id, String(req.body.slug).trim().toLowerCase());
+      if (erroSlug) erros.push(erroSlug);
+    }
+    if (erros.length) return res.status(400).json({ sucesso: false, mensagem: erros[0], erros });
+    const pousada = await PousadaModel.atualizar(id, { configuracoes: { motor: config } });
+    await AuditoriaModel.log(req.user!.id, 'motor_reservas', 'pousada', id, { depois: config }, req.ip || null);
+    res.json({ sucesso: true, pousada });
+  } catch (error) {
+    console.error('Erro ao salvar o motor de reservas:', error);
+    res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
+  }
+});
+
+/**
+ * GET/PUT /api/pousadas/:id/pix
+ * Chave Pix (copia e cola com confirmação manual) e, opcionalmente, o token
+ * do Mercado Pago (confirmação automática). O token nunca volta na resposta.
+ */
+router.get('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) => {
+  res.json({ sucesso: true, pix: await situacaoPix(parseInt(param(req, 'id'))) });
+});
+
+router.put('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(param(req, 'id'));
+    const { config, erros } = lerConfigPix(req.body ?? {});
+    const chaveApi = typeof req.body?.asaas_chave === 'string' ? req.body.asaas_chave.trim() : '';
+    if (chaveApi && !/^\$aact_[A-Za-z0-9_=+/.-]{20,400}$/.test(chaveApi)) {
+      erros.push('Chave de API do Asaas inválida (Asaas > Integrações > Chave de API; começa com $aact_).');
+    }
+    if (erros.length) return res.status(400).json({ sucesso: false, mensagem: erros[0], erros });
+    await PousadaModel.atualizar(id, { configuracoes: { pix: config } });
+    let aviso: string | undefined;
+    if (chaveApi) {
+      const r = await salvarCredencial(id, chaveApi, req.user!.email ?? '');
+      if (!r.webhookRegistrado) aviso = `Chave salva, mas o aviso de pagamento não pôde ser registrado no Asaas (${r.erro ?? 'sem detalhe'}). Cadastre o webhook manualmente com o endereço e o token abaixo.`;
+    }
+    if (req.body?.remover_asaas === true) await salvarCredencial(id, null);
+    await AuditoriaModel.log(req.user!.id, 'config_pix', 'pousada', id, { chave: Boolean(config), asaas: Boolean(chaveApi) }, req.ip || null);
+    res.json({ sucesso: true, aviso, pix: await situacaoPix(id) });
+  } catch (error) {
+    console.error('Erro ao salvar Pix:', error);
+    res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
+  }
+});
+
+/** GET /api/pousadas/:id/whatsapp — dá para mandar mensagem automática (número da pousada ou da plataforma)? */
+router.get('/:id/whatsapp', requirePousadaAccess, async (req: Request, res: Response) => {
+  const { rows } = await pool.query(`SELECT 1 FROM whatsapp_contas WHERE pousada_id = $1`, [parseInt(param(req, 'id'))]);
+  res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() || rows.length > 0, numeroProprio: rows.length > 0 });
+});
+
 router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -332,7 +410,7 @@ router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Res
  */
 router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -341,7 +419,7 @@ router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Respo
       });
     }
 
-    const quartos = await PousadaModel.listarQuartos(parseInt(id));
+    const quartos = (await QuartoModel.listar(parseInt(id), false)).map((q) => q.numero);
 
     res.json({
       sucesso: true,
@@ -366,7 +444,7 @@ router.get('/:id/quartos', requirePousadaAccess, async (req: Request, res: Respo
  */
 router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -390,51 +468,47 @@ router.get('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Respo
   }
 });
 
+// POST /api/pousadas/:id/usuarios (vincular um usuário pelo id) foi REMOVIDO.
+// Ele puxava qualquer conta para dentro da pousada sem consentimento e sem
+// passar pelo limite de usuários do plano. Entrar numa equipe agora é só por
+// convite, que exige o e-mail do convidado e o aceite dele.
+
 /**
- * POST /api/pousadas/:id/usuarios
- * Add user to pousada (admin/owner only)
+ * PATCH /api/pousadas/:id/usuarios/:userId
+ * Troca o papel de um membro. Regras:
+ * - ninguém muda o próprio papel nem o do dono;
+ * - conceder ou retirar o papel de admin é só do dono (um admin não cria
+ *   outros admins nem rebaixa um colega).
+ * Vale na hora: o papel é lido do vínculo a cada requisição.
  */
-router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { user_id, role } = req.body;
+router.patch('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request, res: Response) => {
+  const pousadaId = parseInt(param(req, 'id'));
+  const alvoId = param(req, 'userId');
+  const { role } = req.body ?? {};
 
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'ID da pousada inválido'
-      });
-    }
-
-    if (!user_id) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: 'ID do usuário é obrigatório'
-      });
-    }
-
-    if (role && !ehPapelValido(role)) {
-      return res.status(400).json({
-        sucesso: false,
-        mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`
-      });
-    }
-
-    await PousadaModel.adicionarUsuario(parseInt(id), user_id, role || 'recepcao');
-
-    await AuditoriaModel.log(req.user!.id, 'user_add', 'user_pousada', parseInt(id), { userId: user_id, role: role || 'recepcao' }, req.ip || null);
-
-    res.json({
-      sucesso: true,
-      mensagem: 'Usuário adicionado à pousada'
-    });
-  } catch (error: any) {
-    console.error('Erro ao adicionar usuário:', error);
-    res.status(500).json({
-      sucesso: false,
-      mensagem: 'Erro ao adicionar usuário'
-    });
+  if (!ehPapelValido(role)) {
+    return res.status(400).json({ sucesso: false, mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}` });
   }
+  if (alvoId === req.user!.id) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Você não pode alterar o próprio papel.' });
+  }
+
+  const vinculo = await PousadaModel.verificarAcesso(pousadaId, alvoId);
+  if (!vinculo) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Usuário não é membro desta pousada.' });
+  }
+  if (vinculo.isOwner) {
+    return res.status(403).json({ sucesso: false, mensagem: 'O papel do proprietário não pode ser alterado.' });
+  }
+  if (!req.user!.isOwner && (role === 'admin' || vinculo.role === 'admin')) {
+    return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário concede ou retira o papel de administrador.' });
+  }
+
+  await PousadaModel.alterarPapel(pousadaId, alvoId, role);
+  await AuditoriaModel.log(req.user!.id, 'user_role_change', 'user_pousada', pousadaId,
+    { userId: alvoId, de: vinculo.role, para: role }, req.ip || null);
+
+  res.json({ sucesso: true, mensagem: 'Papel atualizado.' });
 });
 
 /**
@@ -443,7 +517,8 @@ router.post('/:id/usuarios', requirePousadaOwner, async (req: Request, res: Resp
  */
 router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id, userId } = req.params;
+    const id = param(req, 'id');
+    const userId = param(req, 'userId');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -465,6 +540,12 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
         sucesso: false,
         mensagem: 'Você não pode remover a si mesmo da pousada'
       });
+    }
+
+    // Admin não remove outro admin (só o dono decide sobre administradores).
+    const vinculoAlvo = await PousadaModel.verificarAcesso(parseInt(id), userId);
+    if (vinculoAlvo?.role === 'admin' && !req.user!.isOwner) {
+      return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário remove um administrador.' });
     }
 
     await PousadaModel.removerUsuario(parseInt(id), userId);
@@ -489,12 +570,34 @@ router.delete('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request,
 // ============================================
 
 /**
+ * DELETE /api/pousadas/:id — exclusão definitiva a pedido do dono (LGPD).
+ * Corpo: { confirmacao: "<nome exato da pousada>" }.
+ */
+router.delete('/:id', requirePousadaOwner, async (req: Request, res: Response) => {
+  if (!req.user!.isOwner) {
+    return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário pode excluir a pousada.' });
+  }
+  const pousadaId = parseInt(param(req, 'id'));
+  try {
+    await excluirPousada(pousadaId, String(req.body?.confirmacao ?? ''));
+  } catch (err) {
+    if (err instanceof ExclusaoRecusada) {
+      return res.status(409).json({ sucesso: false, mensagem: err.message });
+    }
+    throw err;
+  }
+  // Registro sem dado pessoal: a auditoria da pousada acabou de ser apagada.
+  await AuditoriaModel.log(req.user!.id, 'pousada_excluida', 'usuario', null, { pousadaId }, req.ip || null);
+  res.json({ sucesso: true, mensagem: 'Pousada excluída definitivamente.' });
+});
+
+/**
  * POST /api/pousadas/:id/desativar
  * Deactivate pousada (owner only)
  */
 router.post('/:id/desativar', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -532,7 +635,7 @@ router.post('/:id/desativar', requirePousadaOwner, async (req: Request, res: Res
  */
 router.post('/:id/reativar', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = param(req, 'id');
 
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
@@ -577,7 +680,7 @@ const FRONTEND_URL = urlDoApp();
  */
 router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
+    const pousadaId = parseInt(param(req, 'id'));
     const { email, role } = req.body;
 
     if (!validarEmail(email)) {
@@ -626,19 +729,24 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
 
     await AuditoriaModel.log(req.user!.id, 'invite_create', 'staff_invite', invite.id, { email, role: role || 'recepcao', pousadaId }, req.ip || null);
 
-    // Send invite email (fire-and-forget)
+    // O e-mail vai para a fila (com retentativa). Se nem enfileirar der certo,
+    // o convite existe mas a tela precisa dizer que o e-mail não saiu — antes
+    // dizia "enviado" mesmo quando o envio falhava.
     const inviteUrl = `${FRONTEND_URL}/convite/${invite.token}`;
-    sendStaffInviteEmail(
-      email,
-      pousada.nome,
-      role || 'recepcao',
-      req.user!.name || 'Administrador',
-      inviteUrl,
-    ).catch(console.error);
+    let emailEnfileirado = true;
+    try {
+      await sendStaffInviteEmail(email, pousada.nome, role || 'recepcao', req.user!.name || 'Administrador', inviteUrl);
+    } catch (err) {
+      emailEnfileirado = false;
+      console.error('[Convite] falha ao enfileirar e-mail:', err);
+    }
 
     res.status(201).json({
       sucesso: true,
-      mensagem: 'Convite enviado com sucesso',
+      mensagem: emailEnfileirado
+        ? 'Convite criado — o e-mail chega em instantes.'
+        : 'Convite criado, mas o e-mail não pôde ser enviado agora. Use "Reenviar" em alguns minutos.',
+      emailEnviado: emailEnfileirado,
       convite: {
         id: invite.id,
         email: invite.email,
@@ -662,7 +770,7 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
  */
 router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
+    const pousadaId = parseInt(param(req, 'id'));
     const convites = await StaffInviteModel.listarPorPousada(pousadaId);
 
     res.json({
@@ -679,13 +787,43 @@ router.get('/:id/convites', requirePousadaOwner, async (req: Request, res: Respo
 });
 
 /**
+ * POST /api/pousadas/:id/convites/:inviteId/reenviar
+ * Reenvia o e-mail de um convite pendente (o convidado perdeu, foi pro spam).
+ * Renova a validade por mais 7 dias.
+ */
+router.post('/:id/convites/:inviteId/reenviar', requirePousadaOwner, async (req: Request, res: Response) => {
+  const pousadaId = parseInt(param(req, 'id'));
+  const inviteId = parseInt(param(req, 'inviteId'));
+  if (isNaN(inviteId)) {
+    return res.status(400).json({ sucesso: false, mensagem: 'ID do convite inválido' });
+  }
+
+  const convite = await StaffInviteModel.renovar(inviteId, pousadaId);
+  if (!convite) {
+    return res.status(404).json({ sucesso: false, mensagem: 'Convite pendente não encontrado' });
+  }
+  const pousada = await PousadaModel.buscarPorId(pousadaId);
+  await sendStaffInviteEmail(
+    convite.email,
+    pousada?.nome ?? 'sua pousada',
+    convite.role,
+    req.user!.name || 'Administrador',
+    `${FRONTEND_URL}/convite/${convite.token}`,
+  );
+  AuditoriaModel.log(req.user!.id, 'invite_resend', 'staff_invite', inviteId, { pousadaId }, req.ip || null)
+    .catch((e) => console.error('[Auditoria] reenvio de convite:', e.message));
+
+  res.json({ sucesso: true, mensagem: 'Convite reenviado.' });
+});
+
+/**
  * DELETE /api/pousadas/:id/convites/:inviteId
  * Revoke invite (owner/admin only)
  */
 router.delete('/:id/convites/:inviteId', requirePousadaOwner, async (req: Request, res: Response) => {
   try {
-    const pousadaId = parseInt(req.params.id);
-    const inviteId = parseInt(req.params.inviteId);
+    const pousadaId = parseInt(param(req, 'id'));
+    const inviteId = parseInt(param(req, 'inviteId'));
 
     if (isNaN(inviteId)) {
       return res.status(400).json({

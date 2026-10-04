@@ -3,6 +3,7 @@
 import type React from "react"
 import { Button } from "../ui/button"
 import { Card, CardContent } from "../ui/card"
+import { ROTULO_STATUS, STATUS_RESERVA } from "../../lib/status"
 import { Input } from "../ui/input"
 import { Label } from "../ui/label"
 import { Select } from "../ui/select"
@@ -66,9 +67,7 @@ export function ReservationFilters({
               <Label htmlFor="status" className="text-xs">Status</Label>
               <Select id="status" value={filters.status} onChange={handleChange("status")}>
                 <option value="">Todos</option>
-                <option value="ativa">Ativa</option>
-                <option value="finalizada">Finalizada</option>
-                <option value="cancelada">Cancelada</option>
+                {STATUS_RESERVA.map((s) => <option key={s} value={s}>{ROTULO_STATUS[s]}</option>)}
               </Select>
             </div>
             <div className="space-y-1.5">

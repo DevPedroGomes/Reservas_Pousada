@@ -131,3 +131,89 @@ export function mensagemDeBloqueio(motivo: MotivoBloqueio): string {
       return 'Sua assinatura foi cancelada. Escolha um plano para voltar a usar.';
   }
 }
+
+/**
+ * Existe uma assinatura no Stripe que ainda vale (ou que ainda pode voltar a
+ * valer)? Nesse caso NÃO se abre checkout novo — trocar de plano é atualizar a
+ * assinatura existente; regularizar pagamento é no portal.
+ *
+ * Abrir um segundo checkout para quem já assina criava uma SEGUNDA assinatura
+ * no mesmo customer: cobrança em dobro, e a primeira seguia cobrando sem
+ * aparecer em lugar nenhum do sistema.
+ *
+ * `cancelada` só chega aqui depois do fim do período pago (cancelamento
+ * agendado continua `ativa` com cancelaNoFim), então ali checkout novo é o
+ * caminho certo.
+ */
+export function temAssinaturaViva(e: { status: string; stripeSubscriptionId: string | null }): boolean {
+  if (!e.stripeSubscriptionId) return false;
+  return e.status === 'ativa' || e.status === 'inadimplente' || e.status === 'suspensa';
+}
+
+export interface UsoAtual {
+  quartos: number;
+  usuarios: number;
+  pousadas: number;
+}
+
+/**
+ * O uso atual cabe nos limites de outro plano? Devolve a lista de motivos
+ * quando não cabe — é o que impede um downgrade que deixaria a conta acima do
+ * limite (e bloquearia a operação no dia seguinte).
+ */
+export function motivosParaNaoCaber(uso: UsoAtual, limites: Limites): string[] {
+  const motivos: string[] = [];
+  if (uso.quartos > limites.maxQuartos) {
+    motivos.push(`a pousada tem ${uso.quartos} quartos e o plano permite ${limites.maxQuartos}`);
+  }
+  if (limites.maxUsuarios !== null && uso.usuarios > limites.maxUsuarios) {
+    motivos.push(`a equipe tem ${uso.usuarios} usuários e o plano permite ${limites.maxUsuarios}`);
+  }
+  if (uso.pousadas > limites.maxPousadas) {
+    motivos.push(`a conta tem ${uso.pousadas} pousadas e o plano permite ${limites.maxPousadas}`);
+  }
+  return motivos;
+}
+
+export interface PousadaPossuida {
+  pousadaId: number;
+  estado: EstadoAssinatura;
+  /** Pousada cuja assinatura cobre esta (plano Rede). null = assinatura própria. */
+  cobertaPor: number | null;
+}
+
+export type DecisaoNovaPousada =
+  | { permitido: true; cobertaPor: number | null }
+  | { permitido: false; motivo: string };
+
+/**
+ * O dono pode criar mais uma pousada? E, se puder, qual assinatura a cobre?
+ *
+ * - Primeira pousada: sempre, com trial próprio.
+ * - Seguintes: só se alguma pousada pagadora do dono (assinatura própria,
+ *   liberada) tiver `maxPousadas` folgado — Rede ou cortesia. A nova nasce
+ *   coberta por ela, sem trial novo.
+ *
+ * Antes não havia regra: cada pousada nova ganhava 14 dias de trial (teste
+ * grátis infinito) e o Rede não cobria as pousadas que prometia cobrir.
+ */
+export function decidirNovaPousada(possuidas: PousadaPossuida[], agora: Date = new Date()): DecisaoNovaPousada {
+  if (possuidas.length === 0) return { permitido: true, cobertaPor: null };
+
+  const pagadoras = possuidas.filter((p) => p.cobertaPor === null && avaliarAcesso(p.estado, agora).liberado);
+  for (const pagadora of pagadoras) {
+    const cobertas = possuidas.filter((p) => p.cobertaPor === pagadora.pousadaId).length;
+    const limite = limitesVigentes(pagadora.estado).maxPousadas;
+    if (1 + cobertas < limite) {
+      return { permitido: true, cobertaPor: pagadora.pousadaId };
+    }
+  }
+
+  const temRede = pagadoras.some((p) => limitesVigentes(p.estado).maxPousadas > 1);
+  return {
+    permitido: false,
+    motivo: temRede
+      ? 'Você atingiu o número de pousadas do seu plano. Fale com o suporte para ampliar.'
+      : 'Seu plano permite 1 pousada. Assine o plano Rede para gerenciar até 3 propriedades.',
+  };
+}

@@ -19,6 +19,8 @@ interface AuthCardProps {
     login: boolean
   }
   message: { type: "success" | "error"; text: string } | null
+  /** Esconde o botão do Google quando o login social não está configurado. */
+  mostrarGoogle?: boolean
 }
 
 export function AuthCard({
@@ -29,6 +31,7 @@ export function AuthCard({
   onGoogleLogin,
   loading,
   message,
+  mostrarGoogle = true,
 }: AuthCardProps) {
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
@@ -72,6 +75,8 @@ export function AuthCard({
           </div>
         )}
 
+        {mostrarGoogle && (
+          <>
         <Button
           type="button"
           variant="outline"
@@ -108,6 +113,9 @@ export function AuthCard({
             <span className="bg-white px-2 text-muted-foreground">ou</span>
           </div>
         </div>
+
+          </>
+        )}
 
         {!isSignup && (
           <form onSubmit={handleLoginSubmit} className="space-y-3">

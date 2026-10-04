@@ -37,67 +37,48 @@ function StatCard({ title, value, description, icon, variant = "default", classN
 }
 
 interface StatsGridProps {
-  reservasAtivas: number
-  quartosDisponiveis: number
+  quartosOcupados: number
   totalQuartos: number
-  reservasHoje: number
+  taxaOcupacao: number
+  chegadasHoje: number
+  saidasHoje: number
+  aReceber: number
 }
 
-export function StatsGrid({
-  reservasAtivas,
-  quartosDisponiveis,
-  totalQuartos,
-  reservasHoje,
-}: StatsGridProps) {
-  const taxaOcupacao = totalQuartos > 0
-    ? Math.round((reservasAtivas / totalQuartos) * 100)
-    : 0
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })
 
+/**
+ * Números do topo do painel, todos vindos do backend.
+ *
+ * A ocupação era calculada aqui como "reservas ativas ÷ quartos" — o que
+ * contava reservas FUTURAS como ocupação de hoje (uma pousada vazia com 10
+ * reservas para o Réveillon aparecia 100% ocupada).
+ */
+export function StatsGrid({ quartosOcupados, totalQuartos, taxaOcupacao, chegadasHoje, saidasHoje, aReceber }: StatsGridProps) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
       <StatCard
-        title="Reservas Ativas"
-        value={reservasAtivas}
-        description="Hospedes atualmente"
-        variant="success"
-        icon={
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-        }
-      />
-      <StatCard
-        title="Quartos Disponiveis"
-        value={quartosDisponiveis}
-        description={`De ${totalQuartos} quartos`}
-        variant="info"
-        icon={
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-          </svg>
-        }
-      />
-      <StatCard
-        title="Ocupacao"
+        title="Ocupação hoje"
         value={`${taxaOcupacao}%`}
-        description="Neste momento"
-        variant={taxaOcupacao > 80 ? "warning" : "default"}
-        icon={
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        }
+        description={`${quartosOcupados} de ${totalQuartos} quartos`}
+        variant={taxaOcupacao >= 80 ? "warning" : "success"}
       />
       <StatCard
-        title="Hoje"
-        value={reservasHoje}
-        description="Check-ins e check-outs"
-        variant="default"
-        icon={
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        }
+        title="Livres hoje"
+        value={Math.max(totalQuartos - quartosOcupados, 0)}
+        description="Quartos disponíveis"
+        variant="info"
+      />
+      <StatCard
+        title="Movimento hoje"
+        value={`${chegadasHoje} / ${saidasHoje}`}
+        description="Chegadas / saídas"
+      />
+      <StatCard
+        title="A receber"
+        value={brl(aReceber)}
+        description="Saldo das reservas em aberto"
+        variant={aReceber > 0 ? "warning" : "default"}
       />
     </div>
   )

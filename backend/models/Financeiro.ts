@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { db, financeiroLancamentos } from '../db/index.js';
+import { db, financeiroLancamentos, type Executor } from '../db/index.js';
 import { TIMEZONE } from '../utils/datas.js';
 import {
   calcularMargem,
@@ -59,8 +59,8 @@ export class FinanceiroModel {
     estimado?: boolean;
     descricao?: string;
     referenciaExterna?: string;
-  }): Promise<boolean> {
-    const r = await db
+  }, executor: Executor = db): Promise<boolean> {
+    const r = await executor
       .insert(financeiroLancamentos)
       .values({
         pousadaId: params.pousadaId,

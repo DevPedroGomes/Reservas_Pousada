@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { auth } from '../lib/auth.js';
-import { db, user } from '../db/index.js';
-import { eq } from 'drizzle-orm';
+import { db, user, userPousadas } from '../db/index.js';
+import { and, eq, sql } from 'drizzle-orm';
 
 // Extend Express Request to include user and session
 declare global {
@@ -11,6 +11,7 @@ declare global {
         id: string;
         name: string;
         email: string;
+        emailVerified: boolean;
         image?: string | null;
         role: string;
         pousadaId: number | null;
@@ -65,10 +66,45 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       });
     }
 
-    // Get full user data from database (including custom fields)
+    // Pousada ativa DESTA aba.
+    //
+    // Antes a pousada ativa morava só na linha do usuário: um dono com duas
+    // pousadas trocava numa aba e a outra aba (ou o celular da recepção)
+    // continuava mostrando a pousada antiga enquanto gravava na nova. Agora o
+    // frontend manda `X-Pousada-Id` por aba; sem o header vale a última
+    // escolhida (`user.pousada_id`), que é o padrão de uma aba nova.
+    const cabecalho = req.get('x-pousada-id');
+    let pousadaPedida: number | null = null;
+    if (cabecalho !== undefined && cabecalho !== '') {
+      pousadaPedida = Number(cabecalho);
+      if (!Number.isInteger(pousadaPedida) || pousadaPedida <= 0) {
+        return res.status(400).json({ sucesso: false, codigo: 'AUTHZ_004', mensagem: 'Cabeçalho X-Pousada-Id inválido' });
+      }
+    }
+
+    // Usuário + vínculo com a pousada alvo numa consulta só. O papel vem do
+    // VÍNCULO (user_pousadas), não da cópia na linha do usuário: é o vínculo
+    // que diz o que a pessoa pode fazer naquela pousada.
     const [userData] = await db
-      .select()
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        image: user.image,
+        pousadaPadrao: user.pousadaId,
+        vinculoPousada: userPousadas.pousadaId,
+        vinculoRole: userPousadas.role,
+        vinculoOwner: userPousadas.isOwner,
+      })
       .from(user)
+      .leftJoin(
+        userPousadas,
+        and(
+          eq(userPousadas.userId, user.id),
+          eq(userPousadas.pousadaId, pousadaPedida ?? sql`${user.pousadaId}`),
+        ),
+      )
       .where(eq(user.id, session.user.id))
       .limit(1);
 
@@ -80,15 +116,31 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       });
     }
 
+    // Pediu uma pousada da qual não é membro (removido da equipe, ou id
+    // forjado): recusa explícita, para a aba se realinhar — nunca cai em
+    // silêncio para outra pousada.
+    if (pousadaPedida !== null && userData.vinculoPousada === null) {
+      return res.status(403).json({
+        sucesso: false,
+        codigo: 'AUTHZ_003',
+        mensagem: 'Você não tem acesso a esta pousada',
+        pousadaInvalida: true,
+      });
+    }
+
+    const temVinculo = userData.vinculoPousada !== null;
+
     // Attach user and session to request
     req.user = {
       id: userData.id,
       name: userData.name,
       email: userData.email,
+      emailVerified: userData.emailVerified,
       image: userData.image,
-      role: userData.role || 'recepcao',
-      pousadaId: userData.pousadaId,
-      isOwner: userData.isOwner || false,
+      role: temVinculo ? userData.vinculoRole! : 'recepcao',
+      // Pousada padrão sem vínculo (resto de uma remoção) vale como nenhuma.
+      pousadaId: temVinculo ? userData.vinculoPousada : null,
+      isOwner: temVinculo ? Boolean(userData.vinculoOwner) : false,
     };
 
     req.session = {

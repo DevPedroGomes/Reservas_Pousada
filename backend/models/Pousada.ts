@@ -3,6 +3,15 @@ import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
 import { hojeLocal } from '../utils/datas.js';
 import AssinaturaModel from './Assinatura.js';
+import { decidirNovaPousada, limitesVigentes } from '../utils/assinatura.js';
+
+/** Criação recusada pelo plano. A rota responde 402 com a mensagem. */
+export class LimiteDoPlano extends Error {
+  constructor(mensagem: string, readonly codigo: string) {
+    super(mensagem);
+    this.name = 'LimiteDoPlano';
+  }
+}
 
 export class PousadaModel {
   /**
@@ -62,13 +71,41 @@ export class PousadaModel {
 
   /**
    * Create pousada and associate user as owner (junction table + active)
+   *
+   * Com `aplicarLimites` (billing ligado), decide DENTRO da transação se o dono
+   * pode ter mais uma pousada e qual assinatura a cobre (plano Rede). O lock
+   * por usuário serializa criações simultâneas do mesmo dono — sem ele, dois
+   * cliques contavam "2 de 3" ao mesmo tempo e o limite estourava.
    */
-  static async criarComOwner(pousadaData: Omit<NewPousada, 'slug'>, userId: string): Promise<Pousada> {
+  static async criarComOwner(
+    pousadaData: Omit<NewPousada, 'slug'>,
+    userId: string,
+    opcoes: { aplicarLimites?: boolean } = {},
+  ): Promise<Pousada> {
     const slug = await this.gerarSlugUnico(pousadaData.nome);
 
     // As três escritas são uma coisa só. Sem transação, uma falha no meio
     // deixava pousada órfã sem dono — estado que nenhuma tela sabe consertar.
     return db.transaction(async (tx) => {
+      let cobertaPor: number | null = null;
+      if (opcoes.aplicarLimites) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'nova-pousada:' + userId}))`);
+        const decisao = decidirNovaPousada(await AssinaturaModel.possuidasPor(userId, tx));
+        if (!decisao.permitido) throw new LimiteDoPlano(decisao.motivo, 'BILLING_004');
+        cobertaPor = decisao.cobertaPor;
+
+        const efetiva = cobertaPor ? await AssinaturaModel.efetiva(cobertaPor, tx) : null;
+        const limites = limitesVigentes(
+          efetiva ? AssinaturaModel.paraEstado(efetiva.row) : { status: 'trial', plano: null },
+        );
+        if ((pousadaData.numQuartos ?? 0) > limites.maxQuartos) {
+          throw new LimiteDoPlano(
+            `Seu plano permite até ${limites.maxQuartos} quartos. Faça upgrade para cadastrar ${pousadaData.numQuartos}.`,
+            'BILLING_002',
+          );
+        }
+      }
+
       const [pousada] = await tx
         .insert(pousadas)
         .values({ ...pousadaData, slug })
@@ -93,7 +130,11 @@ export class PousadaModel {
 
       // Mesma transacao: pousada sem assinatura e tenant que o enforcement nao
       // sabe avaliar, e o trial precisa comecar a contar do minuto zero.
-      await AssinaturaModel.criarTrial(pousada.id, tx);
+      if (cobertaPor) {
+        await AssinaturaModel.criarCoberta(pousada.id, cobertaPor, tx);
+      } else {
+        await AssinaturaModel.criarTrial(pousada.id, tx);
+      }
 
       return pousada;
     });
@@ -134,15 +175,15 @@ export class PousadaModel {
       updatedAt: new Date(),
     };
 
-    // Só regera o slug se o nome REALMENTE mudou. Antes, salvar a pousada sem
-    // mexer no nome já criava um slug novo: `gerarSlugUnico` encontrava a
-    // própria linha ocupando o slug e ia somando sufixo — pousada, pousada-1,
-    // pousada-2... a cada clique em Salvar.
-    if (pousadaData.nome) {
-      const atual = await this.buscarPorId(id);
-      if (!atual || atual.nome !== pousadaData.nome) {
-        updateData.slug = await this.gerarSlugUnico(pousadaData.nome);
-      }
+    // O slug NÃO acompanha o nome: ele é o endereço público da pousada
+    // (/r/<slug>, o motor de reservas) e mudar ao renomear quebraria o link
+    // já divulgado. Trocar o endereço é escolha explícita (definirSlug).
+    delete (updateData as Partial<NewPousada>).slug;
+    // Configurações se somam às existentes: salvar a retenção não apaga o
+    // motor de reservas, e vice-versa.
+    if (pousadaData.configuracoes) {
+      (updateData as Record<string, unknown>).configuracoes =
+        sql`COALESCE(${pousadas.configuracoes}, '{}'::jsonb) || ${JSON.stringify(pousadaData.configuracoes)}::jsonb`;
     }
 
     const [updated] = await db
@@ -155,17 +196,21 @@ export class PousadaModel {
   }
 
   /**
-   * List all rooms (1 to numQuartos)
+   * Endereço público escolhido pelo dono. Devolve a mensagem de recusa, ou
+   * null se gravou.
    */
-  static async listarQuartos(pousadaId: number): Promise<number[]> {
-    const pousada = await this.buscarPorId(pousadaId);
-    if (!pousada) throw new Error('Pousada não encontrada');
-
-    const quartos: number[] = [];
-    for (let i = 1; i <= pousada.numQuartos; i++) {
-      quartos.push(i);
+  static async definirSlug(id: number, slug: string): Promise<string | null> {
+    if (!/^[a-z0-9](?:[a-z0-9-]{1,58}[a-z0-9])$/.test(slug)) {
+      return 'Endereço deve ter de 3 a 60 letras minúsculas, números ou hífens (sem acento nem espaço).';
     }
-    return quartos;
+    const [ocupado] = await db
+      .select({ id: pousadas.id })
+      .from(pousadas)
+      .where(and(eq(pousadas.slug, slug), sql`${pousadas.id} <> ${id}`))
+      .limit(1);
+    if (ocupado) return 'Este endereço já está em uso por outra pousada.';
+    await db.update(pousadas).set({ slug, updatedAt: new Date() }).where(eq(pousadas.id, id));
+    return null;
   }
 
   /**
@@ -182,15 +227,23 @@ export class PousadaModel {
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_reservas,
-        COUNT(*) FILTER (WHERE status = 'ativa')::int AS reservas_ativas,
-        COUNT(*) FILTER (WHERE status = 'ativa' AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
+        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada'))::int AS reservas_ativas,
+        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada') AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
         -- Ocupação usa intervalo semiaberto [entrada, saída): quem faz check-out
         -- hoje já liberou o quarto e não conta como ocupado.
-        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status = 'ativa' AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
+        (SELECT COUNT(DISTINCT quarto) FROM reservas WHERE pousada_id = ${pousadaId} AND status IN ('pre_reserva', 'confirmada', 'hospedada') AND deleted_at IS NULL AND data_entrada <= ${hoje} AND data_saida > ${hoje})::int AS quartos_ocupados,
         -- Receita realizada exclui cancelada: dinheiro de reserva cancelada foi
         -- devolvido ou virou crédito, não é faturamento.
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = true AND status <> 'cancelada'), 0)::numeric AS receita_total,
-        COALESCE(SUM(valor::numeric) FILTER (WHERE pago = false AND status = 'ativa'), 0)::numeric AS receita_pendente
+        -- Recebido: o que entrou de fato (pagamentos menos estornos). Sinal
+        -- retido de reserva cancelada também é receita.
+        (SELECT COALESCE(SUM(p.valor_centavos), 0) FROM pagamentos p JOIN reservas rp ON rp.id = p.reserva_id
+          WHERE p.pousada_id = ${pousadaId} AND rp.deleted_at IS NULL)::numeric / 100 AS receita_total,
+        -- A receber: saldo (diárias + consumos - pago) das reservas que valem.
+        COALESCE(SUM(GREATEST(
+          COALESCE(round(valor * 100), 0)
+          + COALESCE((SELECT SUM(c.quantidade * c.valor_unitario_centavos) FROM consumos c WHERE c.reserva_id = reservas.id), 0)
+          - COALESCE((SELECT SUM(p.valor_centavos) FROM pagamentos p WHERE p.reserva_id = reservas.id), 0),
+          0)) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')), 0)::numeric / 100 AS receita_pendente
       FROM reservas
       WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
     `);
@@ -248,47 +301,18 @@ export class PousadaModel {
     return rows;
   }
 
-  /**
-   * Add user to pousada (junction table + set as active)
-   */
-  /**
-   * Adiciona um usuário à pousada.
-   *
-   * NÃO troca a pousada ativa do usuário nem mexe no papel dele em outros
-   * tenants. Antes, este método fazia `UPDATE user SET pousada_id, role,
-   * is_owner = false` no alvo — o que permitia a um admin da pousada A puxar
-   * para dentro dela o DONO da pousada B e, de quebra, rebaixá-lo. A troca de
-   * tenant ativo é decisão de quem entra (`trocarPousadaAtiva`), não de quem
-   * convida.
-   */
-  static async adicionarUsuario(pousadaId: number, userId: string, role: string = 'recepcao'): Promise<{ success: boolean }> {
-    await db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ id: userPousadas.id })
-        .from(userPousadas)
-        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
-        .limit(1);
-
-      if (existing) {
-        throw new Error('Usuário já é membro desta pousada');
-      }
-
-      await tx.insert(userPousadas).values({
-        userId,
-        pousadaId,
-        role,
-        isOwner: false,
-      });
-
-      // Só define a pousada ativa se o usuário ainda não tiver nenhuma — é o
-      // caso de quem acabou de se cadastrar e foi adicionado a uma equipe.
-      await tx
-        .update(user)
-        .set({ pousadaId, role, isOwner: false, updatedAt: new Date() })
-        .where(and(eq(user.id, userId), sql`${user.pousadaId} IS NULL`));
-    });
-
-    return { success: true };
+  /** Troca o papel do vínculo (o papel vale por pousada). */
+  static async alterarPapel(pousadaId: number, userId: string, role: string): Promise<void> {
+    await db
+      .update(userPousadas)
+      .set({ role })
+      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
+    // Mantém a cópia legada na linha do usuário coerente quando esta é a
+    // pousada padrão dele (o authMiddleware já lê do vínculo).
+    await db
+      .update(user)
+      .set({ role, updatedAt: new Date() })
+      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)));
   }
 
   /**

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import {
   useSession,
   signInWithEmail,
@@ -10,7 +9,10 @@ import {
   handleSignOut
 } from "../lib/auth-client";
 import type { Usuario, Pousada, UserPousada, Message } from "../lib/types";
-import { API_BASE_URL } from "../lib/api";
+import { API_BASE_URL, authenticatedFetch } from "../lib/api";
+import { fixarPousadaDaAba } from "../lib/tenant";
+import { pousadaDaApi } from "../lib/adaptadores";
+import { rastrear } from "../lib/medicao";
 
 interface UseAuthReturn {
   // State
@@ -32,12 +34,11 @@ interface UseAuthReturn {
   googleLogin: () => Promise<void>;
   setMessage: (message: Message | null) => void;
   clearMessage: () => void;
-  refreshPousadas: () => Promise<void>;
+  refreshPousadas: (opcoes?: { silencioso?: boolean }) => Promise<void>;
   trocarPousada: (pousadaId: number) => Promise<boolean>;
 }
 
 export function useAuth(): UseAuthReturn {
-  const router = useRouter();
   const { data: session, isPending: sessionLoading } = useSession();
 
   const [user, setUser] = useState<Usuario | null>(null);
@@ -48,7 +49,6 @@ export function useAuth(): UseAuthReturn {
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const pousadaChecked = useRef(false);
 
   const clearMessage = useCallback(() => setMessage(null), []);
 
@@ -74,23 +74,30 @@ export function useAuth(): UseAuthReturn {
   }, [session, sessionLoading]);
 
   // Load pousadas from API (single source of truth)
-  const refreshPousadas = useCallback(async () => {
+  const refreshPousadas = useCallback(async (opcoes: { silencioso?: boolean } = {}) => {
     if (!session?.user) return;
-    setPousadaLoading(true);
+    // Silencioso: recarrega os dados sem o "carregando" global — que faz o
+    // layout trocar a tela pelo spinner e desmontar a página aberta (e com
+    // ela a mensagem de "salvo").
+    if (!opcoes.silencioso) setPousadaLoading(true);
 
     try {
       const [minhaRes, minhasRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/pousadas/minha`, { credentials: 'include' }),
-        fetch(`${API_BASE_URL}/api/pousadas/minhas`, { credentials: 'include' }),
+        authenticatedFetch(`${API_BASE_URL}/api/pousadas/minha`),
+        authenticatedFetch(`${API_BASE_URL}/api/pousadas/minhas`),
       ]);
 
       const minhaData = await minhaRes.json();
       const minhasData = await minhasRes.json();
 
       if (minhaData.sucesso && minhaData.pousada) {
-        setPousada(minhaData.pousada);
+        setPousada(pousadaDaApi(minhaData.pousada));
+        // Fixa a pousada nesta aba: a partir daqui, trocar em outra aba não
+        // muda esta.
+        fixarPousadaDaAba(minhaData.pousada.id);
       } else {
         setPousada(null);
+        fixarPousadaDaAba(null);
       }
 
       if (minhasData.sucesso && minhasData.pousadas) {
@@ -110,7 +117,6 @@ export function useAuth(): UseAuthReturn {
         }
       }
 
-      pousadaChecked.current = true;
     } catch (error) {
       console.error("Erro ao carregar pousadas:", error);
     } finally {
@@ -125,43 +131,21 @@ export function useAuth(): UseAuthReturn {
     }
   }, [session?.user?.id]);
 
-  // Redirect to onboarding ONLY after pousada API check completes
-  useEffect(() => {
-    if (!session?.user || !pousadaChecked.current || pousadaLoading) return;
-
-    // No pousada found via API — needs onboarding
-    if (!pousada) {
-      const currentPath = window.location.pathname;
-      // Quem chegou por um link de convite NÃO pode ser mandado para o
-      // onboarding: ele não vem criar uma pousada, vem entrar na equipe de uma
-      // que já existe. Sem esta guarda, o convidado sem conta criava a própria
-      // pousada e o convite ficava para trás.
-      const temConvitePendente = new URLSearchParams(window.location.search).has('convite');
-      if (
-        !temConvitePendente &&
-        !currentPath.startsWith('/onboarding') &&
-        !currentPath.startsWith('/auth') &&
-        !currentPath.startsWith('/convite')
-      ) {
-        router.push('/onboarding');
-      }
-    }
-  }, [session, pousada, pousadaLoading, router]);
-
   // Switch active pousada (client-side state update, no reload)
   const trocarPousada = useCallback(async (pousadaId: number): Promise<boolean> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/pousadas/trocar`, {
+      // /trocar grava a escolha como padrão para abas NOVAS; esta aba passa a
+      // mandar o id novo no header.
+      const response = await authenticatedFetch(`${API_BASE_URL}/api/pousadas/trocar`, {
         method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pousadaId }),
       });
 
       const data = await response.json();
 
       if (data.sucesso) {
-        setPousada(data.pousada);
+        fixarPousadaDaAba(data.pousada.id);
+        setPousada(pousadaDaApi(data.pousada));
         setUser(prev => prev ? {
           ...prev,
           pousada_id: data.pousada.id,
@@ -189,6 +173,14 @@ export function useAuth(): UseAuthReturn {
       const result = await signInWithEmail(email, password);
 
       if (result.error) {
+        // Conta ainda não confirmada: o backend já reenviou o link (sendOnSignIn).
+        if (result.error.code === "EMAIL_NOT_VERIFIED" || result.error.status === 403) {
+          setMessage({
+            type: "error",
+            text: "Confirme seu e-mail para entrar. Acabamos de enviar um novo link para " + email + ".",
+          });
+          return false;
+        }
         setMessage({ type: "error", text: result.error.message || "Falha ao autenticar." });
         return false;
       }
@@ -216,17 +208,21 @@ export function useAuth(): UseAuthReturn {
     }
 
     try {
-      const result = await signUpWithEmail(email, password, name, {
-        callbackURL: "/onboarding",
-      });
+      const result = await signUpWithEmail(email, password, name);
 
       if (result.error) {
         setMessage({ type: "error", text: result.error.message || "Erro ao criar conta." });
         return false;
       }
 
-      setMessage({ type: "success", text: "Conta criada! Configure sua pousada..." });
-      router.push("/onboarding");
+      rastrear("cadastro");
+
+      // Sem sessão até confirmar o e-mail: o link leva direto ao onboarding
+      // (ou ao convite) já autenticado.
+      setMessage({
+        type: "success",
+        text: "Conta criada! Enviamos um link de confirmação para " + email + ". Abra o e-mail para continuar.",
+      });
       return true;
     } catch (error: any) {
       console.error("Erro ao criar conta", error);
@@ -235,21 +231,21 @@ export function useAuth(): UseAuthReturn {
     } finally {
       setSignupLoading(false);
     }
-  }, [router]);
+  }, []);
 
   // Logout
   const logout = useCallback(async () => {
     try {
       await handleSignOut();
+      fixarPousadaDaAba(null);
       setUser(null);
       setPousada(null);
       setPousadas([]);
-      pousadaChecked.current = false;
-      router.push("/");
+      window.location.assign("/");
     } catch (error) {
       console.error("Erro ao fazer logout", error);
     }
-  }, [router]);
+  }, []);
 
   // Google Login
   const googleLogin = useCallback(async () => {

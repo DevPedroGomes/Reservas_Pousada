@@ -3,6 +3,7 @@
  */
 
 import { eHojeOuFuturo } from './datas.js';
+import { ehStatusReserva, STATUS_RESERVA } from './status.js';
 
 /**
  * Validates Brazilian CPF
@@ -93,8 +94,7 @@ export function validarQuarto(quarto: number | string, maxQuartos: number = 100)
  * Validates reservation status
  */
 export function validarStatus(status: string): boolean {
-  const statusValidos = ['ativa', 'finalizada', 'cancelada'];
-  return statusValidos.includes(status);
+  return ehStatusReserva(status);
 }
 
 /**
@@ -107,15 +107,28 @@ export function validarValor(valor: number | string | null | undefined): boolean
 }
 
 /**
- * Sanitizes string removing dangerous characters
+ * Normaliza texto livre: tira espaços das pontas, caracteres de controle
+ * invisíveis e limita o tamanho.
+ *
+ * NÃO remove `' " & < >`. Antes removia, e o dado gravado era outro:
+ * "Pousada D'Ajuda" virava "Pousada DAjuda", "Café & Cia" perdia o "&". A
+ * defesa contra XSS é escapar NA SAÍDA — o React escapa tudo que renderiza,
+ * os e-mails passam por escapeHtml e o CSV neutraliza fórmulas. Mexer na
+ * entrada só corrompia o dado sem proteger nada a mais.
+ *
+ * `multilinha` preserva quebras de linha (observações).
  */
-export function sanitizarString(str: string | null | undefined): string {
+export function sanitizarString(
+  str: string | null | undefined,
+  maximo = 255,
+  multilinha = false,
+): string {
   if (!str || typeof str !== 'string') return '';
 
-  return str
-    .trim()
-    .replace(/[<>"'&]/g, '') // Remove dangerous HTML characters
-    .substring(0, 255); // Limit size
+  const semControle = multilinha
+    ? str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    : str.replace(/[\u0000-\u001F\u007F]/g, ' ');
+  return semControle.trim().substring(0, maximo);
 }
 
 /**
@@ -128,9 +141,11 @@ export function sanitizarString(str: string | null | undefined): string {
 export function sanitizarNome(nome: string | null | undefined): string {
   if (!nome || typeof nome !== 'string') return '';
 
+  // Qualquer letra (\p{L}) e acento combinante (\p{M}): hóspede estrangeiro
+  // ("Łukasz", "Nguyễn") não pode perder letras do nome.
   return nome
     .trim()
-    .replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '')
+    .replace(/[^\p{L}\p{M}\s'.-]/gu, '')
     .replace(/\s+/g, ' ') // Remove duplicate spaces
     .substring(0, 100);
 }
@@ -140,9 +155,16 @@ interface ValidacaoResult {
   erros: string[];
 }
 
+/** De onde veio a reserva (relatório de receita por canal). */
+export const CANAIS_RESERVA = [
+  'direto', 'whatsapp', 'telefone', 'instagram', 'site', 'booking', 'airbnb', 'expedia', 'decolar', 'outro',
+] as const;
+
 interface ReservaData {
   nome?: string;
-  cpf?: string;
+  adultos?: number | string;
+  criancas?: number | string;
+  canal?: string;
   quarto?: number | string;
   data_entrada?: string;
   data_saida?: string;
@@ -175,9 +197,15 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
     erros.push('Nome deve ter pelo menos 2 caracteres');
   }
 
-  // Validate CPF
-  if (!validarCPF(reserva.cpf)) {
-    erros.push('CPF inválido');
+  // Documento e contato são do hóspede (models/Hospede.ts valida).
+  if (reserva.adultos !== undefined && !(Number.isInteger(reserva.adultos) && Number(reserva.adultos) >= 1 && Number(reserva.adultos) <= 50)) {
+    erros.push('Adultos deve ser de 1 a 50');
+  }
+  if (reserva.criancas !== undefined && !(Number.isInteger(reserva.criancas) && Number(reserva.criancas) >= 0 && Number(reserva.criancas) <= 50)) {
+    erros.push('Crianças deve ser de 0 a 50');
+  }
+  if (reserva.canal !== undefined && !(CANAIS_RESERVA as readonly string[]).includes(reserva.canal)) {
+    erros.push(`Canal inválido. Use: ${CANAIS_RESERVA.join(', ')}`);
   }
 
   // Validate room
@@ -210,7 +238,7 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
 
   // Validate status
   if (reserva.status && !validarStatus(reserva.status)) {
-    erros.push('Status inválido. Use: ativa, finalizada ou cancelada');
+    erros.push(`Status inválido. Use: ${STATUS_RESERVA.join(', ')}`);
   }
 
   // Validate value
@@ -226,7 +254,9 @@ export function validarReserva(reserva: ReservaData, opcoes: OpcoesValidacaoRese
 
 interface SanitizedReserva {
   nome: string;
-  cpf: string;
+  adultos?: number;
+  criancas?: number;
+  canal?: string;
   quarto: number;
   data_entrada: string;
   data_saida: string;
@@ -252,7 +282,10 @@ function valorParaNumeroOuNulo(valor: number | string | null | undefined): strin
 export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
   return {
     nome: sanitizarNome(reserva.nome),
-    cpf: reserva.cpf ? reserva.cpf.replace(/[^\d]/g, '') : '',
+    // Ausente fica undefined: o banco aplica o padrão na criação e a edição não mexe.
+    adultos: reserva.adultos === undefined || reserva.adultos === '' ? undefined : Number(reserva.adultos),
+    criancas: reserva.criancas === undefined || reserva.criancas === '' ? undefined : Number(reserva.criancas),
+    canal: reserva.canal ? String(reserva.canal) : undefined,
     quarto: parseInt(String(reserva.quarto)),
     data_entrada: reserva.data_entrada || '',
     data_saida: reserva.data_saida || '',
@@ -260,7 +293,8 @@ export function sanitizarReserva(reserva: ReservaData): SanitizedReserva {
     // `valor ? ... : null` descartava R$ 0,00 (diária cortesia) porque 0 é falsy.
     valor: valorParaNumeroOuNulo(reserva.valor),
     pago: Boolean(reserva.pago),
-    observacoes: sanitizarString(reserva.observacoes || '')
+    // Observação é texto livre da recepção: 255 caracteres cortavam no meio.
+    observacoes: sanitizarString(reserva.observacoes || '', 2000, true)
   };
 }
 
@@ -326,27 +360,23 @@ export function validarPousada(pousada: PousadaData, parcial: boolean = false): 
     }
   }
 
-  // Address
-  if (!parcial || pousada.endereco !== undefined) {
-    if (!pousada.endereco || pousada.endereco.trim().length < 5) {
+  // Endereço, telefone e e-mail são OPCIONAIS (validados só quando vêm).
+  // Exigi-los na criação travava o onboarding: 3 etapas de formulário antes de
+  // a pessoa ver o produto. Completam-se depois em Configurações.
+  if (pousada.endereco) {
+    if (pousada.endereco.trim().length < 5) {
       erros.push('Endereço deve ter pelo menos 5 caracteres');
     } else if (pousada.endereco.length > 255) {
       erros.push('Endereço deve ter no máximo 255 caracteres');
     }
   }
 
-  // Phone
-  if (!parcial || pousada.telefone !== undefined) {
-    if (!validarTelefone(pousada.telefone)) {
-      erros.push('Telefone inválido. Use formato com DDD (10 ou 11 dígitos)');
-    }
+  if (pousada.telefone && !validarTelefone(pousada.telefone)) {
+    erros.push('Telefone inválido. Use formato com DDD (10 ou 11 dígitos)');
   }
 
-  // Email
-  if (!parcial || pousada.email !== undefined) {
-    if (!validarEmail(pousada.email)) {
-      erros.push('Email inválido');
-    }
+  if (pousada.email && !validarEmail(pousada.email)) {
+    erros.push('Email inválido');
   }
 
   // Optional fields with size validation
@@ -422,11 +452,29 @@ export function sanitizarPousada(pousada: PousadaData): Partial<PousadaData> {
   }
 
   if (pousada.descricao !== undefined) {
-    sanitizado.descricao = pousada.descricao ? sanitizarString(pousada.descricao).substring(0, 1000) : undefined;
+    // A validação aceita 1000; antes o sanitizador cortava em 255 calado.
+    sanitizado.descricao = pousada.descricao ? sanitizarString(pousada.descricao, 1000, true) : undefined;
   }
 
   if (pousada.configuracoes !== undefined) {
-    sanitizado.configuracoes = pousada.configuracoes || {};
+    // Só chaves conhecidas: configuracoes é jsonb livre no banco, e aceitar
+    // qualquer objeto do cliente deixava gravar o que quisesse ali.
+    const entrada = (pousada.configuracoes || {}) as Record<string, unknown>;
+    const limpo: Record<string, unknown> = {};
+    const meses = Number(entrada.retencao_hospedes_meses);
+    if (Number.isInteger(meses) && meses >= 0 && meses <= 240) limpo.retencao_hospedes_meses = meses;
+    // Modelos de mensagem do WhatsApp (texto livre, com {variáveis}).
+    if (entrada.mensagens && typeof entrada.mensagens === 'object') {
+      const mensagens: Record<string, string> = {};
+      for (const chave of ['confirmacao', 'sinal', 'chegada', 'agradecimento']) {
+        const texto = (entrada.mensagens as Record<string, unknown>)[chave];
+        if (typeof texto === 'string') mensagens[chave] = sanitizarString(texto, 1000, true);
+      }
+      limpo.mensagens = mensagens;
+    }
+    // Lembrete automático de chegada pela API oficial (só vale se a plataforma tiver a API ligada).
+    if (typeof entrada.whatsapp_lembrete === 'boolean') limpo.whatsapp_lembrete = entrada.whatsapp_lembrete;
+    sanitizado.configuracoes = limpo;
   }
 
   return sanitizado;

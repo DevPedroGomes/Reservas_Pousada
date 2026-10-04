@@ -3,6 +3,8 @@
  */
 
 import type { Auditoria } from "./types"
+import { COR_STATUS, ehStatusReserva, rotuloStatus } from "./status"
+import { reais, rotuloForma, rotuloTipo } from "./conta"
 
 /**
  * Formata uma data ISO para o formato brasileiro DD/MM/YYYY.
@@ -110,7 +112,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   const depoisStatus = log.details?.depois?.status
 
   if (antesStatus && depoisStatus && antesStatus !== depoisStatus) {
-    return `Status: ${antesStatus} -> ${depoisStatus}`
+    return `Status: ${rotuloStatus(antesStatus)} → ${rotuloStatus(depoisStatus)}`
   }
 
   if (log.details?.antes && log.details?.depois) {
@@ -119,6 +121,20 @@ export function renderResumoAuditoria(log: Auditoria): string {
 
   if (log.action === "criar") return "Reserva criada."
   if (log.action === "excluir") return "Reserva removida."
+  if (log.action === "visualizar_cpf") return "Documento completo visualizado."
+  const pg = log.details?.pagamento
+  if (pg && (log.action === "lancar_pagamento" || log.action === "remover_pagamento")) {
+    const centavos = pg.valorCentavos ?? pg.valor_centavos ?? 0
+    const resumo = [rotuloTipo(pg.tipo ?? ""), rotuloForma(pg.forma ?? ""), reais(centavos)].filter(Boolean).join(" · ")
+    return `${log.action === "lancar_pagamento" ? "Pagamento lançado" : "Pagamento removido"}: ${resumo}`
+  }
+  const cs = log.details?.consumo
+  if (cs && (log.action === "lancar_consumo" || log.action === "remover_consumo")) {
+    const unit = cs.valorUnitarioCentavos ?? cs.valor_unitario_centavos ?? 0
+    return `${log.action === "lancar_consumo" ? "Consumo lançado" : "Consumo removido"}: ${cs.descricao} (${cs.quantidade ?? 1} × ${reais(unit)})`
+  }
+  if (log.action === "finalizacao_automatica") return "Estadia finalizada automaticamente (saída vencida)."
+  if (log.action === "pre_reserva_expirada") return "Pré-reserva cancelada automaticamente (prazo vencido)."
 
   return "Atualizacao registrada."
 }
@@ -128,33 +144,15 @@ export function renderResumoAuditoria(log: Auditoria): string {
  */
 export function getStatusBadgeVariant(
   status: string
-): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "ativa":
-      return "default"
-    case "finalizada":
-      return "secondary"
-    case "cancelada":
-      return "destructive"
-    default:
-      return "outline"
-  }
+): "default" | "secondary" | "success" | "warning" | "destructive" | "outline" {
+  return ehStatusReserva(status) ? COR_STATUS[status] : "outline"
 }
 
 /**
  * Retorna o label traduzido do status
  */
 export function getStatusLabel(status: string): string {
-  switch (status) {
-    case "ativa":
-      return "Ativa"
-    case "finalizada":
-      return "Finalizada"
-    case "cancelada":
-      return "Cancelada"
-    default:
-      return status
-  }
+  return rotuloStatus(status)
 }
 
 /**

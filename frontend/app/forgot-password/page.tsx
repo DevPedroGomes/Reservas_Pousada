@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -112,9 +113,9 @@ export default function ForgotPasswordPage() {
             )}
 
             <div className="text-center pt-2">
-              <a href="/" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
+              <Link href="/entrar" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
                 Voltar ao login
-              </a>
+              </Link>
             </div>
           </CardContent>
         </Card>

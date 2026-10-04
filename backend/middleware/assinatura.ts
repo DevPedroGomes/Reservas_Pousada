@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import AssinaturaModel from '../models/Assinatura.js';
+import StaffInviteModel from '../models/StaffInvite.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import { avaliarAcesso, limitesVigentes, mensagemDeBloqueio } from '../utils/assinatura.js';
 
@@ -21,18 +22,19 @@ export async function requerAssinaturaAtiva(req: Request, res: Response, next: N
   if (!pousadaId) return next(); // requirePousada já trata a ausência de tenant
 
   try {
-    const row = await AssinaturaModel.buscarPorPousada(pousadaId);
+    // A assinatura que VALE: a própria ou a da pagadora (pousada coberta pelo Rede).
+    const efetiva = await AssinaturaModel.efetiva(pousadaId);
 
     // Pousada sem linha de assinatura não deveria existir (a criação abre uma
     // na mesma transação). Se existir, é dado anterior ao billing — libera e
     // registra, porque bloquear um cliente por falha nossa de migração é pior
     // que o inverso.
-    if (!row) {
+    if (!efetiva) {
       console.warn(`[Billing] pousada ${pousadaId} sem linha de assinatura — liberando`);
       return next();
     }
 
-    const veredito = avaliarAcesso(AssinaturaModel.paraEstado(row));
+    const veredito = avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row));
     if (veredito.liberado) return next();
 
     return res.status(402).json({
@@ -62,9 +64,9 @@ export async function excedeLimiteDeQuartos(
 ): Promise<string | null> {
   if (!billingHabilitado()) return null;
 
-  const row = pousadaId ? await AssinaturaModel.buscarPorPousada(pousadaId) : null;
+  const efetiva = pousadaId ? await AssinaturaModel.efetiva(pousadaId) : null;
   const limites = limitesVigentes(
-    row ? AssinaturaModel.paraEstado(row) : { status: 'trial', plano: null },
+    efetiva ? AssinaturaModel.paraEstado(efetiva.row) : { status: 'trial', plano: null },
   );
 
   if (numQuartos > limites.maxQuartos) {
@@ -76,19 +78,30 @@ export async function excedeLimiteDeQuartos(
 /**
  * Cabe mais um usuário na equipe?
  *
- * Conta os membros atuais da junction — é o número que o dono vê na tela, e
- * contar convites pendentes junto faria o limite parecer estourado antes de
- * alguém realmente entrar.
+ * Na hora de CONVIDAR, conta membros + convites pendentes válidos: contar só
+ * membros deixava o dono do Essencial (3 usuários) mandar 10 convites e ter
+ * 10 pessoas dentro quando todos aceitassem.
+ *
+ * Na hora de ACEITAR (`noAceite`), conta só membros — o convite que está
+ * sendo aceito já é uma das vagas reservadas.
  */
-export async function excedeLimiteDeUsuarios(pousadaId: number): Promise<string | null> {
+export async function excedeLimiteDeUsuarios(
+  pousadaId: number,
+  opcoes: { noAceite?: boolean } = {},
+): Promise<string | null> {
   if (!billingHabilitado()) return null;
 
   const situacao = await AssinaturaModel.situacao(pousadaId);
   if (!situacao) return null;
 
   const max = situacao.limites.maxUsuarios;
-  if (max !== null && situacao.usuarios >= max) {
-    return `Seu plano permite até ${max} usuários. Faça upgrade para adicionar mais.`;
+  if (max === null) return null;
+
+  const ocupadas = situacao.usuarios + (opcoes.noAceite ? 0 : await StaffInviteModel.contarPendentes(pousadaId));
+  if (ocupadas >= max) {
+    return opcoes.noAceite
+      ? 'A equipe desta pousada atingiu o limite de usuários do plano. Peça ao responsável para fazer upgrade.'
+      : `Seu plano permite até ${max} usuários (contando convites pendentes). Faça upgrade ou revogue um convite.`;
   }
   return null;
 }

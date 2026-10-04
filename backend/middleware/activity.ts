@@ -31,6 +31,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
       // Structured JSON log - captured by Docker and queryable via `docker compose logs`
       const logData = {
         t: logEntry.timestamp,
+        rid: req.id,
         method: logEntry.method,
         path: logEntry.path,
         status: res.statusCode,
@@ -44,7 +45,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
         console.log(JSON.stringify(logData));
       }
     } else {
-      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${userId}`;
+      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${userId} | ${req.id ?? '-'}`;
       console.log(logMessage);
     }
   });

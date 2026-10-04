@@ -3,6 +3,8 @@
  * Better Auth handles authentication via cookies, so no manual token management needed
  */
 
+import { cabecalhoDaPousada, fixarPousadaDaAba, pousadaDaAba } from "./tenant"
+
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 export const API_URL = `${API_BASE_URL}/api`
 
@@ -53,6 +55,7 @@ export async function authenticatedFetch(
 ): Promise<Response> {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
+    ...cabecalhoDaPousada(),
     ...(init.headers || {}),
   }
 
@@ -62,6 +65,17 @@ export async function authenticatedFetch(
       headers,
       credentials: "include", // Important: include cookies for auth
     })
+
+    // A aba aponta para uma pousada da qual a pessoa não é mais membro
+    // (removida da equipe em outro dispositivo): esquece e recarrega na
+    // pousada padrão, em vez de mostrar erro em toda tela.
+    if (response.status === 403 && pousadaDaAba()) {
+      const corpo = await response.clone().json().catch(() => null)
+      if (corpo?.pousadaInvalida) {
+        fixarPousadaDaAba(null)
+        window.location.reload()
+      }
+    }
 
     return response
   } catch (error) {

@@ -12,6 +12,10 @@ import {
   avaliarAcesso,
   limitesVigentes,
   mensagemDeBloqueio,
+  motivosParaNaoCaber,
+  temAssinaturaViva,
+  decidirNovaPousada,
+  type PousadaPossuida,
   type EstadoAssinatura,
   type MotivoBloqueio,
 } from '../utils/assinatura.js';
@@ -148,5 +152,100 @@ describe('mensagem de bloqueio', () => {
       assert.ok(msg.length > 10, `mensagem vazia para ${m}`);
       assert.ok(!/stripe|subscription|past_due|webhook/i.test(msg), `mensagem de ${m} vaza detalhe interno`);
     }
+  });
+});
+
+describe('checkout x assinatura existente (cobrança em dobro)', () => {
+  it('assinatura ativa no Stripe bloqueia checkout novo', () => {
+    assert.equal(temAssinaturaViva({ status: 'ativa', stripeSubscriptionId: 'sub_1' }), true);
+  });
+
+  it('pagamento pendente e pausada também — o caminho é o portal', () => {
+    assert.equal(temAssinaturaViva({ status: 'inadimplente', stripeSubscriptionId: 'sub_1' }), true);
+    assert.equal(temAssinaturaViva({ status: 'suspensa', stripeSubscriptionId: 'sub_1' }), true);
+  });
+
+  it('trial, cancelada encerrada e sem id no Stripe podem assinar', () => {
+    assert.equal(temAssinaturaViva({ status: 'trial', stripeSubscriptionId: null }), false);
+    assert.equal(temAssinaturaViva({ status: 'cancelada', stripeSubscriptionId: 'sub_1' }), false);
+    assert.equal(temAssinaturaViva({ status: 'ativa', stripeSubscriptionId: null }), false);
+  });
+});
+
+describe('troca de plano — o uso atual precisa caber', () => {
+  it('downgrade com quartos demais é recusado com o motivo', () => {
+    const m = motivosParaNaoCaber({ quartos: 20, usuarios: 2, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'essencial' }));
+    assert.equal(m.length, 1);
+    assert.match(m[0], /20 quartos/);
+  });
+
+  it('downgrade com equipe grande demais para o Essencial', () => {
+    const m = motivosParaNaoCaber({ quartos: 5, usuarios: 4, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'essencial' }));
+    assert.match(m.join(' '), /4 usuários/);
+  });
+
+  it('upgrade sempre cabe', () => {
+    assert.deepEqual(motivosParaNaoCaber({ quartos: 20, usuarios: 9, pousadas: 1 }, limitesVigentes({ status: 'ativa', plano: 'rede' })), []);
+  });
+});
+
+describe('nova pousada — plano Rede e fim do trial infinito', () => {
+  const trialValido = estado({ status: 'trial', trialTerminaEm: emDias(10) });
+  const rede = estado({ status: 'ativa', plano: 'rede' });
+  const pousada = (pousadaId: number, e: EstadoAssinatura, cobertaPor: number | null = null): PousadaPossuida =>
+    ({ pousadaId, estado: e, cobertaPor });
+
+  it('primeira pousada sempre pode, com assinatura própria', () => {
+    assert.deepEqual(decidirNovaPousada([], AGORA), { permitido: true, cobertaPor: null });
+  });
+
+  it('segunda pousada em trial é recusada — antes ganhava outro trial', () => {
+    const d = decidirNovaPousada([pousada(1, trialValido)], AGORA);
+    assert.equal(d.permitido, false);
+    if (!d.permitido) assert.match(d.motivo, /Rede/);
+  });
+
+  it('assinante do Rede cria a 2ª e a 3ª cobertas pela pagadora', () => {
+    assert.deepEqual(decidirNovaPousada([pousada(1, rede)], AGORA), { permitido: true, cobertaPor: 1 });
+    assert.deepEqual(
+      decidirNovaPousada([pousada(1, rede), pousada(2, estado(), 1)], AGORA),
+      { permitido: true, cobertaPor: 1 },
+    );
+  });
+
+  it('a 4ª no Rede é recusada', () => {
+    const d = decidirNovaPousada([pousada(1, rede), pousada(2, estado(), 1), pousada(3, estado(), 1)], AGORA);
+    assert.equal(d.permitido, false);
+  });
+
+  it('Rede com acesso bloqueado não cobre ninguém', () => {
+    const vencida = estado({ status: 'cancelada', plano: 'rede', periodoTerminaEm: emDias(-1) });
+    assert.equal(decidirNovaPousada([pousada(1, vencida)], AGORA).permitido, false);
+  });
+
+  it('cortesia cobre pousadas extras (contas internas)', () => {
+    assert.deepEqual(
+      decidirNovaPousada([pousada(1, estado({ status: 'cortesia' }))], AGORA),
+      { permitido: true, cobertaPor: 1 },
+    );
+  });
+});
+
+describe('ciclo de status da reserva', () => {
+  it('segue o caminho normal e permite desfazer o último passo', async () => {
+    const { podeTransitar } = await import('../utils/status.js');
+    assert.ok(podeTransitar('pre_reserva', 'confirmada'));
+    assert.ok(podeTransitar('confirmada', 'hospedada'));
+    assert.ok(podeTransitar('hospedada', 'finalizada'));
+    assert.ok(podeTransitar('finalizada', 'hospedada'), 'desfazer check-out');
+    assert.ok(podeTransitar('cancelada', 'confirmada'), 'reativar');
+  });
+
+  it('recusa saltos sem sentido', async () => {
+    const { podeTransitar } = await import('../utils/status.js');
+    assert.equal(podeTransitar('pre_reserva', 'hospedada'), false);
+    assert.equal(podeTransitar('finalizada', 'cancelada'), false);
+    assert.equal(podeTransitar('cancelada', 'hospedada'), false);
+    assert.equal(podeTransitar('confirmada', 'inventado'), false);
   });
 });

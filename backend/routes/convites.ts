@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { auth } from '../lib/auth.js';
+import { excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
+import { param } from '../utils/http.js';
 
 const router = Router();
 
@@ -11,7 +13,7 @@ const router = Router();
  */
 router.get('/:token', async (req: Request, res: Response) => {
   try {
-    const { token } = req.params;
+    const token = param(req, 'token');
 
     if (!token || token.length < 32) {
       return res.status(400).json({
@@ -69,7 +71,7 @@ router.get('/:token', async (req: Request, res: Response) => {
  */
 router.post('/:token/aceitar', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { token } = req.params;
+    const token = param(req, 'token');
 
     if (!token || token.length < 32) {
       return res.status(400).json({
@@ -83,6 +85,21 @@ router.post('/:token/aceitar', authMiddleware, async (req: Request, res: Respons
         sucesso: false,
         mensagem: 'Você precisa estar autenticado para aceitar o convite',
       });
+    }
+
+    // O plano pode ter mudado desde o convite (downgrade): confere a vaga.
+    const pousadaDoConvite = await StaffInviteModel.pousadaDoConvite(token);
+    if (pousadaDoConvite) {
+      const estouro = await excedeLimiteDeUsuarios(pousadaDoConvite, { noAceite: true });
+      if (estouro) {
+        return res.status(402).json({ sucesso: false, codigo: 'BILLING_003', mensagem: estouro });
+      }
+    }
+
+    // Só e-mail confirmado aceita convite: o convite é para um endereço, e
+    // quem não provou ser dono do endereço não pode ocupar a vaga dele.
+    if (!req.user.emailVerified) {
+      return res.status(403).json({ sucesso: false, mensagem: 'Confirme seu e-mail antes de aceitar o convite.' });
     }
 
     const result = await StaffInviteModel.aceitar(token, req.user.id, req.user.email);

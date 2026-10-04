@@ -54,7 +54,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
   async function reservar(quarto: number, entrada: string, saida: string, nome = 'Hospede') {
     return pool.query(
       `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status)
-       VALUES (1, $1, 'cifrado', $2, $3, $4, 'ativa')`,
+       VALUES (1, $1, 'cifrado', $2, $3, $4, 'confirmada')`,
       [nome, quarto, entrada, saida],
     );
   }
@@ -104,7 +104,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     await limparQuarto(10);
     await pool.query(
       `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, deleted_at)
-       VALUES (1, 'apagada', 'cifrado', 10, $1, $2, 'ativa', NOW())`,
+       VALUES (1, 'apagada', 'cifrado', 10, $1, $2, 'confirmada', NOW())`,
       [NATAL_ENTRADA, NATAL_SAIDA],
     );
     await assert.doesNotReject(() => reservar(10, NATAL_ENTRADA, NATAL_SAIDA));
@@ -177,7 +177,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
         await cliente.query('BEGIN');
         const { rows } = await cliente.query(
           `SELECT id FROM reservas
-           WHERE pousada_id = 1 AND quarto = 7 AND status = 'ativa' AND deleted_at IS NULL
+           WHERE pousada_id = 1 AND quarto = 7 AND status = 'confirmada' AND deleted_at IS NULL
              AND data_entrada < $2 AND data_saida > $1`,
           [NATAL_ENTRADA, NATAL_SAIDA],
         );
@@ -188,7 +188,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
         await new Promise((r) => setTimeout(r, 200));
         await cliente.query(
           `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status)
-           VALUES (1, $1, 'cifrado', 7, $2, $3, 'ativa')`,
+           VALUES (1, $1, 'cifrado', 7, $2, $3, 'confirmada')`,
           [nome, NATAL_ENTRADA, NATAL_SAIDA],
         );
         await cliente.query('COMMIT');
@@ -204,7 +204,7 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
     const resultados = await Promise.all([tentativa('familia-1'), tentativa('familia-2')]);
 
     const { rows } = await pool.query(
-      `SELECT count(*)::int AS n FROM reservas WHERE quarto = 7 AND status = 'ativa'`,
+      `SELECT count(*)::int AS n FROM reservas WHERE quarto = 7 AND status = 'confirmada'`,
     );
     assert.equal(
       rows[0].n,
@@ -212,5 +212,58 @@ describe('banco — garantias que só o Postgres pode dar', { skip: !URL_BANCO &
       `duas famílias com a mesma reserva no Natal. resultados: ${resultados.join(', ')}`,
     );
     assert.equal(resultados.filter((r) => r === 'gravou').length, 1);
+  });
+
+  it('hóspedes: a 018 é idempotente e transforma reservas antigas em cadastro (um por CPF)', async () => {
+    await pool.query(`INSERT INTO pousadas (id, nome, slug, num_quartos) VALUES (2, 'Migra', 'migra', 5) ON CONFLICT (id) DO NOTHING`);
+    await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, cpf_hash, quarto, data_entrada, data_saida, status, created_at) VALUES
+        (2, 'Ana Antiga', 'cifra-1', 'hash-ana', 1, '2025-01-01', '2025-01-03', 'finalizada', '2025-01-01'),
+        (2, 'Ana Nova',   'cifra-2', 'hash-ana', 2, '2025-06-01', '2025-06-03', 'finalizada', '2025-06-01'),
+        (2, 'Bruno',      'cifra-3', 'hash-bruno', 3, '2025-02-01', '2025-02-03', 'finalizada', '2025-02-01'),
+        (2, 'Anônimo',    'anonimizado', NULL, 4, '2020-02-01', '2020-02-03', 'finalizada', '2020-02-01')`);
+    await pool.query(readFileSync(join(MIGRATIONS, '018_hospedes.sql'), 'utf8'));
+    const { rows: hs } = await pool.query(`SELECT nome, documento, documento_hash FROM hospedes WHERE pousada_id = 2 ORDER BY nome`);
+    assert.deepEqual(hs.map((h) => h.nome), ['Ana Nova', 'Bruno'], 'um cadastro por CPF, com o nome mais recente');
+    assert.ok(['cifra-1', 'cifra-2'].includes(hs[0].documento), 'ciphertext copiado como está');
+    const { rows: rs } = await pool.query(`SELECT nome, cpf, cpf_hash, hospede_id FROM reservas WHERE pousada_id = 2 ORDER BY quarto`);
+    assert.equal(rs[0].hospede_id, rs[1].hospede_id, 'as duas reservas da Ana apontam para o mesmo cadastro');
+    assert.ok(rs.slice(0, 3).every((r) => r.hospede_id && r.cpf === null && r.cpf_hash === null), 'documento sai da reserva');
+    assert.equal(rs[3].hospede_id, null, 'anonimizado não vira cadastro');
+    await pool.query(readFileSync(join(MIGRATIONS, '018_hospedes.sql'), 'utf8'));
+    assert.equal((await pool.query(`SELECT 1 FROM hospedes WHERE pousada_id = 2`)).rowCount, 2, 'rodar de novo não duplica');
+  });
+
+  it('hóspedes: documento repetido na mesma pousada é barrado pelo banco', async () => {
+    await pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (1, 'Um', 'hash-unico')`);
+    await assert.rejects(
+      pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (1, 'Dois', 'hash-unico')`),
+      (e: { code?: string }) => e.code === '23505',
+    );
+    // Em outra pousada, o mesmo documento é outro cadastro.
+    await pool.query(`INSERT INTO hospedes (pousada_id, nome, documento_hash) VALUES (2, 'Um', 'hash-unico')`);
+  });
+
+  it('pagamentos: a 019 dá às reservas já pagas o pagamento equivalente, uma vez só', async () => {
+    const { rows: [r] } = await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, valor, pago)
+      VALUES (1, 'Pagou antes', 'x', 15, '2025-03-01', '2025-03-03', 'finalizada', 300.50, true) RETURNING id`);
+    await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, valor, pago)
+      VALUES (1, 'Não pagou', 'x', 16, '2025-03-01', '2025-03-03', 'finalizada', 200, false)`);
+    const sql = readFileSync(join(MIGRATIONS, '019_pagamentos.sql'), 'utf8');
+    await pool.query(sql);
+    await pool.query(sql);
+    const { rows } = await pool.query(`SELECT valor_centavos, forma FROM pagamentos WHERE reserva_id = $1`, [r.id]);
+    assert.deepEqual(rows, [{ valor_centavos: 30050, forma: 'outro' }]);
+    assert.equal((await pool.query(`SELECT 1 FROM pagamentos p JOIN reservas r ON r.id = p.reserva_id WHERE r.nome = 'Não pagou'`)).rowCount, 0);
+  });
+
+  it('pagamentos: estorno só negativo, pagamento só positivo', async () => {
+    const { rows: [r] } = await pool.query(`SELECT id FROM reservas WHERE nome = 'Pagou antes'`);
+    await assert.rejects(pool.query(
+      `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo) VALUES (1, $1, 100, 'pix', 'estorno')`, [r.id]));
+    await assert.rejects(pool.query(
+      `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo) VALUES (1, $1, -100, 'pix', 'pagamento')`, [r.id]));
   });
 });

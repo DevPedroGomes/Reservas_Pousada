@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
 import { origensPermitidas } from '../utils/origens.js';
+import { sanearOrigem } from '../utils/origem.js';
 
 // Better Auth Secret (required)
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -11,6 +12,8 @@ if (!secret) {
   console.error('ERRO CRÍTICO: BETTER_AUTH_SECRET não definido nas variáveis de ambiente');
   process.exit(1);
 }
+
+const googleConfigurado = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 // Base URL for Better Auth
 const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:4000';
@@ -38,7 +41,13 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 8,
     maxPasswordLength: 100,
-    autoSignIn: true,
+    // Login só depois de confirmar o e-mail.
+    //
+    // Sem isto, qualquer um cadastrava o e-mail de outra pessoa com uma senha
+    // própria; quando a dona real entrava depois pelo Google, a conta podia
+    // ser ligada à existente — e quem tinha a senha continuava dentro. Também
+    // bloqueia a fábrica de contas com e-mail inventado.
+    requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, user.name, url);
     },
@@ -47,6 +56,9 @@ export const auth = betterAuth({
   // Email verification
   emailVerification: {
     sendOnSignUp: true,
+    // Quem tenta entrar sem ter confirmado recebe um link novo na hora, em vez
+    // de ficar preso numa mensagem de erro.
+    sendOnSignIn: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
       await sendVerifEmail(user.email, user.name, url);
@@ -54,16 +66,18 @@ export const auth = betterAuth({
   },
 
   // Social providers
-  socialProviders: {
+  // Só registra o Google quando há credencial: um provedor com id vazio
+  // aparecia como opção e falhava no meio do fluxo.
+  socialProviders: googleConfigurado ? {
     google: {
-      clientId: process.env.GOOGLE_CLIENT_ID || '',
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-      // Request offline access for refresh tokens
-      accessType: 'offline',
-      // Always show account selection
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      // Sem `accessType: 'offline'`: o app só usa o Google para login, então
+      // guardar refresh token (acesso permanente à conta Google do usuário)
+      // seria dado pessoal coletado sem finalidade — o que a LGPD veda.
       prompt: 'select_account',
     },
-  },
+  } : {},
 
   // Session configuration
   // expiresIn = 12h absolute idle cap; updateAge = sliding refresh every 1h
@@ -96,9 +110,27 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
+      // Atribuição de marketing enviada no cadastro (saneada no hook abaixo).
+      origem: {
+        type: 'json',
+        required: false,
+        input: true,
+      },
     },
     changeEmail: {
       enabled: true,
+    },
+  },
+
+  // A origem vem do navegador: só chaves conhecidas e texto curto entram.
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (dados) => {
+          const origem = sanearOrigem((dados as { origem?: unknown }).origem);
+          return { data: { ...dados, origem } };
+        },
+      },
     },
   },
 

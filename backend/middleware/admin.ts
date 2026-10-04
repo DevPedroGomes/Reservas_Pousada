@@ -26,7 +26,9 @@ export function ehAdmin(email: string | undefined | null): boolean {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (ehAdmin(req.user?.email)) return next();
+  // E-mail verificado é obrigatório: a lista compara endereços, e um endereço
+  // que ninguém provou possuir não pode abrir a área que vê todos os clientes.
+  if (req.user?.emailVerified && ehAdmin(req.user.email)) return next();
 
   // 404, não 403: para quem não é administrador, a área administrativa não
   // deve nem revelar que existe.

@@ -69,8 +69,12 @@ function normalizeCpf(cpf: string): string {
  * Lança se a chave não estiver configurada — nunca devolve texto puro.
  */
 export function encryptCpf(cpf: string): string {
+  return cifrarTexto(normalizeCpf(cpf));
+}
+
+/** Cifra um texto qualquer (mesmo formato e chave do CPF). */
+function cifrarTexto(normalized: string): string {
   const key = getEncryptionKey();
-  const normalized = normalizeCpf(cpf);
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
 
@@ -123,4 +127,39 @@ export function hashCpf(cpf: string): string {
  */
 export function isEncrypted(value: string): boolean {
   return value.split(':').length === 3;
+}
+
+// ---------------------------------------------------------------------------
+// Documento do hóspede: CPF, passaporte ou outro (migration 018).
+// CPF mantém exatamente a cifra e o hash de antes, para os hashes já gravados
+// continuarem valendo; os demais tipos entram com separação de domínio.
+
+export type TipoDocumento = 'cpf' | 'passaporte' | 'outro';
+export const TIPOS_DOCUMENTO: readonly TipoDocumento[] = ['cpf', 'passaporte', 'outro'];
+
+/** CPF: só dígitos. Passaporte e outros: letras e dígitos, em maiúsculas. */
+export function normalizarDocumento(tipo: TipoDocumento, valor: string): string {
+  return tipo === 'cpf' ? normalizeCpf(valor) : valor.toUpperCase().replace(/[^0-9A-Z]/g, '');
+}
+
+export function cifrarDocumento(tipo: TipoDocumento, valor: string): string {
+  return cifrarTexto(normalizarDocumento(tipo, valor));
+}
+
+export function hashDocumento(tipo: TipoDocumento, valor: string): string {
+  if (tipo === 'cpf') return hashCpf(valor);
+  return createHmac('sha256', getEncryptionKey())
+    .update(`doc-hash:v1:${tipo}:${normalizarDocumento(tipo, valor)}`)
+    .digest('hex');
+}
+
+// ---------------------------------------------------------------------------
+// Segredos de integração (token de gateway): mesma cifra, texto livre.
+
+export function cifrarSegredo(texto: string): string {
+  return cifrarTexto(texto);
+}
+
+export function decifrarSegredo(cifrado: string): string {
+  return decryptCpf(cifrado);
 }

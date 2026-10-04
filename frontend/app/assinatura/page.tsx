@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
+import { rastrear } from "../../lib/medicao"
 import { Button } from "../../components/ui/button"
 import { Badge } from "../../components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card"
@@ -40,7 +41,7 @@ function ConteudoAssinatura() {
   const [confirmando, setConfirmando] = useState(voltandoDoStripe)
 
   useEffect(() => {
-    if (!authLoading && !isAuthenticated) router.push("/")
+    if (!authLoading && !isAuthenticated) router.push("/entrar?proximo=/assinatura")
   }, [authLoading, isAuthenticated, router])
 
   /**
@@ -63,8 +64,11 @@ function ConteudoAssinatura() {
   }, [confirmando, isAuthenticated, a])
 
   useEffect(() => {
-    if (confirmando && a.situacao?.status === "ativa") setConfirmando(false)
-  }, [confirmando, a.situacao?.status])
+    if (confirmando && a.situacao?.status === "ativa") {
+      setConfirmando(false)
+      rastrear("assinatura", { plano: a.situacao.plano })
+    }
+  }, [confirmando, a.situacao?.status, a.situacao?.plano])
 
   if (authLoading || !isAuthenticated) {
     return (
@@ -75,17 +79,19 @@ function ConteudoAssinatura() {
   }
 
   const ehDono = Boolean(user?.is_owner)
-  const temAssinatura = Boolean(a.situacao && a.situacao.status !== "trial")
+  // Portal e troca de plano só fazem sentido com assinatura viva no Stripe.
+  const temAssinatura = Boolean(a.situacao?.assinaturaViva)
+  const podeTrocar = temAssinatura && a.situacao?.status === "ativa"
 
   return (
     <main className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 h-14">
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href="/painel" className="flex items-center gap-2.5">
             <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
             <span className="text-sm font-semibold">Diária</span>
           </Link>
-          <Link href="/">
+          <Link href="/painel">
             <Button variant="ghost" size="sm">Voltar ao painel</Button>
           </Link>
         </div>
@@ -113,6 +119,12 @@ function ConteudoAssinatura() {
           </div>
         )}
 
+        {a.aviso && (
+          <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-4 py-3">
+            <p className="text-sm text-emerald-800">{a.aviso}</p>
+          </div>
+        )}
+
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Assinatura</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -133,6 +145,18 @@ function ConteudoAssinatura() {
           <>
             <CartaoSituacao situacao={a.situacao} />
 
+            {a.cobertaPor && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Incluída no plano Rede</CardTitle>
+                  <CardDescription>
+                    Esta pousada está coberta pela assinatura da {a.cobertaPor.nome}. Para trocar de plano
+                    ou ver faturas, troque para a {a.cobertaPor.nome} e abra a Assinatura por lá.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
+
             {temAssinatura && ehDono && (
               <Card>
                 <CardHeader>
@@ -149,7 +173,7 @@ function ConteudoAssinatura() {
               </Card>
             )}
 
-            {a.planos.length > 0 && (
+            {a.planos.length > 0 && !a.cobertaPor && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <h2 className="text-lg font-semibold">
@@ -175,7 +199,10 @@ function ConteudoAssinatura() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   {a.planos.map((p) => {
-                    const atual = a.situacao?.plano === p.codigo
+                    // "Atual" é plano E ciclo: quem paga mensal pode passar
+                    // para o anual do mesmo plano.
+                    const atual = temAssinatura && a.situacao?.plano === p.codigo &&
+                      (a.situacao?.ciclo ?? a.ciclo) === a.ciclo
                     return (
                       <Card key={p.codigo} className={cn(atual && "border-primary ring-1 ring-primary/20")}>
                         <CardHeader>
@@ -205,10 +232,22 @@ function ConteudoAssinatura() {
                             <Button
                               className="w-full"
                               variant={atual ? "outline" : "default"}
-                              disabled={atual || a.redirecionando}
-                              onClick={() => a.assinar(p.codigo)}
+                              disabled={atual || a.redirecionando || (temAssinatura && !podeTrocar)}
+                              onClick={() => {
+                                if (!podeTrocar) return a.assinar(p.codigo)
+                                const ok = window.confirm(
+                                  `Mudar para o plano ${p.nome} (${a.ciclo})? A diferença é calculada proporcionalmente pelo Stripe.`,
+                                )
+                                if (ok) a.trocarPlano(p.codigo)
+                              }}
                             >
-                              {atual ? "Plano atual" : a.redirecionando ? "Aguarde..." : "Assinar"}
+                              {atual
+                                ? "Plano atual"
+                                : a.redirecionando
+                                  ? "Aguarde..."
+                                  : podeTrocar
+                                    ? "Mudar para este plano"
+                                    : "Assinar"}
                             </Button>
                           ) : (
                             <p className="text-xs text-muted-foreground text-center">
@@ -264,8 +303,10 @@ function CartaoSituacao({ situacao }: { situacao: SituacaoAssinatura | null }) {
         <CardDescription>
           {situacao.status === "trial" && situacao.liberado &&
             `Restam ${dias} ${dias === 1 ? "dia" : "dias"} de teste${situacao.trialTerminaEm ? ` — até ${formatarData(situacao.trialTerminaEm)}` : ""}.`}
-          {situacao.status === "ativa" && situacao.periodoTerminaEm &&
+          {situacao.status === "ativa" && situacao.periodoTerminaEm && !situacao.cancelaNoFim &&
             `Próxima renovação em ${formatarData(situacao.periodoTerminaEm)}.`}
+          {situacao.status === "ativa" && situacao.periodoTerminaEm && situacao.cancelaNoFim &&
+            `Cancelamento agendado: o acesso continua até ${formatarData(situacao.periodoTerminaEm)}.`}
           {situacao.status === "inadimplente" &&
             `Não conseguimos confirmar o pagamento. Você tem ${dias} ${dias === 1 ? "dia" : "dias"} para regularizar antes do bloqueio.`}
           {situacao.status === "cancelada" && situacao.liberado &&

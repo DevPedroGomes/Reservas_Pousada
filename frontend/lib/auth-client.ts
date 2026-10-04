@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { origemParaCadastro } from "./origem";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -24,13 +25,30 @@ export const {
 } = authClient;
 
 /**
+ * Para onde o link de confirmação de e-mail leva.
+ *
+ * Precisa ser URL absoluta do APP: o link é aberto na API, e um caminho
+ * relativo ("/onboarding") era resolvido contra o domínio da API — 404.
+ * Quem chegou por convite volta para o convite, não para o onboarding.
+ */
+export function urlDepoisDaConfirmacao(): string {
+  if (typeof window !== 'undefined') {
+    const convite = new URLSearchParams(window.location.search).get('convite');
+    if (convite) return `${APP_URL}/convite/${encodeURIComponent(convite)}`;
+  }
+  return `${APP_URL}/onboarding`;
+}
+
+/**
  * Sign in with email and password
  */
 export async function signInWithEmail(email: string, password: string, options?: { callbackURL?: string }) {
   return authClient.signIn.email({
     email,
     password,
-    callbackURL: options?.callbackURL,
+    // Usado pelo e-mail de confirmação reenviado quando a conta ainda não foi
+    // verificada (sendOnSignIn no backend).
+    callbackURL: options?.callbackURL ?? urlDepoisDaConfirmacao(),
   });
 }
 
@@ -38,12 +56,14 @@ export async function signInWithEmail(email: string, password: string, options?:
  * Sign up with email and password
  */
 export async function signUpWithEmail(email: string, password: string, name: string, options?: { callbackURL?: string }) {
+  // `origem` é campo adicional do usuário no backend (atribuição de marketing).
   return authClient.signUp.email({
     email,
     password,
     name,
-    callbackURL: options?.callbackURL,
-  });
+    callbackURL: options?.callbackURL ?? urlDepoisDaConfirmacao(),
+    origem: origemParaCadastro(),
+  } as Parameters<typeof authClient.signUp.email>[0]);
 }
 
 /**
@@ -52,7 +72,7 @@ export async function signUpWithEmail(email: string, password: string, name: str
 export async function signInWithGoogle(options?: { callbackURL?: string; newUserCallbackURL?: string }) {
   return authClient.signIn.social({
     provider: "google",
-    callbackURL: options?.callbackURL || `${APP_URL}/`,
+    callbackURL: options?.callbackURL || `${APP_URL}/painel`,
     newUserCallbackURL: options?.newUserCallbackURL || `${APP_URL}/onboarding`,
   });
 }

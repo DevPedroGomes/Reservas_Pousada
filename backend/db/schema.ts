@@ -1,5 +1,6 @@
-import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, boolean, timestamp, numeric, date, smallint, varchar, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
 
 // ==========================================
 // Better Auth Tables (required by better-auth)
@@ -17,6 +18,8 @@ export const user = pgTable('user', {
   role: text('role').notNull().default('recepcao'),
   pousadaId: integer('pousada_id'),
   isOwner: boolean('is_owner').default(false),
+  // Primeira origem do visitante (utm_*, gclid, fbclid...). Migration 015.
+  origem: jsonb('origem'),
 });
 
 export const session = pgTable('session', {
@@ -74,27 +77,86 @@ export const pousadas = pgTable('pousadas', {
   descricao: text('descricao'),
   configuracoes: jsonb('configuracoes').default({}),
   ativa: boolean('ativa').default(true),
+  // Exclusão a pedido do dono (migration 014): dados apagados, linha anonimizada.
+  excluidaEm: timestamp('excluida_em', { withTimezone: true }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (table) => ({
   slugIdx: index('idx_pousadas_slug').on(table.slug),
 }));
 
+// Fonte da verdade dos quartos (migration 016). `pousadas.num_quartos` é cache
+// da quantidade de quartos ativos, mantido por trigger.
+export const quartos = pgTable('quartos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  numero: integer('numero').notNull(),
+  nome: text('nome').notNull(),
+  tipo: text('tipo'),
+  capacidade: integer('capacidade').notNull().default(2),
+  precoBaseCentavos: integer('preco_base_centavos'),
+  descricao: text('descricao'),
+  ativo: boolean('ativo').notNull().default(true),
+  ordem: integer('ordem').notNull().default(0),
+  // Link secreto do calendário exportado (migration 021).
+  icalToken: text('ical_token').notNull().$defaultFn(() => randomBytes(32).toString('hex')),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  numeroIdx: uniqueIndex('uq_quarto_numero').on(table.pousadaId, table.numero),
+}));
+
+// Hóspede como cadastro (migration 018). Documento cifrado + hash de busca.
+export const hospedes = pgTable('hospedes', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  nome: text('nome').notNull(),
+  tipoDocumento: text('tipo_documento').notNull().default('cpf'),
+  documento: text('documento'),
+  documentoHash: text('documento_hash'),
+  nacionalidade: text('nacionalidade'),
+  telefone: text('telefone'),
+  email: text('email'),
+  dataNascimento: date('data_nascimento'),
+  observacoes: text('observacoes'),
+  anonimizadoEm: timestamp('anonimizado_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const reservas = pgTable('reservas', {
   id: serial('id').primaryKey(),
   pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
   nome: text('nome').notNull(),
-  cpf: text('cpf').notNull(),
+  // Legado: o documento mora em `hospedes` (migration 018).
+  cpf: text('cpf'),
   cpfHash: text('cpf_hash'),
+  hospedeId: integer('hospede_id').references(() => hospedes.id),
+  adultos: integer('adultos').notNull().default(1),
+  criancas: integer('criancas').notNull().default(0),
+  canal: text('canal').notNull().default('direto'),
+  // Reserva que veio do calendário de uma OTA (migration 021).
+  icalImportacaoId: integer('ical_importacao_id'),
+  icalUid: text('ical_uid'),
+  // Lembrete de chegada pelo WhatsApp (migration 023).
+  lembreteEnviadoEm: timestamp('lembrete_enviado_em', { withTimezone: true }),
+  // Link secreto do pré-check-in (migration 024).
+  precheckinToken: text('precheckin_token'),
   quarto: integer('quarto').notNull(),
   dataEntrada: date('data_entrada').notNull(),
   dataSaida: date('data_saida').notNull(),
-  status: text('status').notNull().default('ativa'),
+  status: text('status').notNull().default('confirmada'),
   valor: numeric('valor'),
   pago: boolean('pago').default(false),
   observacoes: text('observacoes'),
   criadoPor: text('criado_por').references(() => user.id),
   version: integer('version').notNull().default(1),
+  // Ciclo de status (migration 017).
+  expiraEm: timestamp('expira_em', { withTimezone: true }),
+  checkInEm: timestamp('check_in_em', { withTimezone: true }),
+  checkOutEm: timestamp('check_out_em', { withTimezone: true }),
+  canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
+  motivoCancelamento: text('motivo_cancelamento'),
   deletedAt: timestamp('deleted_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
@@ -104,6 +166,64 @@ export const reservas = pgTable('reservas', {
   datasIdx: index('idx_reservas_datas').on(table.dataEntrada, table.dataSaida),
   pousadaIdx: index('idx_reservas_pousada').on(table.pousadaId),
 }));
+
+// Tarifário (migration 020): ajustes sobre o preço base do quarto.
+export const tarifas = pgTable('tarifas', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  nome: text('nome').notNull(),
+  quartoNumero: integer('quarto_numero'),
+  dataInicio: date('data_inicio'),
+  dataFim: date('data_fim'),
+  diasSemana: smallint('dias_semana').array(),
+  precoCentavos: integer('preco_centavos'),
+  ajustePercentual: integer('ajuste_percentual'),
+  minimoNoites: integer('minimo_noites'),
+  ativa: boolean('ativa').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Calendários externos importados por quarto (migration 021).
+export const icalImportacoes = pgTable('ical_importacoes', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id, { onDelete: 'cascade' }).notNull(),
+  quartoNumero: integer('quarto_numero').notNull(),
+  nome: text('nome').notNull(),
+  canal: text('canal').notNull().default('outro'),
+  url: text('url').notNull(),
+  ativo: boolean('ativo').notNull().default(true),
+  ultimaSincronizacao: timestamp('ultima_sincronizacao', { withTimezone: true }),
+  ultimoErro: text('ultimo_erro'),
+  eventos: integer('eventos'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Conta da reserva (migration 019). Valores em centavos.
+export const pagamentos = pgTable('pagamentos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  reservaId: integer('reserva_id').references(() => reservas.id, { onDelete: 'cascade' }).notNull(),
+  valorCentavos: integer('valor_centavos').notNull(),
+  forma: text('forma').notNull(),
+  tipo: text('tipo').notNull().default('pagamento'),
+  recebidoEm: date('recebido_em').notNull(),
+  observacao: text('observacao'),
+  criadoPor: text('criado_por').references(() => user.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const consumos = pgTable('consumos', {
+  id: serial('id').primaryKey(),
+  pousadaId: integer('pousada_id').references(() => pousadas.id).notNull(),
+  reservaId: integer('reserva_id').references(() => reservas.id, { onDelete: 'cascade' }).notNull(),
+  descricao: text('descricao').notNull(),
+  quantidade: integer('quantidade').notNull().default(1),
+  valorUnitarioCentavos: integer('valor_unitario_centavos').notNull(),
+  lancadoEm: date('lancado_em').notNull(),
+  criadoPor: text('criado_por').references(() => user.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const auditoria = pgTable('auditoria', {
   id: serial('id').primaryKey(),
@@ -142,6 +262,8 @@ export const assinaturas = pgTable('assinaturas', {
   cancelaNoFim: boolean('cancela_no_fim').notNull().default(false),
   stripeCustomerId: text('stripe_customer_id').unique(),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
+  // Pousada extra coberta pela assinatura de outra (plano Rede). Ver migration 012.
+  cobertaPorPousadaId: integer('coberta_por_pousada_id').references(() => pousadas.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -285,6 +407,12 @@ export type NewAuditoria = typeof auditoria.$inferInsert;
 export type UserPousada = typeof userPousadas.$inferSelect;
 export type NewUserPousada = typeof userPousadas.$inferInsert;
 export type StaffInvite = typeof staffInvites.$inferSelect;
+export type Quarto = typeof quartos.$inferSelect;
+export type Hospede = typeof hospedes.$inferSelect;
+export type Pagamento = typeof pagamentos.$inferSelect;
+export type Tarifa = typeof tarifas.$inferSelect;
+export type Consumo = typeof consumos.$inferSelect;
+export type NewHospede = typeof hospedes.$inferInsert;
 export type Assinatura = typeof assinaturas.$inferSelect;
 export type FinanceiroLancamento = typeof financeiroLancamentos.$inferSelect;
 export type NewAssinatura = typeof assinaturas.$inferInsert;

@@ -59,6 +59,7 @@ jobs:
           # tambem o teste de que um deploy limpo sobe.
           DATABASE_URL: postgresql://teste:teste@localhost:5432/reservas_teste
           CPF_ENCRYPTION_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+          BETTER_AUTH_SECRET: segredo-de-teste-do-ci-com-mais-de-32-caracteres
           # Runner em UTC, igual ao container de producao — e assim que os
           # testes de fuso pegam a regressao.
           TZ: UTC
@@ -88,7 +89,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Cada imagem sai com DUAS tags: o sha do commit (imutável — é o que
+      # permite rollback para uma versão exata) e latest (o que o auto-pull da
+      # VPS consome). Antes só existia latest: voltar uma versão exigia rebuild.
       - name: Build + push (so os servicos buildados, nao upstream)
         run: |
+          export IMAGE_TAG="${GITHUB_SHA::12}"
           docker compose build
           docker compose push backend frontend
+          for servico in backend frontend; do
+            imagem="ghcr.io/devpedrogomes/reservas_pousada/${servico}"
+            docker tag "${imagem}:${IMAGE_TAG}" "${imagem}:latest"
+            docker push "${imagem}:latest"
+          done
+          echo "Publicado: ${IMAGE_TAG}" >> "$GITHUB_STEP_SUMMARY"

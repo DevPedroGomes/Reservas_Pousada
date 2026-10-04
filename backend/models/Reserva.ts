@@ -1,15 +1,32 @@
-import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, SQL } from 'drizzle-orm';
-import { db, reservas, user } from '../db/index.js';
+import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, inArray, SQL } from 'drizzle-orm';
+import { db, hospedes, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
-import { encryptCpf, decryptCpf, hashCpf } from '../utils/crypto.js';
+import { decryptCpf, hashCpf, hashDocumento, normalizarDocumento } from '../utils/crypto.js';
+import { mascararDocumento } from '../utils/pii.js';
+import { CPF_ANONIMIZADO } from './Conta.js';
+import { STATUS_QUE_OCUPAM } from '../utils/status.js';
 
 /** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
 const PG_EXCLUSION_VIOLATION = '23P01';
 
+/**
+ * O que se mostra de uma reserva que conflita com outra. Só o necessário para
+ * a recepção entender o choque de datas — nunca CPF, valor ou observações de
+ * outro hóspede (antes a linha inteira ia na resposta, com CPF cifrado e hash).
+ */
+export interface ConflitoResumo {
+  id: number;
+  nome: string;
+  quarto: number;
+  dataEntrada: string;
+  dataSaida: string;
+  status: string;
+}
+
 export class ConflitoDeReserva extends Error {
   readonly code = 'QUARTO_INDISPONIVEL';
-  conflitos: Reserva[];
-  constructor(conflitos: Reserva[] = []) {
+  conflitos: ConflitoResumo[];
+  constructor(conflitos: ConflitoResumo[] = []) {
     super('Quarto não disponível para o período selecionado');
     this.name = 'ConflitoDeReserva';
     this.conflitos = conflitos;
@@ -21,6 +38,12 @@ function ehViolacaoDeExclusao(err: unknown): boolean {
 }
 
 interface ListarOptions {
+  /**
+   * CPF completo na resposta. Padrão: mascarado — a listagem nunca precisa do
+   * número inteiro, e devolvê-lo a todo papel tornava a máscara do CSV inútil
+   * (bastava paginar a API). Só a exportação de admin/dono pede completo.
+   */
+  cpfCompleto?: boolean;
   page?: number;
   limit?: number;
   search?: string;
@@ -31,51 +54,137 @@ interface ListarOptions {
   pousada_id: number;
 }
 
-interface ReservaComCriador extends Reserva {
+/**
+ * Reserva como sai do model: com o hóspede (documento decifrado, contato) e o
+ * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
+ * é o documento quando ele é CPF, senão vazio.
+ */
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'lembreteEnviadoEm' | 'precheckinToken'> {
+  /** Quando o hóspede enviou a ficha de pré-check-in (null se não enviou). */
+  precheckinEm?: Date | null;
   criadoPorNome?: string | null;
+  documento: string;
+  tipoDocumento: string;
+  cpf: string;
+  telefone: string | null;
+  email: string | null;
+  nacionalidade: string | null;
 }
+
+/**
+ * Carimbos de cada transição: quando entrou, saiu, foi cancelada. Voltar um
+ * passo (desfazer check-out, reativar) limpa o carimbo correspondente.
+ */
+export function camposDaTransicao(status: string, extra: { motivo?: string | null; expiraEm?: Date | null } = {}) {
+  const agora = new Date();
+  switch (status) {
+    case 'pre_reserva':
+      return { expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null };
+    case 'confirmada':
+      return { expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null };
+    case 'hospedada':
+      return { expiraEm: null, checkInEm: sql`COALESCE(${reservas.checkInEm}, now())`, checkOutEm: null };
+    case 'finalizada':
+      return { checkOutEm: agora };
+    case 'cancelada':
+      return { canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Colunas devolvidas pelas consultas de reserva (com o nome de quem criou).
+ * Uma lista só: antes eram três cópias, e campo novo esquecido numa delas
+ * sumia daquela tela.
+ */
+const CAMPOS_RESERVA = {
+  id: reservas.id,
+  pousadaId: reservas.pousadaId,
+  nome: reservas.nome,
+  hospedeId: reservas.hospedeId,
+  // Documento do cadastro do hóspede; reserva antiga sem cadastro cai na coluna legada.
+  documentoCifrado: sql<string | null>`COALESCE(${hospedes.documento}, ${reservas.cpf})`,
+  tipoDocumento: sql<string>`COALESCE(${hospedes.tipoDocumento}, 'cpf')`,
+  telefone: hospedes.telefone,
+  email: hospedes.email,
+  nacionalidade: hospedes.nacionalidade,
+  adultos: reservas.adultos,
+  criancas: reservas.criancas,
+  canal: reservas.canal,
+  // Veio do calendário de uma OTA (migration 021): datas mandadas por ela.
+  icalImportacaoId: reservas.icalImportacaoId,
+  // Conta (migration 019): quanto entrou e quanto foi consumido além das diárias.
+  pagoCentavos: sql<number>`(SELECT COALESCE(sum(p.valor_centavos), 0)::int FROM pagamentos p WHERE p.reserva_id = "reservas"."id")`,
+  consumosCentavos: sql<number>`(SELECT COALESCE(sum(c.quantidade * c.valor_unitario_centavos), 0)::int FROM consumos c WHERE c.reserva_id = "reservas"."id")`,
+  // Pré-check-in (migration 024): quando a ficha chegou.
+  precheckinEm: sql<Date | null>`(SELECT pc.enviado_em FROM precheckins pc WHERE pc.reserva_id = "reservas"."id")`,
+  quarto: reservas.quarto,
+  dataEntrada: reservas.dataEntrada,
+  dataSaida: reservas.dataSaida,
+  status: reservas.status,
+  valor: reservas.valor,
+  pago: reservas.pago,
+  observacoes: reservas.observacoes,
+  criadoPor: reservas.criadoPor,
+  version: reservas.version,
+  expiraEm: reservas.expiraEm,
+  checkInEm: reservas.checkInEm,
+  checkOutEm: reservas.checkOutEm,
+  canceladaEm: reservas.canceladaEm,
+  motivoCancelamento: reservas.motivoCancelamento,
+  deletedAt: reservas.deletedAt,
+  createdAt: reservas.createdAt,
+  updatedAt: reservas.updatedAt,
+  criadoPorNome: user.name,
+};
+
+/** SELECT padrão: reserva + hóspede + quem criou. */
+function selecionarReservas() {
+  return db
+    .select(CAMPOS_RESERVA)
+    .from(reservas)
+    .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))
+    .leftJoin(user, eq(reservas.criadoPor, user.id));
+}
+
+type LinhaReserva = Awaited<ReturnType<typeof selecionarReservas>>[number];
 
 export class ReservaModel {
   /**
-   * Decrypt CPF in a reservation result (gracefully handles unencrypted CPFs)
+   * Decifra o documento da linha lida com CAMPOS_RESERVA. Falha de decifra
+   * aparece na tela e no log, sem derrubar a listagem por causa de uma linha.
    */
-  private static decryptResult<T extends { cpf: string }>(result: T): T {
-    try {
-      return { ...result, cpf: decryptCpf(result.cpf) };
-    } catch (err) {
-      // Antes isto devolvia o ciphertext como se fosse o CPF e ninguém ficava
-      // sabendo. Agora falha de forma visível (na tela e no log) sem derrubar a
-      // listagem inteira por causa de uma linha ruim.
-      console.error(
-        `[Reserva] Falha ao decifrar CPF (id=${(result as { id?: number }).id ?? '?'}):`,
-        err instanceof Error ? err.message : err,
-      );
-      return { ...result, cpf: '[CPF ilegível — verifique CPF_ENCRYPTION_KEY]' };
+  private static decifrar(linha: LinhaReserva): ReservaComCriador {
+    const { documentoCifrado, ...resto } = linha;
+    let documento = '';
+    // Hóspede anonimizado pela política de retenção: não há documento a decifrar.
+    if (documentoCifrado && documentoCifrado !== CPF_ANONIMIZADO) {
+      try {
+        documento = decryptCpf(documentoCifrado);
+      } catch (err) {
+        console.error(
+          `[Reserva] Falha ao decifrar documento (id=${linha.id}):`,
+          err instanceof Error ? err.message : err,
+        );
+        documento = '[documento ilegível — verifique CPF_ENCRYPTION_KEY]';
+      }
     }
+    return { ...resto, documento, cpf: resto.tipoDocumento === 'cpf' ? documento : '' };
   }
 
-  private static decryptResults<T extends { cpf: string }>(results: T[]): T[] {
-    return results.map(r => this.decryptResult(r));
-  }
-
-  /**
-   * Cifra o CPF e gera o hash de busca.
-   *
-   * Deliberadamente sem try/catch: se a chave não estiver configurada, isto
-   * LANÇA. Antes, o catch devolvia null e o insert seguia gravando o CPF em
-   * TEXTO PURO, em silêncio. O boot também valida a chave (assertCpfCrypto-
-   * Configurada), então este caminho só é alcançável se a chave for removida
-   * com o processo já no ar.
-   */
-  private static encryptCpfData(cpf: string): { cpf: string; cpfHash: string } {
-    return { cpf: encryptCpf(cpf), cpfHash: hashCpf(cpf) };
+  /** Forma pública da reserva; com `mascarar`, documento e CPF mascarados. */
+  static paraApi(r: ReservaComCriador, mascarar: boolean): ReservaComCriador {
+    if (!mascarar) return r;
+    const documento = mascararDocumento(r.documento, r.tipoDocumento);
+    return { ...r, documento, cpf: r.tipoDocumento === 'cpf' ? documento : '' };
   }
 
   /**
    * List all reservations with filters and pagination
    */
   static async listarTodas(options: ListarOptions): Promise<{ data: ReservaComCriador[]; count: number }> {
-    const { page = 1, limit = 50, search, status, pago, data_inicio, data_fim, pousada_id } = options;
+    const { page = 1, limit = 50, search, status, pago, data_inicio, data_fim, pousada_id, cpfCompleto = false } = options;
 
     if (!pousada_id) {
       throw new Error('pousada_id é obrigatório');
@@ -108,15 +217,21 @@ export class ReservaModel {
       const searchPattern = `%${search}%`;
       const searchDigits = search.replace(/[^\d]/g, '');
 
-      // CPF só é pesquisável por igualdade exata, via HMAC. Busca parcial é
-      // impossível por construção — a coluna guarda ciphertext, e o `ilike`
-      // que existia aqui nunca casava com nada (falhava em silêncio).
+      // Documento só é pesquisável por igualdade exata, via HMAC. Busca parcial
+      // é impossível por construção — a coluna guarda ciphertext.
       const alvos = [
         ilike(reservas.nome, searchPattern),
         sql`${reservas.quarto}::text = ${search}`,
       ];
+      if (searchDigits.length >= 4) {
+        alvos.push(sql`${hospedes.telefone} LIKE ${'%' + searchDigits + '%'}`);
+      }
       if (searchDigits.length === 11) {
-        alvos.push(eq(reservas.cpfHash, hashCpf(searchDigits)));
+        alvos.push(eq(hospedes.documentoHash, hashCpf(searchDigits)), eq(reservas.cpfHash, hashCpf(searchDigits)));
+      }
+      const alfanum = normalizarDocumento('outro', search);
+      if (alfanum.length >= 5 && /[A-Z]/.test(alfanum)) {
+        alvos.push(eq(hospedes.documentoHash, hashDocumento('passaporte', alfanum)));
       }
 
       conditions.push(or(...alvos)!);
@@ -126,39 +241,17 @@ export class ReservaModel {
     const [countResult] = await db
       .select({ count: count() })
       .from(reservas)
+      .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))
       .where(and(...conditions));
 
-    // Get data with creator name
-    const data = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const data = await selecionarReservas()
       .where(and(...conditions))
       .orderBy(reservas.dataEntrada)
       .limit(limit)
       .offset(offset);
 
     return {
-      data: this.decryptResults(data),
+      data: data.map((r) => this.paraApi(this.decifrar(r), !cpfCompleto)),
       count: countResult?.count || 0,
     };
   }
@@ -167,66 +260,22 @@ export class ReservaModel {
    * Find reservation by ID
    */
   static async buscarPorId(id: number): Promise<ReservaComCriador | null> {
-    const [result] = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const [result] = await selecionarReservas()
       .where(and(eq(reservas.id, id), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result ? this.decryptResult(result) : null;
+    return result ? this.decifrar(result) : null;
   }
 
   /**
    * Find reservation by ID and pousada (ensures tenant isolation)
    */
   static async buscarPorIdEPousada(id: number, pousadaId: number): Promise<ReservaComCriador | null> {
-    const [result] = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
+    const [result] = await selecionarReservas()
       .where(and(eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), isNull(reservas.deletedAt)))
       .limit(1);
 
-    return result ? this.decryptResult(result) : null;
+    return result ? this.decifrar(result) : null;
   }
 
   /**
@@ -247,10 +296,10 @@ export class ReservaModel {
     dataSaida: string,
     reservaIdExcluir: number | null = null,
     pousadaId: number
-  ): Promise<{ disponivel: boolean; conflitos: Reserva[] }> {
+  ): Promise<{ disponivel: boolean; conflitos: ConflitoResumo[] }> {
     const conditions = [
       eq(reservas.quarto, quarto),
-      eq(reservas.status, 'ativa'),
+      inArray(reservas.status, [...STATUS_QUE_OCUPAM]),
       eq(reservas.pousadaId, pousadaId),
       isNull(reservas.deletedAt),
       // Sobreposição de [a,b) com [c,d)  <=>  a < d AND b > c
@@ -263,7 +312,14 @@ export class ReservaModel {
     }
 
     const conflitos = await db
-      .select()
+      .select({
+        id: reservas.id,
+        nome: reservas.nome,
+        quarto: reservas.quarto,
+        dataEntrada: reservas.dataEntrada,
+        dataSaida: reservas.dataSaida,
+        status: reservas.status,
+      })
       .from(reservas)
       .where(and(...conditions));
 
@@ -274,17 +330,15 @@ export class ReservaModel {
   }
 
   /**
-   * Create a new reservation (with idempotency guard + CPF encryption)
+   * Cria a reserva (o hóspede já resolvido em `hospedeId`).
    */
-  static async criar(reserva: NewReserva): Promise<Reserva> {
-    const cpfData = this.encryptCpfData(reserva.cpf);
-
-    // Idempotency guard: prevent duplicate from double-clicks (same cpf+quarto+dates within 30s)
+  static async criar(reserva: NewReserva & { hospedeId: number }): Promise<ReservaComCriador> {
+    // Duplo clique: mesmo hóspede, quarto e datas nos últimos 30s devolve a existente.
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
       .where(and(
-        eq(reservas.cpfHash, cpfData.cpfHash),
+        eq(reservas.hospedeId, reserva.hospedeId),
         eq(reservas.quarto, reserva.quarto),
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
@@ -315,10 +369,10 @@ export class ReservaModel {
     try {
       const [created] = await db
         .insert(reservas)
-        .values({ ...reserva, cpf: cpfData.cpf, cpfHash: cpfData.cpfHash })
-        .returning();
+        .values({ ...reserva, cpf: null, cpfHash: null })
+        .returning({ id: reservas.id });
 
-      return this.decryptResult(created);
+      return (await this.buscarPorId(created.id))!;
     } catch (err) {
       // Duas requisições simultâneas podem passar as duas pela checagem acima.
       // Quem perde a corrida esbarra na constraint EXCLUDE e cai aqui — que é
@@ -357,12 +411,11 @@ export class ReservaModel {
       }
     }
 
-    // Encrypt CPF if it's being updated
+    // O documento mora no hóspede: trocar de hóspede limpa a coluna legada.
     const updateData: Record<string, unknown> = { ...reserva };
-    if (reserva.cpf) {
-      const cpfData = this.encryptCpfData(reserva.cpf);
-      updateData.cpf = cpfData.cpf;
-      updateData.cpfHash = cpfData.cpfHash;
+    if (reserva.hospedeId) {
+      updateData.cpf = null;
+      updateData.cpfHash = null;
     }
 
     const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
@@ -414,7 +467,13 @@ export class ReservaModel {
   /**
    * Update reservation status (with optimistic locking)
    */
-  static async atualizarStatus(id: number, status: string, pousadaId: number, version?: number): Promise<{ changes: number; id: number; status: string }> {
+  static async atualizarStatus(
+    id: number,
+    status: string,
+    pousadaId: number,
+    version?: number,
+    extra: { motivo?: string | null; expiraEm?: Date | null } = {},
+  ): Promise<{ changes: number; id: number; status: string }> {
     const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
     if (version !== undefined) {
       conditions.push(eq(reservas.version, version));
@@ -426,6 +485,7 @@ export class ReservaModel {
         .update(reservas)
         .set({
           status,
+          ...camposDaTransicao(status, extra),
           version: sql`${reservas.version} + 1`,
           updatedAt: new Date(),
         })
@@ -439,7 +499,7 @@ export class ReservaModel {
           ? await this.verificarDisponibilidade(
               existente.quarto, existente.dataEntrada, existente.dataSaida, id, pousadaId,
             )
-          : { conflitos: [] as Reserva[] };
+          : { conflitos: [] as ConflitoResumo[] };
         throw new ConflitoDeReserva(conflitos);
       }
       throw err;
@@ -474,79 +534,78 @@ export class ReservaModel {
   }
 
   /**
-   * Find reservations by period
+   * Agenda de um dia: chegadas, saídas, quem está hospedado e as próximas
+   * chegadas. É o que a recepção abre de manhã.
+   *
+   * Substitui o "próximas reservas" antigo, que era calculado no navegador a
+   * partir da primeira página da listagem (ordenada da mais antiga): passadas
+   * 50 reservas, o painel mostrava estadias do ano anterior.
    */
-  static async buscarPorPeriodo(dataInicio: string, dataFim: string, pousadaId: number): Promise<ReservaComCriador[]> {
-    const data = await db
-      .select({
-        id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
-        quarto: reservas.quarto,
-        dataEntrada: reservas.dataEntrada,
-        dataSaida: reservas.dataSaida,
-        status: reservas.status,
-        valor: reservas.valor,
-        pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
-      })
-      .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(
-        and(
-          eq(reservas.pousadaId, pousadaId),
-          isNull(reservas.deletedAt),
-          or(
-            and(gte(reservas.dataEntrada, dataInicio), lte(reservas.dataEntrada, dataFim)),
-            and(gte(reservas.dataSaida, dataInicio), lte(reservas.dataSaida, dataFim)),
-            and(lte(reservas.dataEntrada, dataInicio), gte(reservas.dataSaida, dataFim))
-          )
-        )
-      )
-      .orderBy(reservas.dataEntrada);
+  static async agenda(pousadaId: number, dia: string, diasAFrente: number) {
+    const campos = {
+      id: reservas.id,
+      nome: reservas.nome,
+      quarto: reservas.quarto,
+      dataEntrada: reservas.dataEntrada,
+      dataSaida: reservas.dataSaida,
+      valor: reservas.valor,
+      pago: reservas.pago,
+      status: reservas.status,
+      // WhatsApp do hóspede: a agenda tem o botão de mensagem pronta.
+      telefone: hospedes.telefone,
+      // Para o {saldo} da mensagem bater com a conta.
+      pagoCentavos: CAMPOS_RESERVA.pagoCentavos,
+      consumosCentavos: CAMPOS_RESERVA.consumosCentavos,
+      precheckinEm: CAMPOS_RESERVA.precheckinEm,
+    };
+    const base = [eq(reservas.pousadaId, pousadaId), inArray(reservas.status, [...STATUS_QUE_OCUPAM]), isNull(reservas.deletedAt)];
+    const lista = () => db.select(campos).from(reservas).leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id));
+    const ate = sql`(${dia}::date + ${diasAFrente}::int)`;
 
-    return this.decryptResults(data);
+    const [chegadas, saidas, hospedados, proximas] = await Promise.all([
+      lista().where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
+      lista().where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
+      lista()
+        // Pré-reserva segura o quarto, mas ninguém está hospedado nela.
+        .where(and(...base, ne(reservas.status, 'pre_reserva'), lte(reservas.dataEntrada, dia), gt(reservas.dataSaida, dia)))
+        .orderBy(reservas.quarto),
+      lista()
+        .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))
+        .orderBy(reservas.dataEntrada, reservas.quarto)
+        .limit(50),
+    ]);
+
+    return { dia, chegadas, saidas, hospedados, proximas };
   }
 
   /**
-   * Find reservations by status
+   * Mapa de ocupação: reservas que tocam o período [inicio, fim) — inclusive
+   * as já finalizadas, para ver a semana que passou. Cancelada e no-show não
+   * ocupam o quarto e ficam de fora.
    */
-  static async buscarPorStatus(status: string, pousadaId: number): Promise<ReservaComCriador[]> {
-    const data = await db
+  static async mapa(pousadaId: number, inicio: string, fim: string) {
+    return db
       .select({
         id: reservas.id,
-        pousadaId: reservas.pousadaId,
-        nome: reservas.nome,
-        cpf: reservas.cpf,
-        cpfHash: reservas.cpfHash,
         quarto: reservas.quarto,
+        nome: reservas.nome,
         dataEntrada: reservas.dataEntrada,
         dataSaida: reservas.dataSaida,
         status: reservas.status,
-        valor: reservas.valor,
         pago: reservas.pago,
-        observacoes: reservas.observacoes,
-        criadoPor: reservas.criadoPor,
-        version: reservas.version,
-        deletedAt: reservas.deletedAt,
-        createdAt: reservas.createdAt,
-        updatedAt: reservas.updatedAt,
-        criadoPorNome: user.name,
+        adultos: reservas.adultos,
+        criancas: reservas.criancas,
+        canal: reservas.canal,
       })
       .from(reservas)
-      .leftJoin(user, eq(reservas.criadoPor, user.id))
-      .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, status), isNull(reservas.deletedAt)))
-      .orderBy(reservas.dataEntrada);
-
-    return this.decryptResults(data);
+      .where(and(
+        eq(reservas.pousadaId, pousadaId),
+        isNull(reservas.deletedAt),
+        inArray(reservas.status, [...STATUS_QUE_OCUPAM, 'finalizada']),
+        lt(reservas.dataEntrada, fim),
+        gt(reservas.dataSaida, inicio),
+      ))
+      .orderBy(reservas.quarto, reservas.dataEntrada);
   }
 }
 

@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
-import rateLimit from 'express-rate-limit';
+import { criarLimitador } from '../utils/limitadores.js';
 import AssinaturaModel from '../models/Assinatura.js';
 import PousadaModel from '../models/Pousada.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { requireOwner } from '../middleware/auth.js';
 import { billingHabilitado, stripe } from '../lib/stripe.js';
 import { PLANOS, ehCiclo, ehCodigoPlano, planosVendaveis, stripePriceId } from '../config/planos.js';
+import { limitesVigentes, motivosParaNaoCaber, temAssinaturaViva } from '../utils/assinatura.js';
+import { aplicarAssinaturaAgora } from './stripe-webhook.js';
 import { urlDoApp } from '../utils/origens.js';
 import { chaveDeRateLimit } from '../utils/rede.js';
 
@@ -13,7 +15,7 @@ const router = Router();
 
 // Criar sessão no Stripe custa uma chamada externa. Limite estreito para que um
 // clique repetido não vire dezenas de sessões abertas nem uma conta inflada.
-const limiteDeSessao = rateLimit({
+const limiteDeSessao = criarLimitador('checkout', {
   windowMs: 60 * 60 * 1000,
   max: 20,
   keyGenerator: (req: any) => req.user?.id || chaveDeRateLimit(req.ip),
@@ -30,6 +32,18 @@ function exigirBilling(res: Response): boolean {
     mensagem: 'Cobrança ainda não está ativa neste ambiente.',
   });
   return false;
+}
+
+
+/** Pousada coberta pelo Rede de outra não tem assinatura própria para mexer. */
+function recusarSeCoberta(row: { cobertaPorPousadaId: number | null } | null, res: Response): boolean {
+  if (!row?.cobertaPorPousadaId) return false;
+  res.status(409).json({
+    sucesso: false,
+    codigo: 'BILLING_COBERTA',
+    mensagem: 'Esta pousada está incluída no plano Rede de outra pousada sua. Gerencie a assinatura por lá.',
+  });
+  return true;
 }
 
 /**
@@ -49,14 +63,21 @@ router.get('/situacao', async (req: Request, res: Response) => {
     return res.json({ sucesso: true, billingHabilitado: billingHabilitado(), assinatura: null });
   }
 
+  // Pousada coberta pelo Rede de outra: a tela mostra de quem é a assinatura,
+  // em vez de oferecer planos para algo que já está pago.
+  const pagadora = situacao.cobertaPor ? await PousadaModel.buscarPorId(situacao.cobertaPor) : null;
+
   res.json({
     sucesso: true,
     billingHabilitado: billingHabilitado(),
+    cobertaPor: pagadora ? { pousadaId: pagadora.id, nome: pagadora.nome } : null,
     assinatura: {
       status: situacao.estado.status,
       plano: situacao.estado.plano,
       planoNome: situacao.estado.plano ? PLANOS[situacao.estado.plano].nome : null,
-      ciclo: null,
+      ciclo: situacao.ciclo,
+      assinaturaViva: situacao.assinaturaViva,
+      cancelaNoFim: situacao.cancelaNoFim,
       trialTerminaEm: situacao.estado.trialTerminaEm,
       periodoTerminaEm: situacao.estado.periodoTerminaEm,
       liberado: situacao.veredito.liberado,
@@ -64,7 +85,7 @@ router.get('/situacao', async (req: Request, res: Response) => {
       diasRestantes: situacao.veredito.liberado ? situacao.veredito.diasRestantes ?? null : 0,
     },
     limites: situacao.limites,
-    uso: { usuarios: situacao.usuarios },
+    uso: { usuarios: situacao.usuarios, pousadas: situacao.pousadasDoDono },
   });
 });
 
@@ -125,6 +146,25 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
       return res.status(404).json({ sucesso: false, mensagem: 'Pousada não encontrada' });
     }
 
+    if (recusarSeCoberta(assinatura, res)) return;
+
+    if (assinatura?.status === 'cortesia') {
+      return res.status(409).json({ sucesso: false, mensagem: 'Esta conta é cortesia e não precisa de assinatura.' });
+    }
+
+    // Quem já assina troca de plano na assinatura existente. Um segundo
+    // checkout criaria uma segunda assinatura: cobrança em dobro.
+    if (assinatura && temAssinaturaViva(assinatura)) {
+      return res.status(409).json({
+        sucesso: false,
+        codigo: 'BILLING_JA_ASSINA',
+        mensagem: assinatura.status === 'ativa'
+          ? 'Você já tem uma assinatura. Use "Mudar para este plano" para trocar.'
+          : 'Sua assinatura tem um pagamento pendente. Regularize em "Gerenciar assinatura".',
+        usarTrocaDePlano: assinatura.status === 'ativa',
+      });
+    }
+
     // Reaproveita o customer se já existe — criar um novo a cada checkout
     // espalharia o histórico de cobrança do mesmo cliente por vários registros
     // no Stripe.
@@ -136,12 +176,21 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
         // Liga o registro do Stripe ao nosso tenant. É por aqui que o webhook
         // reencontra a pousada quando o Stripe avisa de uma cobrança.
         metadata: { pousada_id: String(pousadaId) },
+      }, {
+        // Dois cliques simultâneos geram a MESMA requisição: o Stripe devolve
+        // o mesmo customer em vez de criar dois.
+        idempotencyKey: `customer-pousada-${pousadaId}`,
       });
-      customerId = customer.id;
-      await AssinaturaModel.vincularCustomer(pousadaId, customerId);
+      await AssinaturaModel.vincularCustomer(pousadaId, customer.id);
+      // Relê: se outra requisição venceu a corrida, vale o customer dela.
+      customerId = (await AssinaturaModel.buscarPorPousada(pousadaId))?.stripeCustomerId ?? customer.id;
     }
 
     const appUrl = urlDoApp();
+    // Mesma pousada + plano + ciclo no mesmo minuto = a mesma sessão. Impede
+    // que um duplo clique abra duas sessões que, pagas, virariam duas
+    // assinaturas.
+    const janela = Math.floor(Date.now() / 60_000);
     const sessao = await stripe().checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -152,6 +201,8 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
       subscription_data: { metadata: { pousada_id: String(pousadaId), plano, ciclo } },
       success_url: `${appUrl}/assinatura?status=sucesso`,
       cancel_url: `${appUrl}/assinatura?status=cancelado`,
+    }, {
+      idempotencyKey: `checkout-${pousadaId}-${plano}-${ciclo}-${janela}`,
     });
 
     AuditoriaModel.log(req.user!.id, 'checkout_iniciado', 'pousada', pousadaId, { plano, ciclo }, req.ip || null)
@@ -165,6 +216,86 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
 });
 
 /**
+ * POST /api/billing/trocar-plano
+ * Troca o plano (ou o ciclo) da assinatura existente, com pró-rata do Stripe.
+ * Só o dono. Downgrade que deixaria a conta acima dos limites é recusado com
+ * o motivo — melhor que aceitar e bloquear a operação no dia seguinte.
+ */
+router.post('/trocar-plano', requireOwner, limiteDeSessao, async (req: Request, res: Response) => {
+  if (!exigirBilling(res)) return;
+
+  const pousadaId = req.user!.pousadaId;
+  if (!pousadaId) {
+    return res.status(403).json({ sucesso: false, mensagem: 'Pousada não configurada' });
+  }
+
+  const { plano, ciclo } = req.body ?? {};
+  if (!ehCodigoPlano(plano) || !ehCiclo(ciclo)) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Plano ou ciclo inválido' });
+  }
+  const priceId = stripePriceId(plano, ciclo);
+  if (!priceId) {
+    return res.status(503).json({ sucesso: false, mensagem: 'Este plano ainda não está disponível para contratação.' });
+  }
+
+  const [assinatura, pousada, situacao] = await Promise.all([
+    AssinaturaModel.buscarPorPousada(pousadaId),
+    PousadaModel.buscarPorId(pousadaId),
+    AssinaturaModel.situacao(pousadaId),
+  ]);
+  if (recusarSeCoberta(assinatura, res)) return;
+  if (!assinatura?.stripeSubscriptionId || assinatura.status !== 'ativa') {
+    return res.status(409).json({
+      sucesso: false,
+      mensagem: assinatura?.status === 'inadimplente'
+        ? 'Regularize o pagamento em "Gerenciar assinatura" antes de trocar de plano.'
+        : 'Não há assinatura ativa para trocar. Escolha um plano para assinar.',
+    });
+  }
+  if (assinatura.plano === plano && assinatura.ciclo === ciclo) {
+    return res.status(400).json({ sucesso: false, mensagem: 'Este já é o seu plano atual.' });
+  }
+
+  const motivos = motivosParaNaoCaber(
+    { quartos: pousada?.numQuartos ?? 0, usuarios: situacao?.usuarios ?? 0, pousadas: situacao?.pousadasDoDono || 1 },
+    limitesVigentes({ status: 'ativa', plano }),
+  );
+  if (motivos.length > 0) {
+    return res.status(409).json({
+      sucesso: false,
+      codigo: 'BILLING_NAO_CABE',
+      mensagem: `Não é possível mudar para o plano ${PLANOS[plano].nome}: ${motivos.join('; ')}.`,
+    });
+  }
+
+  try {
+    const atual = await stripe().subscriptions.retrieve(assinatura.stripeSubscriptionId);
+    const item = atual.items.data[0];
+    if (!item) throw new Error(`assinatura ${atual.id} sem item`);
+
+    const atualizada = await stripe().subscriptions.update(atual.id, {
+      items: [{ id: item.id, price: priceId }],
+      // Cobra/credita a diferença proporcional. Trocar mensal<->anual faz o
+      // Stripe faturar na hora, como esperado.
+      proration_behavior: 'create_prorations',
+      metadata: { pousada_id: String(pousadaId), plano, ciclo },
+    });
+
+    // A tela reflete na hora; o webhook que chegar depois reaplica o mesmo.
+    await aplicarAssinaturaAgora(atualizada);
+
+    AuditoriaModel.log(req.user!.id, 'plano_trocado', 'pousada', pousadaId, {
+      de: { plano: assinatura.plano, ciclo: assinatura.ciclo }, para: { plano, ciclo },
+    }, req.ip || null).catch((e) => console.error('[Auditoria] troca de plano:', e.message));
+
+    res.json({ sucesso: true, mensagem: `Plano alterado para ${PLANOS[plano].nome}.` });
+  } catch (err) {
+    console.error('[Billing] falha ao trocar plano:', err);
+    res.status(502).json({ sucesso: false, mensagem: 'Não foi possível trocar o plano agora. Tente novamente.' });
+  }
+});
+
+/**
  * POST /api/billing/portal
  * Portal do Stripe: trocar cartão, ver faturas, cancelar. Existe para que o
  * dono resolva sozinho o que senão viraria suporte manual.
@@ -174,6 +305,7 @@ router.post('/portal', requireOwner, limiteDeSessao, async (req: Request, res: R
 
   const pousadaId = req.user!.pousadaId;
   const assinatura = pousadaId ? await AssinaturaModel.buscarPorPousada(pousadaId) : null;
+  if (recusarSeCoberta(assinatura, res)) return;
   if (!assinatura?.stripeCustomerId) {
     return res.status(409).json({
       sucesso: false,

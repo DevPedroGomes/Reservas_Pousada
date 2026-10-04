@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
 import type Stripe from 'stripe';
+import { db, type Executor } from '../db/index.js';
 import AssinaturaModel from '../models/Assinatura.js';
 import { stripe, segredoDoWebhook } from '../lib/stripe.js';
 import { CODIGOS_PLANO, stripePriceId, type Ciclo, type CodigoPlano } from '../config/planos.js';
@@ -8,6 +9,7 @@ import type { StatusAssinatura } from '../utils/assinatura.js';
 import FinanceiroModel from '../models/Financeiro.js';
 import { competenciaDe } from '../utils/margem.js';
 import { TIMEZONE } from '../utils/datas.js';
+import { registrarConversaoDePagamento } from '../lib/conversoes.js';
 
 const router = Router();
 
@@ -17,10 +19,22 @@ const router = Router();
  * Nada aqui confia no navegador: o retorno do checkout é forjável e pode nem
  * chegar (o usuário fecha a aba). Só este endpoint, com assinatura verificada,
  * escreve status e período.
+ *
+ * Duas garantias de entrega:
+ *
+ * 1. Atomicidade. O registro do evento (idempotência) e os efeitos dele entram
+ *    na MESMA transação. Antes o evento era marcado como processado primeiro;
+ *    se o efeito falhasse, o reenvio do Stripe era tratado como duplicado e o
+ *    evento nunca era aplicado — cliente pagava e continuava bloqueado.
+ *
+ * 2. Ordem. O Stripe não garante ordem de entrega. Um `subscription.updated`
+ *    antigo chegando depois de um novo sobrescrevia o estado com dado velho.
+ *    Por isso a assinatura é sempre relida da API no momento do processamento:
+ *    qualquer evento aplica o estado ATUAL, não o do payload.
  */
 
 /** Status do Stripe → o nosso. Desconhecido vira inadimplente, não ativo. */
-function traduzirStatus(s: Stripe.Subscription.Status): StatusAssinatura {
+export function traduzirStatus(s: Stripe.Subscription.Status): StatusAssinatura {
   switch (s) {
     case 'active':
     case 'trialing':
@@ -66,38 +80,65 @@ function fimDoPeriodo(sub: Stripe.Subscription): Date | null {
   return typeof ts === 'number' ? new Date(ts * 1000) : null;
 }
 
+function idDe(v: string | { id: string } | null | undefined): string | undefined {
+  return typeof v === 'string' ? v : v?.id;
+}
+
+/**
+ * Id da assinatura de uma fatura. Nas versões novas da API ele fica em
+ * `parent.subscription_details.subscription`; nas antigas, em `subscription`.
+ */
+export function assinaturaDaFatura(fatura: Stripe.Invoice): string | undefined {
+  const nova = (fatura as unknown as {
+    parent?: { subscription_details?: { subscription?: string | { id: string } | null } | null } | null;
+  }).parent?.subscription_details?.subscription;
+  const antiga = (fatura as unknown as { subscription?: string | { id: string } | null }).subscription;
+  return idDe(nova ?? antiga ?? undefined);
+}
+
+export interface TaxaDaFatura {
+  centavos: number;
+  estimado: boolean;
+}
+
 /**
  * Taxa real cobrada pelo Stripe nesta fatura.
  *
  * Lê a `balance_transaction`, que é o número que o Stripe efetivamente
  * descontou — não uma estimativa a partir de um percentual de tabela. Taxa
  * varia por bandeira, parcelamento e meio de pagamento; estimar aqui seria
- * inventar o custo que este painel existe justamente para medir.
+ * inventar o custo que o painel de margem existe justamente para medir.
  *
- * Só cai na estimativa quando o Stripe não expõe o encargo (o formato mudou
- * entre versões da API), e nesse caso o lançamento vai marcado como estimado.
+ * Só cai na estimativa quando o Stripe não expõe o encargo, e nesse caso o
+ * lançamento vai marcado como estimado.
  */
-async function taxaDaFatura(fatura: Stripe.Invoice): Promise<{ centavos: number; estimado: boolean }> {
-  const bruto = fatura as unknown as {
-    charge?: string | { id: string };
-    payment_intent?: string | { id: string };
-  };
-
+async function taxaRealDaFatura(fatura: Stripe.Invoice): Promise<TaxaDaFatura> {
   try {
-    const chargeId = typeof bruto.charge === 'string' ? bruto.charge : bruto.charge?.id;
-    if (chargeId) {
-      const charge = await stripe().charges.retrieve(chargeId, { expand: ['balance_transaction'] });
-      const bt = charge.balance_transaction as unknown as { fee?: number } | null;
-      if (typeof bt?.fee === 'number') return { centavos: bt.fee, estimado: false };
+    // API atual: os pagamentos da fatura ficam em InvoicePayments.
+    let paymentIntentId: string | undefined;
+    let chargeId: string | undefined;
+    if (fatura.id) {
+      const pagamentos = await stripe().invoicePayments.list({ invoice: fatura.id, limit: 5 });
+      const pago = pagamentos.data.find((p) => p.status === 'paid') ?? pagamentos.data[0];
+      paymentIntentId = idDe(pago?.payment?.payment_intent as string | { id: string } | undefined);
+      chargeId = idDe(pago?.payment?.charge as string | { id: string } | undefined);
     }
+    // Versões antigas: direto na fatura.
+    const legado = fatura as unknown as { charge?: string | { id: string }; payment_intent?: string | { id: string } };
+    paymentIntentId ??= idDe(legado.payment_intent);
+    chargeId ??= idDe(legado.charge);
 
-    const piId = typeof bruto.payment_intent === 'string' ? bruto.payment_intent : bruto.payment_intent?.id;
-    if (piId) {
-      const pi = await stripe().paymentIntents.retrieve(piId, { expand: ['latest_charge.balance_transaction'] });
+    if (paymentIntentId) {
+      const pi = await stripe().paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
       const charge = pi.latest_charge as unknown as { balance_transaction?: { fee?: number } } | null;
       if (typeof charge?.balance_transaction?.fee === 'number') {
         return { centavos: charge.balance_transaction.fee, estimado: false };
       }
+    }
+    if (chargeId) {
+      const charge = await stripe().charges.retrieve(chargeId, { expand: ['balance_transaction'] });
+      const bt = charge.balance_transaction as unknown as { fee?: number } | null;
+      if (typeof bt?.fee === 'number') return { centavos: bt.fee, estimado: false };
     }
   } catch (err) {
     console.warn('[Stripe] não foi possível ler a taxa real da fatura:', err instanceof Error ? err.message : err);
@@ -112,16 +153,90 @@ async function taxaDaFatura(fatura: Stripe.Invoice): Promise<{ centavos: number;
 }
 
 /**
+ * Leituras feitas na API do Stripe durante o processamento. Isoladas numa
+ * interface para os testes substituírem a rede por dados controlados.
+ */
+export interface LeituraStripe {
+  assinatura(id: string): Promise<Stripe.Subscription>;
+  taxaDaFatura(fatura: Stripe.Invoice): Promise<TaxaDaFatura>;
+}
+
+const leituraReal: LeituraStripe = {
+  assinatura: (id) => stripe().subscriptions.retrieve(id),
+  taxaDaFatura: taxaRealDaFatura,
+};
+
+type Efeito = (tx: Executor) => Promise<void>;
+
+/**
+ * Aplica o estado atual de uma assinatura do Stripe à linha local.
+ *
+ * Proteção contra assinatura paralela: se o customer tiver uma assinatura
+ * corrente diferente desta, só um estado ATIVO desta substitui a corrente.
+ * Sem isso, o cancelamento (ou a expiração de um checkout abandonado) de uma
+ * segunda assinatura derrubava o acesso de quem continua pagando a primeira.
+ */
+async function aplicarAssinatura(sub: Stripe.Subscription, tx: Executor): Promise<void> {
+  const customerId = idDe(sub.customer as string | { id: string });
+  if (!customerId) {
+    console.error('[Stripe] assinatura sem customer:', sub.id);
+    return;
+  }
+
+  const local = await AssinaturaModel.buscarPorCustomer(customerId, tx);
+  if (!local) {
+    // Customer que não bate com nenhuma pousada: conta criada fora do nosso
+    // fluxo, ou ambiente trocado (chave de teste contra banco de produção).
+    console.error(`[Stripe] customer ${customerId} não corresponde a nenhuma assinatura local`);
+    return;
+  }
+
+  const status = traduzirStatus(sub.status);
+  if (local.stripeSubscriptionId && local.stripeSubscriptionId !== sub.id && status !== 'ativa') {
+    console.warn(
+      `[Stripe] ignorando ${sub.id} (${sub.status}): a assinatura corrente da pousada ${local.pousadaId} é ${local.stripeSubscriptionId}`,
+    );
+    return;
+  }
+
+  const meta = sub.metadata ?? {};
+  const derivado = pelaPrice(sub.items?.data?.[0]?.price?.id);
+  const plano = (CODIGOS_PLANO as readonly string[]).includes(meta.plano)
+    ? (meta.plano as CodigoPlano)
+    : derivado.plano;
+  const ciclo = meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : derivado.ciclo;
+
+  await AssinaturaModel.aplicarDoStripe({
+    stripeCustomerId: customerId,
+    stripeSubscriptionId: sub.id,
+    status,
+    plano,
+    ciclo,
+    periodoTerminaEm: fimDoPeriodo(sub),
+    cancelaNoFim: Boolean(sub.cancel_at_period_end),
+  }, tx);
+}
+
+/**
+ * Aplica uma assinatura fora do fluxo de webhook — usado logo após a troca de
+ * plano, para a tela refletir o novo estado sem esperar o evento chegar. O
+ * webhook que vier depois reaplica o mesmo estado (idempotente).
+ */
+export async function aplicarAssinaturaAgora(sub: Stripe.Subscription): Promise<void> {
+  await db.transaction((tx) => aplicarAssinatura(sub, tx));
+}
+
+/**
  * Lança receita e custo de uma fatura paga.
  *
  * A competência sai do PERÍODO da fatura, não da data do pagamento: uma fatura
  * de julho paga em agosto pertence a julho, senão a margem mensal fica torta.
  */
-async function registrarFaturaPaga(fatura: Stripe.Invoice) {
-  const customerId = typeof fatura.customer === 'string' ? fatura.customer : fatura.customer?.id;
+async function registrarFaturaPaga(fatura: Stripe.Invoice, taxa: TaxaDaFatura, tx: Executor): Promise<void> {
+  const customerId = idDe(fatura.customer as string | { id: string } | null);
   if (!customerId || !fatura.id) return;
 
-  const assinatura = await AssinaturaModel.buscarPorCustomer(customerId);
+  const assinatura = await AssinaturaModel.buscarPorCustomer(customerId, tx);
   if (!assinatura) {
     console.error(`[Stripe] fatura ${fatura.id} de customer ${customerId} sem pousada correspondente`);
     return;
@@ -134,65 +249,102 @@ async function registrarFaturaPaga(fatura: Stripe.Invoice) {
   const competencia = competenciaDe(new Date((inicioPeriodo ?? 0) * 1000), TIMEZONE);
 
   const pago = fatura.amount_paid ?? 0;
-  if (pago > 0) {
+  if (pago <= 0) return;
+
+  await FinanceiroModel.registrar({
+    pousadaId: assinatura.pousadaId,
+    competencia,
+    categoria: 'receita_assinatura',
+    valorCentavos: pago,
+    moeda: fatura.currency ?? 'brl',
+    descricao: `Fatura ${fatura.number ?? fatura.id}`,
+    referenciaExterna: fatura.id,
+  }, tx);
+
+  if (taxa.centavos > 0) {
     await FinanceiroModel.registrar({
       pousadaId: assinatura.pousadaId,
       competencia,
-      categoria: 'receita_assinatura',
-      valorCentavos: pago,
+      categoria: 'taxa_stripe',
+      valorCentavos: taxa.centavos,
       moeda: fatura.currency ?? 'brl',
-      descricao: `Fatura ${fatura.number ?? fatura.id}`,
+      estimado: taxa.estimado,
+      descricao: taxa.estimado ? 'Taxa estimada do Stripe' : 'Taxa cobrada pelo Stripe',
       referenciaExterna: fatura.id,
-    });
-
-    const taxa = await taxaDaFatura(fatura);
-    if (taxa.centavos > 0) {
-      await FinanceiroModel.registrar({
-        pousadaId: assinatura.pousadaId,
-        competencia,
-        categoria: 'taxa_stripe',
-        valorCentavos: taxa.centavos,
-        moeda: fatura.currency ?? 'brl',
-        estimado: taxa.estimado,
-        descricao: taxa.estimado ? 'Taxa estimada do Stripe' : 'Taxa cobrada pelo Stripe',
-        referenciaExterna: fatura.id,
-      });
-    }
+    }, tx);
   }
 }
 
-async function aplicarAssinatura(sub: Stripe.Subscription) {
-  const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
-  if (!customerId) {
-    console.error('[Stripe] assinatura sem customer:', sub.id);
-    return;
+/**
+ * Faz as leituras externas do evento e devolve os efeitos a aplicar no banco.
+ *
+ * Separado da transação de propósito: chamada de rede dentro de transação
+ * prende uma conexão do pool enquanto o Stripe responde.
+ */
+async function prepararEfeitos(evento: Stripe.Event, leitura: LeituraStripe): Promise<Efeito[]> {
+  switch (evento.type) {
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted': {
+      const sub = await leitura.assinatura((evento.data.object as Stripe.Subscription).id);
+      return [(tx) => aplicarAssinatura(sub, tx)];
+    }
+
+    case 'checkout.session.completed': {
+      // Grava o estado sem esperar o evento de subscription, que pode chegar depois.
+      const sessao = evento.data.object as Stripe.Checkout.Session;
+      const subId = idDe(sessao.subscription as string | { id: string } | null);
+      if (!subId) return [];
+      const sub = await leitura.assinatura(subId);
+      return [(tx) => aplicarAssinatura(sub, tx)];
+    }
+
+    case 'invoice.payment_failed':
+    case 'invoice.paid': {
+      // O status vem do objeto de assinatura, não da fatura — a fatura conta
+      // sobre uma cobrança, a assinatura conta sobre o direito de acesso.
+      const fatura = evento.data.object as Stripe.Invoice;
+      const efeitos: Efeito[] = [];
+      const subId = assinaturaDaFatura(fatura);
+      if (subId) {
+        const sub = await leitura.assinatura(subId);
+        efeitos.push((tx) => aplicarAssinatura(sub, tx));
+      }
+      if (evento.type === 'invoice.paid' && (fatura.amount_paid ?? 0) > 0) {
+        const taxa = await leitura.taxaDaFatura(fatura);
+        efeitos.push((tx) => registrarFaturaPaga(fatura, taxa, tx));
+      }
+      return efeitos;
+    }
+
+    default:
+      // Evento que não nos interessa. Ainda é registrado (e respondido com 2xx),
+      // senão o Stripe fica reenviando e acaba desabilitando o endpoint.
+      return [];
   }
+}
 
-  const meta = sub.metadata ?? {};
-  const priceId = sub.items?.data?.[0]?.price?.id;
-  const derivado = pelaPrice(priceId);
+/**
+ * Processa um evento já verificado. Exportado para os testes.
+ *
+ * Devolve 'duplicado' quando o evento já tinha sido aplicado. Lança em
+ * qualquer falha — e nesse caso NADA foi gravado, nem o registro do evento,
+ * então o reenvio do Stripe processa de novo do zero.
+ */
+export async function processarEvento(
+  evento: Stripe.Event,
+  leitura: LeituraStripe = leituraReal,
+): Promise<'processado' | 'duplicado'> {
+  const efeitos = await prepararEfeitos(evento, leitura);
 
-  const plano = (CODIGOS_PLANO as readonly string[]).includes(meta.plano)
-    ? (meta.plano as CodigoPlano)
-    : derivado.plano;
-  const ciclo = meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : derivado.ciclo;
-
-  const aplicou = await AssinaturaModel.aplicarDoStripe({
-    stripeCustomerId: customerId,
-    stripeSubscriptionId: sub.id,
-    status: traduzirStatus(sub.status),
-    plano,
-    ciclo,
-    periodoTerminaEm: fimDoPeriodo(sub),
-    cancelaNoFim: Boolean(sub.cancel_at_period_end),
+  return db.transaction(async (tx) => {
+    const novo = await AssinaturaModel.registrarEvento(evento.id, evento.type, tx);
+    if (!novo) return 'duplicado' as const;
+    for (const efeito of efeitos) {
+      await efeito(tx);
+    }
+    return 'processado' as const;
   });
-
-  if (!aplicou) {
-    // Customer que não bate com nenhuma pousada: conta criada fora do nosso
-    // fluxo, ou ambiente trocado (chave de teste contra banco de produção).
-    // Registrar alto — é silencioso e paga-se por isso.
-    console.error(`[Stripe] customer ${customerId} não corresponde a nenhuma assinatura local`);
-  }
 }
 
 /**
@@ -217,54 +369,30 @@ router.post('/', express.raw({ type: 'application/json' }), async (req: Request,
   }
 
   try {
-    // Idempotência antes de qualquer efeito: o Stripe reenvia até receber 2xx e
-    // pode reentregar mesmo após sucesso.
-    const novo = await AssinaturaModel.registrarEvento(evento.id, evento.type);
-    if (!novo) {
+    // Atalho barato: evento já aplicado não precisa nem consultar a API do
+    // Stripe. A garantia de verdade é o insert dentro da transação.
+    if (await AssinaturaModel.eventoJaProcessado(evento.id)) {
       return res.json({ recebido: true, duplicado: true });
     }
+    const resultado = await processarEvento(evento);
 
-    switch (evento.type) {
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
-        await aplicarAssinatura(evento.data.object as Stripe.Subscription);
-        break;
-
-      case 'checkout.session.completed': {
-        // Busca a assinatura recém-criada para gravar o estado sem esperar o
-        // evento de subscription, que pode chegar depois.
-        const sessao = evento.data.object as Stripe.Checkout.Session;
-        const subId = typeof sessao.subscription === 'string' ? sessao.subscription : sessao.subscription?.id;
-        if (subId) {
-          await aplicarAssinatura(await stripe().subscriptions.retrieve(subId));
-        }
-        break;
+    // Pagamento confirmado = conversão para as plataformas de anúncio. Depois
+    // do commit e pela fila: falha aqui não pode desfazer o processamento.
+    if (resultado === 'processado' && evento.type === 'invoice.paid') {
+      const fatura = evento.data.object as Stripe.Invoice;
+      const customerId = idDe(fatura.customer as string | { id: string } | null);
+      const assinatura = customerId ? await AssinaturaModel.buscarPorCustomer(customerId) : null;
+      if (assinatura && (fatura.amount_paid ?? 0) > 0 && fatura.id) {
+        registrarConversaoDePagamento({
+          pousadaId: assinatura.pousadaId,
+          valorCentavos: fatura.amount_paid,
+          moeda: fatura.currency ?? 'brl',
+          referencia: fatura.id,
+        }).catch((err) => console.error('[Conversões] falha ao enfileirar:', err));
       }
-
-      case 'invoice.payment_failed':
-      case 'invoice.paid': {
-        // O status vem do objeto de assinatura, não da fatura — a fatura conta
-        // sobre uma cobrança, a assinatura conta sobre o direito de acesso.
-        const fatura = evento.data.object as Stripe.Invoice;
-        const subId = (fatura as unknown as { subscription?: string | { id: string } }).subscription;
-        const id = typeof subId === 'string' ? subId : subId?.id;
-        if (id) {
-          await aplicarAssinatura(await stripe().subscriptions.retrieve(id));
-        }
-        if (evento.type === 'invoice.paid') {
-          await registrarFaturaPaga(fatura);
-        }
-        break;
-      }
-
-      default:
-        // Evento que não nos interessa. 2xx mesmo assim, senão o Stripe fica
-        // reenviando para sempre e acaba desabilitando o endpoint.
-        break;
     }
 
-    res.json({ recebido: true });
+    res.json({ recebido: true, duplicado: resultado === 'duplicado' });
   } catch (err) {
     // 500 faz o Stripe reenviar — é o que queremos numa falha transitória.
     console.error(`[Stripe] falha ao processar ${evento.type} (${evento.id}):`, err);

@@ -1,0 +1,679 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import { useApp } from "../../../components/app/ContextoApp"
+import { Button } from "../../../components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card"
+import { Input } from "../../../components/ui/input"
+import { Label } from "../../../components/ui/label"
+import { Textarea } from "../../../components/ui/textarea"
+import { cn } from "../../../lib/utils"
+import { API_URL, authenticatedFetch } from "../../../lib/api"
+import { changePassword } from "../../../lib/auth-client"
+import { useEquipe } from "../../../hooks/useEquipe"
+import { useStaffInvites } from "../../../hooks/useStaffInvites"
+import type { Message } from "../../../lib/types"
+import { MODELOS, preencher, VARIAVEIS, type Modelo } from "../../../lib/mensagens"
+import { WhatsappBusinessCard } from "../../../components/whatsapp/WhatsappBusiness"
+
+const PAPEIS: Record<string, string> = { admin: "Administração", recepcao: "Recepção", auditoria: "Auditoria" }
+
+function Aviso({ m }: { m: Message | null }) {
+  if (!m) return null
+  return (
+    <div className={cn(
+      "rounded-lg border px-3 py-2 text-sm",
+      m.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800",
+    )}>
+      {m.text}
+    </div>
+  )
+}
+
+/** Dados da pousada — editáveis por dono e admin (antes não havia tela: o número de quartos não mudava nunca). */
+function DadosDaPousada() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const podeEditar = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  const [form, setForm] = useState({
+    nome: p.nome, num_quartos: String(p.num_quartos), endereco: p.endereco ?? "", cidade: p.cidade ?? "",
+    estado: p.estado ?? "", cep: p.cep ?? "", telefone: p.telefone ?? "", email: p.email ?? "", descricao: p.descricao ?? "",
+  })
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState<Message | null>(null)
+  const campo = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setSalvando(true)
+    setMsg(null)
+    // Só manda o que mudou: a validação do backend é parcial, e campos
+    // opcionais vazios não devem virar erro de formato.
+    const corpo: Record<string, unknown> = {}
+    if (form.nome !== p.nome) corpo.nome = form.nome
+    if (Number(form.num_quartos) !== p.num_quartos) corpo.num_quartos = Number(form.num_quartos)
+    for (const k of ["endereco", "cidade", "estado", "cep", "telefone", "email", "descricao"] as const) {
+      if (form[k] !== (p[k] ?? "") && form[k] !== "") corpo[k] = form[k]
+    }
+    if (Object.keys(corpo).length === 0) {
+      setSalvando(false)
+      setMsg({ type: "success", text: "Nada para salvar." })
+      return
+    }
+    try {
+      const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, { method: "PUT", body: JSON.stringify(corpo) })
+      const d = await r.json()
+      if (d.sucesso) {
+        setMsg({ type: "success", text: "Dados da pousada atualizados." })
+        await auth.refreshPousadas({ silencioso: true })
+      } else {
+        setMsg({ type: "error", text: [d.mensagem, ...(d.erros ?? [])].filter(Boolean).join(" ") })
+      }
+    } catch {
+      setMsg({ type: "error", text: "Não foi possível salvar agora." })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Dados da pousada</CardTitle>
+        <CardDescription>Nome, quartos, endereço e contato.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <Aviso m={msg} />
+          <fieldset disabled={!podeEditar || salvando} className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-nome">Nome</Label><Input id="cfg-nome" value={form.nome} onChange={campo("nome")} required /></div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cfg-quartos">Número de quartos</Label>
+              <Input id="cfg-quartos" type="number" min={1} max={100} value={form.num_quartos} onChange={campo("num_quartos")} required />
+              <p className="text-xs text-muted-foreground">Nome, tipo e preço de cada um em <Link href="/quartos" className="underline">Quartos</Link>.</p>
+            </div>
+            <div className="space-y-1.5"><Label htmlFor="cfg-tel">Telefone / WhatsApp</Label><Input id="cfg-tel" value={form.telefone} onChange={campo("telefone")} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-end">Endereço</Label><Input id="cfg-end" value={form.endereco} onChange={campo("endereco")} /></div>
+            <div className="space-y-1.5"><Label htmlFor="cfg-cid">Cidade</Label><Input id="cfg-cid" value={form.cidade} onChange={campo("cidade")} /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5"><Label htmlFor="cfg-uf">UF</Label><Input id="cfg-uf" maxLength={2} value={form.estado} onChange={campo("estado")} /></div>
+              <div className="space-y-1.5"><Label htmlFor="cfg-cep">CEP</Label><Input id="cfg-cep" value={form.cep} onChange={campo("cep")} /></div>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-email">E-mail da pousada</Label><Input id="cfg-email" type="email" value={form.email} onChange={campo("email")} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="cfg-desc">Descrição</Label><Textarea id="cfg-desc" rows={3} value={form.descricao} onChange={campo("descricao")} /></div>
+          </fieldset>
+          {podeEditar && <Button type="submit" disabled={salvando}>{salvando ? "Salvando..." : "Salvar alterações"}</Button>}
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Equipe e convites. Antes só dava para convidar: não havia como ver quem tinha acesso, nem tirar o acesso de alguém. */
+function Equipe() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const souDono = Boolean(auth.user?.is_owner)
+  const equipe = useEquipe(p.id)
+  const convites = useStaffInvites()
+  const [email, setEmail] = useState("")
+  const [papel, setPapel] = useState("recepcao")
+
+  useEffect(() => {
+    void equipe.carregar()
+    void convites.carregarConvites(p.id)
+  }, [p.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Equipe</CardTitle>
+        <CardDescription>Quem tem acesso a esta pousada e com qual papel.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <Aviso m={equipe.mensagem} />
+        <div className="space-y-2">
+          {equipe.membros.map((m) => {
+            const souEu = m.id === auth.user?.id
+            const editavel = !m.is_owner && !souEu && (souDono || m.role !== "admin")
+            return (
+              <div key={m.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{m.nome}{souEu && " (você)"}</p>
+                  <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {m.is_owner ? (
+                    <span className="text-xs font-medium text-primary">Proprietário</span>
+                  ) : editavel ? (
+                    <>
+                      <select
+                        aria-label={`Papel de ${m.nome}`}
+                        value={m.role}
+                        onChange={(e) => void equipe.trocarPapel(m.id, e.target.value)}
+                        className="rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+                      >
+                        {Object.entries(PAPEIS)
+                          .filter(([k]) => souDono || k !== "admin")
+                          .map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700"
+                        onClick={() => { if (window.confirm(`Remover ${m.nome} da equipe? O acesso termina na hora.`)) void equipe.remover(m.id) }}
+                      >
+                        Remover
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{PAPEIS[m.role] ?? m.role}</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="space-y-3 border-t border-border/60 pt-4">
+          <p className="text-sm font-medium">Convidar pessoa</p>
+          <Aviso m={convites.message} />
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (await convites.enviarConvite(p.id, email, papel)) { setEmail(""); setPapel("recepcao") }
+            }}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <Input type="email" placeholder="email@exemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" className="flex-1" />
+            <select value={papel} onChange={(e) => setPapel(e.target.value)} aria-label="Papel do convidado" className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+              {Object.entries(PAPEIS).filter(([k]) => souDono || k !== "admin").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <Button type="submit" disabled={convites.loading}>{convites.loading ? "Enviando..." : "Convidar"}</Button>
+          </form>
+
+          {convites.convites.length > 0 && (
+            <div className="space-y-2">
+              {convites.convites.map((c) => (
+                <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/20 p-2.5">
+                  <div>
+                    <p className="text-sm font-medium">{c.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {PAPEIS[c.role] ?? c.role} ·{" "}
+                      <span className={cn("font-medium", c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600")}>
+                        {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
+                      </span>
+                    </p>
+                  </div>
+                  {(c.status === "pending" || c.status === "expired") && (
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => void convites.reenviarConvite(p.id, c.id)}>Reenviar</Button>
+                      {c.status === "pending" && (
+                        <Button variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => void convites.revogarConvite(p.id, c.id)}>Revogar</Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function Seguranca() {
+  const [atual, setAtual] = useState("")
+  const [nova, setNova] = useState("")
+  const [confirmacao, setConfirmacao] = useState("")
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(null)
+    if (nova.length < 8) return setMsg({ type: "error", text: "A nova senha deve ter pelo menos 8 caracteres." })
+    if (nova !== confirmacao) return setMsg({ type: "error", text: "As senhas não coincidem." })
+    setSalvando(true)
+    try {
+      const r = await changePassword(atual, nova) as { error?: { message?: string } }
+      if (r?.error) setMsg({ type: "error", text: r.error.message || "Senha atual incorreta." })
+      else {
+        setMsg({ type: "success", text: "Senha alterada. As outras sessões foram encerradas." })
+        setAtual(""); setNova(""); setConfirmacao("")
+      }
+    } catch {
+      setMsg({ type: "error", text: "Erro ao alterar a senha." })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Segurança</CardTitle>
+        <CardDescription>Alterar sua senha</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={enviar} className="space-y-2 max-w-sm">
+          <Aviso m={msg} />
+          <Input type="password" placeholder="Senha atual" value={atual} onChange={(e) => setAtual(e.target.value)} required autoComplete="current-password" />
+          <Input type="password" placeholder="Nova senha" value={nova} onChange={(e) => setNova(e.target.value)} required autoComplete="new-password" />
+          <Input type="password" placeholder="Confirmar nova senha" value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} required autoComplete="new-password" />
+          <Button type="submit" disabled={salvando} className="w-full">{salvando ? "Alterando..." : "Alterar senha"}</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+
+const URL_SITE = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "")
+
+/** Motor de reservas: a página pública /r/<endereço> onde o hóspede pede a reserva. */
+function ReservasPeloSite() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const podeEditar = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  const motor = (p.configuracoes?.motor ?? {}) as { ativo?: boolean; prazo_horas?: number; sinal_percentual?: number; politicas?: string }
+  const [form, setForm] = useState({
+    ativo: motor.ativo === true,
+    slug: p.slug ?? "",
+    prazo_horas: String(motor.prazo_horas ?? 24),
+    sinal_percentual: String(motor.sinal_percentual ?? 30),
+    politicas: motor.politicas ?? "",
+  })
+  const [msg, setMsg] = useState<Message | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const link = `${URL_SITE}/r/${form.slug}`
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/motor`, {
+      method: "PUT",
+      body: JSON.stringify({ ...form, prazo_horas: Number(form.prazo_horas), sinal_percentual: Number(form.sinal_percentual) }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? (form.ativo ? "Página de reservas no ar." : "Configuração salva.") : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reservas pelo site</CardTitle>
+        <CardDescription>
+          Uma página da sua pousada onde o hóspede vê os quartos livres com o preço do tarifário e pede a reserva — sem comissão.
+          O pedido entra como pré-reserva e você confirma pelo WhatsApp. Coloque o link no Instagram, no Google e no WhatsApp Business.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <Aviso m={msg} />
+          <fieldset disabled={!podeEditar} className="space-y-4">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={form.ativo} onChange={(e) => setForm((f) => ({ ...f, ativo: e.target.checked }))} className="h-4 w-4 accent-primary" />
+              Página de reservas no ar
+            </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="motor-slug">Endereço</Label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">{URL_SITE.replace(/^https?:\/\//, "")}/r/</span>
+                <Input id="motor-slug" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") }))} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="motor-prazo">Prazo para você confirmar (horas)</Label>
+                <Input id="motor-prazo" type="number" min={1} max={168} value={form.prazo_horas} onChange={(e) => setForm((f) => ({ ...f, prazo_horas: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="motor-sinal">Sinal para confirmar (%)</Label>
+                <Input id="motor-sinal" type="number" min={0} max={100} value={form.sinal_percentual} onChange={(e) => setForm((f) => ({ ...f, sinal_percentual: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="motor-politicas">Políticas (cancelamento, horários, pets...)</Label>
+              <Textarea id="motor-politicas" rows={3} maxLength={1500} value={form.politicas} onChange={(e) => setForm((f) => ({ ...f, politicas: e.target.value }))} />
+            </div>
+          </fieldset>
+          <div className="flex flex-wrap items-center gap-2">
+            {podeEditar && <Button type="submit">Salvar</Button>}
+            {motor.ativo && p.slug && (
+              <>
+                <a href={`/r/${p.slug}`} target="_blank" rel="noreferrer"><Button type="button" variant="outline">Ver página</Button></a>
+                <Button type="button" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(link).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000) }) }}>
+                  {copiado ? "Link copiado" : "Copiar link"}
+                </Button>
+              </>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">Só aparecem quartos com preço (preço base ou tarifário). O quarto fica reservado até o prazo; sem confirmação, volta a ficar livre.</p>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+interface SituacaoPix {
+  chave: { tipoChave: string; chave: string; nome: string; cidade: string } | null
+  automatico: boolean
+  webhook: { registrado: boolean; url: string; token: string | null } | null
+}
+
+/** Pix para o sinal: chave da pousada (confirmação manual) e, opcional, Asaas (automática). */
+function PixDaPousada() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [sit, setSit] = useState<SituacaoPix | null>(null)
+  const [form, setForm] = useState({ tipo_chave: "telefone", chave: "", nome: "", cidade: "", asaas_chave: "" })
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/pix`)
+      const d = await r.json()
+      if (!d.sucesso) return
+      setSit(d.pix)
+      const c = d.pix.chave
+      setForm((f) => ({ ...f, tipo_chave: c?.tipoChave ?? "telefone", chave: c?.chave ?? "", nome: c?.nome ?? p.nome, cidade: c?.cidade ?? p.cidade ?? "" }))
+    })()
+  }, [p.id, p.nome, p.cidade])
+
+  async function salvar(e: React.FormEvent, extra: Record<string, unknown> = {}) {
+    e.preventDefault()
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/pix`, { method: "PUT", body: JSON.stringify({ ...form, ...extra }) })
+    const d = await r.json()
+    if (d.sucesso) {
+      setSit(d.pix)
+      setForm((f) => ({ ...f, asaas_chave: "" }))
+      setMsg(d.aviso ? { type: "error", text: d.aviso } : { type: "success", text: "Pix configurado." })
+    } else setMsg({ type: "error", text: d.mensagem || "Não foi possível salvar." })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Pix para o sinal</CardTitle>
+        <CardDescription>
+          Com a chave Pix, o sistema gera o QR Code e o “copia e cola” com o valor certo para cada reserva — o hóspede paga
+          em qualquer banco e você clica em “Recebi o Pix”. Ligando sua conta Asaas, o pagamento confirma a reserva sozinho.
+          O dinheiro vai direto para a sua conta.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={(e) => void salvar(e)} className="space-y-4">
+          <Aviso m={msg} />
+          <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-tipo">Tipo de chave</Label>
+              <select id="pix-tipo" value={form.tipo_chave} onChange={(e) => setForm((f) => ({ ...f, tipo_chave: e.target.value }))} className="flex h-10 w-full rounded-lg border border-border bg-white px-2 text-sm">
+                <option value="telefone">Celular</option>
+                <option value="cpf">CPF</option>
+                <option value="cnpj">CNPJ</option>
+                <option value="email">E-mail</option>
+                <option value="aleatoria">Aleatória</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-chave">Chave Pix</Label>
+              <Input id="pix-chave" value={form.chave} onChange={(e) => setForm((f) => ({ ...f, chave: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-nome">Titular da conta</Label>
+              <Input id="pix-nome" value={form.nome} onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-cidade">Cidade do titular</Label>
+              <Input id="pix-cidade" value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <p className="text-sm font-medium">
+              Confirmação automática (Asaas){" "}
+              {sit?.automatico ? <span className="text-emerald-700">· conectado</span> : <span className="text-muted-foreground">· opcional</span>}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              No Asaas: Integrações → Chave de API. O Asaas exige o CPF de quem paga; sem CPF, vale o Pix pela chave acima.
+            </p>
+            <Input
+              id="pix-asaas"
+              type="password"
+              autoComplete="off"
+              placeholder={sit?.automatico ? "Conectado — cole outra chave para trocar" : "$aact_..."}
+              value={form.asaas_chave}
+              onChange={(e) => setForm((f) => ({ ...f, asaas_chave: e.target.value }))}
+              aria-label="Chave de API do Asaas"
+            />
+            {sit?.webhook && !sit.webhook.registrado && (
+              <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 space-y-1">
+                <p>Cadastre o webhook no Asaas (Integrações → Webhooks), eventos de cobrança:</p>
+                <p className="break-all">URL: <code>{sit.webhook.url}</code></p>
+                <p className="break-all">Token de autenticação: <code>{sit.webhook.token}</code></p>
+              </div>
+            )}
+            {sit?.automatico && (
+              <button type="button" className="text-xs text-rose-700 underline" onClick={(e) => { if (window.confirm("Desligar o Asaas? O Pix volta a ser só pela chave.")) void salvar(e as unknown as React.FormEvent, { remover_asaas: true, asaas_chave: "" }) }}>
+                Desligar Asaas
+              </button>
+            )}
+          </div>
+          <Button type="submit">Salvar</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Textos das mensagens prontas de WhatsApp (e o lembrete automático, se a API oficial estiver ligada). */
+function MensagensWhatsApp() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [textos, setTextos] = useState<Record<Modelo, string>>(() =>
+    Object.fromEntries(MODELOS.map((m) => [m.modelo, p.configuracoes?.mensagens?.[m.modelo] || m.padrao])) as Record<Modelo, string>)
+  const [lembrete, setLembrete] = useState(Boolean(p.configuracoes?.whatsapp_lembrete))
+  const [apiOficial, setApiOficial] = useState(false)
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  useEffect(() => {
+    void authenticatedFetch(`${API_URL}/pousadas/${p.id}/whatsapp`).then((r) => r.json()).then((d) => setApiOficial(Boolean(d.apiOficial))).catch(() => {})
+  }, [p.id])
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(null)
+    // Texto igual ao padrão não é gravado: se o padrão melhorar, a pousada ganha a melhoria.
+    const mensagens = Object.fromEntries(MODELOS.map((m) => [m.modelo, textos[m.modelo].trim() === m.padrao ? "" : textos[m.modelo]]))
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ configuracoes: { mensagens, ...(apiOficial ? { whatsapp_lembrete: lembrete } : {}) } }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? "Mensagens salvas." : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  const exemplo = { nome: "Maria Silva", telefone: "", quarto: "Suíte Mar", data_entrada: "2026-12-20", data_saida: "2026-12-23", valor: 900, pago_centavos: 27000 }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Mensagens do WhatsApp</CardTitle>
+        <CardDescription>
+          O botão de WhatsApp da reserva e da agenda abre a conversa com o hóspede já com o texto pronto, no seu próprio WhatsApp.
+          Use as variáveis: {VARIAVEIS.join(" ")}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <Aviso m={msg} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            {MODELOS.map((m) => (
+              <div key={m.modelo} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`msg-${m.modelo}`}>{m.rotulo}</Label>
+                  {textos[m.modelo] !== m.padrao && (
+                    <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setTextos((t) => ({ ...t, [m.modelo]: m.padrao }))}>restaurar</button>
+                  )}
+                </div>
+                <Textarea id={`msg-${m.modelo}`} rows={4} maxLength={1000} value={textos[m.modelo]} onChange={(e) => setTextos((t) => ({ ...t, [m.modelo]: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">Exemplo: {preencher(textos[m.modelo], exemplo, p)}</p>
+              </div>
+            ))}
+          </div>
+          {apiOficial && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={lembrete} onChange={(e) => setLembrete(e.target.checked)} className="h-4 w-4 accent-primary" />
+              Enviar lembrete automático na véspera da chegada (pelo WhatsApp oficial)
+            </label>
+          )}
+          <Button type="submit">Salvar mensagens</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Por quanto tempo guardar nome, CPF e observações dos hóspedes após a saída. */
+function RetencaoDeHospedes() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const podeEditar = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  const atual = p.configuracoes?.retencao_hospedes_meses ?? 0
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  async function mudar(meses: number) {
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ configuracoes: { retencao_hospedes_meses: meses } }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? "Prazo de retenção atualizado." : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Dados dos hóspedes</CardTitle>
+        <CardDescription>
+          Depois do prazo, nome, CPF e observações das estadias encerradas são anonimizados automaticamente.
+          Datas e valores ficam para os relatórios. Confira o prazo que a sua atividade precisa guardar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Aviso m={msg} />
+        <select
+          aria-label="Prazo de retenção dos dados de hóspedes"
+          disabled={!podeEditar}
+          value={atual}
+          onChange={(e) => void mudar(Number(e.target.value))}
+          className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
+        >
+          <option value={0}>Não anonimizar automaticamente</option>
+          <option value={12}>Anonimizar após 12 meses</option>
+          <option value={24}>Anonimizar após 24 meses</option>
+          <option value={60}>Anonimizar após 5 anos</option>
+        </select>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Direitos do titular: exportar os próprios dados, excluir a conta, excluir a pousada. */
+function SuaConta() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  async function exportar() {
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/conta/exportar`)
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      return setMsg({ type: "error", text: d.mensagem || "Não foi possível exportar agora." })
+    }
+    const blob = await r.blob()
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = "meus-dados-diaria.json"
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  async function excluirConta() {
+    const confirmacao = window.prompt("Isso apaga seu nome, e-mail e acesso a todas as pousadas. Digite EXCLUIR para confirmar.")
+    if (confirmacao !== "EXCLUIR") return
+    const r = await authenticatedFetch(`${API_URL}/conta`, { method: "DELETE", body: JSON.stringify({ confirmacao }) })
+    const d = await r.json()
+    if (d.sucesso) window.location.assign("/")
+    else setMsg({ type: "error", text: d.mensagem || "Não foi possível excluir a conta." })
+  }
+
+  async function excluirPousada() {
+    const confirmacao = window.prompt(
+      `Excluir "${p.nome}" apaga DEFINITIVAMENTE reservas, hóspedes, equipe e histórico. Exporte as reservas antes.\n\nDigite o nome da pousada para confirmar:`,
+    )
+    if (!confirmacao) return
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, { method: "DELETE", body: JSON.stringify({ confirmacao }) })
+    const d = await r.json()
+    if (d.sucesso) window.location.assign("/painel")
+    else setMsg({ type: "error", text: d.mensagem || "Não foi possível excluir a pousada." })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Sua conta e seus dados</CardTitle>
+        <CardDescription>Exporte o que o Diária guarda sobre você ou encerre a conta (LGPD).</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Aviso m={msg} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void exportar()}>Exportar meus dados</Button>
+          <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirConta()}>Excluir minha conta</Button>
+          {auth.user?.is_owner && (
+            <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirPousada()}>Excluir esta pousada</Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function Configuracoes() {
+  const { auth } = useApp()
+  const gerencia = Boolean(auth.user?.is_owner) || auth.user?.role === "admin"
+  return (
+    <div className="space-y-5">
+      <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <DadosDaPousada />
+        {gerencia && <Equipe />}
+      </div>
+      {gerencia && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <ReservasPeloSite />
+          <PixDaPousada />
+        </div>
+      )}
+      {gerencia && <WhatsappBusinessCard />}
+      {gerencia && <MensagensWhatsApp />}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Seguranca />
+        <RetencaoDeHospedes />
+      </div>
+      <SuaConta />
+    </div>
+  )
+}

@@ -4,6 +4,9 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import { API_URL, authenticatedFetch, NetworkError } from "../lib/api"
 import { normalizarCpf, isDataNoPassado, formatarData } from "../lib/formatters"
 import type { Reserva, Auditoria, PaginationMeta, FiltersState, Message } from "../lib/types"
+import { STATUS_QUE_OCUPAM } from "../lib/status"
+import { auditoriaDaApi, reservaDaApi } from "../lib/adaptadores"
+import { rastrear } from "../lib/medicao"
 
 const initialFilters: FiltersState = {
   status: "",
@@ -90,7 +93,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
 
   // Computed values — prefer SQL stats when available
   const reservasAtivas = useMemo(
-    () => dashboardStats?.reservas_ativas ?? dashReservas.filter((r) => r.status === "ativa").length,
+    () => dashboardStats?.reservas_ativas ?? dashReservas.filter((r) => STATUS_QUE_OCUPAM.includes(r.status)).length,
     [dashboardStats, dashReservas]
   )
 
@@ -124,7 +127,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const responses = await Promise.all(fetches)
       const reservasData = await responses[0].json()
       if (reservasData.sucesso) {
-        setDashReservas(reservasData.reservas || [])
+        setDashReservas((reservasData.reservas || []).map(reservaDaApi))
       }
       if (pousadaId && responses[1]) {
         const statsData = await responses[1].json()
@@ -163,7 +166,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        setReservas(data.reservas || [])
+        setReservas((data.reservas || []).map(reservaDaApi))
         if (data.meta) setMeta(data.meta)
       }
     } catch (err) {
@@ -234,7 +237,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        return data.reserva as Reserva
+        return reservaDaApi(data.reserva)
       }
       return null
     } catch (error) {
@@ -251,10 +254,20 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     if (!isAuthenticated) return { sucesso: false, mensagem: "Nao autenticado" }
 
     const erros: string[] = []
-    const cpfNormalizado = normalizarCpf(form.cpf)
+    const tipo = form.tipo_documento ?? "cpf"
+    const documento = tipo === "cpf"
+      ? normalizarCpf(form.documento ?? "")
+      : (form.documento ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "")
+    // O "+" marca número estrangeiro (DDI); sem ele, o servidor entende como brasileiro.
+    const telefoneDigitos = (form.telefone ?? "").replace(/\D/g, "")
+    const telefone = telefoneDigitos && (form.telefone ?? "").trim().startsWith("+") ? `+${telefoneDigitos}` : telefoneDigitos
 
-    if (cpfNormalizado.length !== 11) {
-      erros.push("CPF deve ter 11 digitos.")
+    if (tipo === "cpf" && documento && documento.length !== 11) {
+      erros.push("CPF deve ter 11 dígitos.")
+    }
+    // Reserva pode nascer só com o WhatsApp; o documento é exigido no check-in.
+    if (!form.hospede_id && !documento && !telefone) {
+      erros.push("Informe o documento ou o WhatsApp do hóspede.")
     }
 
     if (!form.data_entrada || !form.data_saida) {
@@ -282,9 +295,18 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
 
     const payload: Record<string, unknown> = {
       ...form,
-      cpf: cpfNormalizado,
+      documento,
+      telefone,
       valor: form.valor ? Number(form.valor) : null,
       pago: Boolean(form.pago),
+    }
+
+    // Datas do ciclo (check-in, expiração...) são do servidor; vão só o status
+    // e, se for o caso, o prazo da pré-reserva e o motivo do cancelamento.
+    // `cpf` é legado (o documento vai em `documento`); hóspede já escolhido sem
+    // documento digitado mantém o que está no cadastro.
+    for (const campo of ["cpf", "expira_em", "check_in_em", "check_out_em", "cancelada_em", "motivo_cancelamento"]) {
+      delete payload[campo]
     }
 
     // Include version for optimistic locking on updates
@@ -302,6 +324,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
+        if (!formId) rastrear("reserva_criada")
         return {
           sucesso: true,
           mensagem: formId ? "Reserva atualizada com sucesso." : "Reserva criada com sucesso.",
@@ -309,6 +332,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       } else {
         const detalhesConflito = data.conflitos?.length
           ? ` Conflitos: ${data.conflitos
+              .map(reservaDaApi)
               .map((c: Reserva) =>
                 `Quarto ${c.quarto} entre ${formatarData(c.data_entrada)} e ${formatarData(c.data_saida)}`
               )
@@ -353,7 +377,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       const data = await response.json()
 
       if (data.sucesso) {
-        setAuditLogs(data.auditoria || [])
+        setAuditLogs((data.auditoria || []).map(auditoriaDaApi))
       }
     } catch (error) {
       console.error("Erro ao carregar auditoria", error)

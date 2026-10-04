@@ -53,11 +53,10 @@ describe('datas — fuso da operação, não UTC', () => {
 describe('reserva — validação de criação vs edição', () => {
   const base = {
     nome: 'Maria Souza',
-    cpf: CPF_VALIDO,
     quarto: 3,
     data_entrada: '2020-01-10',
     data_saida: '2020-01-12',
-    status: 'ativa',
+    status: 'confirmada',
   };
 
   it('recusa criar reserva com data no passado', () => {
@@ -230,5 +229,65 @@ describe('crypto — cifra e hash de CPF', () => {
       shaPuro,
       'um SHA-256 sem chave é varrido por força bruta em ~24 min: o hash precisa ser HMAC',
     );
+  });
+});
+
+describe('sanitização não corrompe texto legítimo', () => {
+  it('preserva apóstrofo, aspas e & em texto livre', async () => {
+    const { sanitizarString } = await import('../utils/validation.js');
+    assert.equal(sanitizarString("Pousada D'Ajuda"), "Pousada D'Ajuda");
+    assert.equal(sanitizarString('Café & Cia "Mar"'), 'Café & Cia "Mar"');
+  });
+
+  it('remove caracteres de controle e respeita o limite pedido', async () => {
+    const { sanitizarString } = await import('../utils/validation.js');
+    assert.equal(sanitizarString('a\u0000b'), 'a b');
+    assert.equal(sanitizarString('x'.repeat(1500), 1000).length, 1000);
+  });
+
+  it('observações mantêm quebra de linha e passam de 255 caracteres', () => {
+    const texto = 'Chega às 23h.\nAlergia a camarão. ' + 'x'.repeat(400);
+    const r = sanitizarReserva({ observacoes: texto } as never);
+    assert.ok(r.observacoes.includes('\n'));
+    assert.ok(r.observacoes.length > 255);
+  });
+});
+
+describe('origem de marketing — o navegador não manda no banco', () => {
+  it('guarda só chaves conhecidas, texto curto e o consentimento', async () => {
+    const { sanearOrigem } = await import('../utils/origem.js');
+    const o = sanearOrigem({ utm_source: ' google ', gclid: 'x', lixo: 'y', referrer: 'a'.repeat(500), consentimento_anuncios: true });
+    assert.deepEqual(Object.keys(o!).sort(), ['consentimento_anuncios', 'gclid', 'referrer', 'utm_source']);
+    assert.equal(o!.utm_source, 'google');
+    assert.equal(o!.referrer!.length, 300);
+  });
+
+  it('lixo vira null', async () => {
+    const { sanearOrigem } = await import('../utils/origem.js');
+    assert.equal(sanearOrigem('texto'), null);
+    assert.equal(sanearOrigem([1, 2]), null);
+    assert.equal(sanearOrigem({ outra: 'coisa' }), null);
+  });
+});
+
+describe('importação de planilha — leitura de célula', () => {
+  it('datas no formato brasileiro e ISO; data impossível é recusada', async () => {
+    const { lerData } = await import('../models/ImportacaoPlanilha.js');
+    assert.equal(lerData('20/11/2026'), '2026-11-20');
+    assert.equal(lerData('5/1/26'), '2026-01-05');
+    assert.equal(lerData('2026-11-20'), '2026-11-20');
+    assert.equal(lerData('2026-11-20T00:00:00'), '2026-11-20');
+    assert.equal(lerData('31/02/2026'), null);
+    assert.equal(lerData('amanhã'), null);
+  });
+
+  it('valores com R$, milhar e vírgula', async () => {
+    const { lerValor } = await import('../models/ImportacaoPlanilha.js');
+    assert.equal(lerValor('R$ 1.234,56'), 1234.56);
+    assert.equal(lerValor('350'), 350);
+    assert.equal(lerValor('99.90'), 99.9);
+    assert.equal(lerValor(''), null);
+    assert.equal(lerValor('abc'), null);
+    assert.equal(lerValor('-10'), null);
   });
 });
