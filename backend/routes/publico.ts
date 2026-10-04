@@ -8,6 +8,7 @@ import {
 } from '../models/Motor.js';
 import { enviarPedidoParaPousada, enviarPedidoRecebido } from '../lib/email.js';
 import { cobrancaPublica, gerarCobranca, situacaoPix } from '../models/Pix.js';
+import { enviarFicha, PrecheckinRecusado, resumoPublico } from '../models/Precheckin.js';
 import { criarLimitador } from '../utils/limitadores.js';
 import { chaveDeRateLimit } from '../utils/rede.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -28,6 +29,31 @@ const pedidoLimiter = criarLimitador('publico-pedido', {
 
 const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Pré-check-in pelo link secreto da reserva.
+const fichaLimiter = criarLimitador('publico-ficha', {
+  windowMs: 60 * 60 * 1000, max: 20, keyGenerator: (req) => chaveDeRateLimit(req.ip),
+  message: { sucesso: false, mensagem: 'Muitas tentativas. Tente de novo mais tarde.' },
+});
+
+router.get('/checkin/:token', consultaLimiter, async (req: Request, res: Response) => {
+  const r = await resumoPublico(param(req, 'token'));
+  if (!r) return res.status(404).json({ sucesso: false, mensagem: 'Link de pré-check-in inválido' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ sucesso: true, reserva: r });
+});
+
+router.post('/checkin/:token', fichaLimiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await enviarFicha(param(req, 'token'), req.body ?? {}, req.ip || null);
+    res.json({ sucesso: true });
+  } catch (err) {
+    if (err instanceof PrecheckinRecusado) {
+      return res.status(err.status).json({ sucesso: false, mensagem: err.message, erros: (err as PrecheckinRecusado & { erros?: string[] }).erros });
+    }
+    next(new AppError('Erro ao enviar a ficha', 500, 'PCI_003'));
+  }
+});
 
 // Hóspede acompanha o Pix do pedido (a página consulta a cada poucos segundos).
 router.get('/pix/:token', consultaLimiter, async (req: Request, res: Response) => {

@@ -12,6 +12,7 @@ import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } f
 import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
 import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, valorSugerido } from '../models/Pix.js';
+import { fichaDaReserva, linkDaReserva } from '../models/Precheckin.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -400,6 +401,31 @@ router.post('/:id/pix/:cobrancaId/recebida', authorize(['admin', 'recepcao']), a
   } catch (err) {
     if (err instanceof PixIndisponivel) return res.status(err.status).json({ sucesso: false, mensagem: err.message });
     next(new AppError('Erro ao baixar o Pix', 500, 'PIX_003'));
+  }
+});
+
+// Pré-check-in: link para o hóspede e a ficha (FNRH) que ele enviou.
+router.post('/:id/precheckin/link', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    res.json({ sucesso: true, url: await linkDaReserva(reserva.id, reserva.pousadaId) });
+  } catch (err) {
+    next(new AppError('Erro ao gerar o link', 500, 'PCI_001'));
+  }
+});
+
+router.get('/:id/precheckin', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const ficha = await fichaDaReserva(reserva.id, reserva.pousadaId);
+    if (ficha) {
+      AuditoriaModel.log(req.user!.id, 'visualizar_ficha', 'reserva', reserva.id, null, req.ip || null).catch(() => {});
+    }
+    res.json({ sucesso: true, precheckin: ficha });
+  } catch (err) {
+    next(new AppError('Erro ao carregar a ficha', 500, 'PCI_002'));
   }
 });
 

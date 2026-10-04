@@ -40,6 +40,7 @@ export function reservaDaApi(r: Bruto): Reserva {
     pago_centavos: Number(r.pago_centavos ?? r.pagoCentavos ?? 0),
     consumos_centavos: Number(r.consumos_centavos ?? r.consumosCentavos ?? 0),
     ical_importacao_id: (r.ical_importacao_id ?? r.icalImportacaoId ?? null) as number | null,
+    precheckin_em: (r.precheckin_em ?? r.precheckinEm ?? null) as string | null,
     quarto: (r.quarto as number) ?? "",
     data_entrada: texto(r.data_entrada ?? r.dataEntrada),
     data_saida: texto(r.data_saida ?? r.dataSaida),
@@ -122,6 +123,7 @@ function itemAgenda(r: Bruto): ItemAgenda {
     telefone: base.telefone,
     pago_centavos: base.pago_centavos,
     consumos_centavos: base.consumos_centavos,
+    precheckin_em: base.precheckin_em,
   }
 }
 

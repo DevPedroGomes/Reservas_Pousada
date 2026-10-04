@@ -87,6 +87,7 @@ export interface ItemAgenda {
   telefone?: string
   pago_centavos?: number
   consumos_centavos?: number
+  precheckin_em?: string | null
 }
 
 export interface Agenda {
@@ -130,6 +131,8 @@ export interface Reserva {
   consumos_centavos?: number
   /** Veio do calendário de uma OTA: datas e cancelamento seguem o que vier de lá. */
   ical_importacao_id?: number | null
+  /** Quando o hóspede enviou a ficha de pré-check-in. */
+  precheckin_em?: string | null
   quarto: number | string
   data_entrada: string
   data_saida: string

@@ -214,6 +214,9 @@ export async function anonimizarHospedesAntigos(): Promise<number> {
       );
     }
     if (rows.length > 0) {
+      // Ficha de pré-check-in (documento, nascimento, endereço) sai inteira.
+      await cliente.query(`DELETE FROM precheckins WHERE reserva_id = ANY($1::int[])`, [rows.map((r) => r.id)]);
+      await cliente.query(`UPDATE reservas SET precheckin_token = NULL WHERE id = ANY($1::int[])`, [rows.map((r) => r.id)]);
       // O histórico de alterações guardava nome e observações em `details`.
       await cliente.query(
         `UPDATE auditoria SET details = '{"anonimizado":true}'::jsonb

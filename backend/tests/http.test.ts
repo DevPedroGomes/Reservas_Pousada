@@ -886,6 +886,78 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
   });
 
+  describe('pré-check-in (FNRH)', () => {
+    let id: number;
+    let token: string;
+    const ficha = (extra: Record<string, unknown> = {}, acompanhantes: unknown[] = []) => ({
+      aceite: true,
+      titular: {
+        nome: 'Helena Ficha Silva', dataNascimento: '1990-05-20', genero: 'feminino', nacionalidade: 'Brasileira',
+        tipoDocumento: 'cpf', documento: '526.018.159-06', email: 'helena@example.com', telefone: '(48) 97777-1111',
+        cidadeResidencia: 'Curitiba', estadoResidencia: 'PR', paisResidencia: 'Brasil', motivoViagem: 'lazer', meioTransporte: 'automovel',
+        procedencia: 'Curitiba', proximoDestino: 'Curitiba', ...extra,
+      },
+      acompanhantes,
+    });
+
+    before(async () => {
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Helena Ficha', telefone: '48977771111', quarto: 9, data_entrada: d(330), data_saida: d(332), adultos: 2, criancas: 0,
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      id = r.json.reserva.id;
+    });
+
+    it('recepção gera o link; a página mostra só o necessário', async () => {
+      const l = await recep.req('POST', `/api/reservas/${id}/precheckin/link`);
+      assert.equal(l.status, 200);
+      token = new URL(l.json.url).pathname.split('/').pop()!;
+      assert.match(token, /^[0-9a-f]{48}$/);
+      const again = await recep.req('POST', `/api/reservas/${id}/precheckin/link`);
+      assert.equal(again.json.url, l.json.url, 'o link é o mesmo');
+      const anon = new Cliente(base, '198.51.100.220');
+      const r = await anon.req('GET', `/api/publico/checkin/${token}`);
+      assert.equal(r.status, 200);
+      assert.deepEqual([r.json.reserva.primeiroNome, r.json.reserva.enviado, r.json.reserva.aberto, r.json.reserva.adultos], ['Helena', false, true, 2]);
+      assert.ok(!JSON.stringify(r.json).includes('48977771111'), 'telefone não aparece');
+      assert.equal((await anon.req('GET', `/api/publico/checkin/${'0'.repeat(48)}`)).status, 404);
+    });
+
+    it('ficha inválida é recusada com os motivos', async () => {
+      const anon = new Cliente(base, '198.51.100.221');
+      const r = await anon.req('POST', `/api/publico/checkin/${token}`, ficha({ documento: '111.111.111-11', dataNascimento: '' }));
+      assert.equal(r.status, 400);
+      assert.ok(r.json.erros.some((e: string) => /CPF/.test(e)) && r.json.erros.some((e: string) => /nascimento/.test(e)));
+      const demais = await anon.req('POST', `/api/publico/checkin/${token}`, ficha({}, [
+        { nome: 'Um', dataNascimento: '2015-01-01' }, { nome: 'Dois', dataNascimento: '2016-01-01' },
+      ]));
+      assert.equal(demais.status, 400, 'reserva para 2: só 1 acompanhante');
+    });
+
+    it('ficha válida fica cifrada, completa o cadastro e a recepção lê', async () => {
+      const anon = new Cliente(base, '198.51.100.222');
+      const r = await anon.req('POST', `/api/publico/checkin/${token}`, ficha({}, [{ nome: 'Pedro Ficha', dataNascimento: '2016-03-10', parentesco: 'filho' }]));
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      const { rows: [pc] } = await pool.query(`SELECT dados_cifrados FROM precheckins WHERE reserva_id = $1`, [id]);
+      assert.ok(!pc.dados_cifrados.includes('52601815906') && !pc.dados_cifrados.includes('Curitiba'), 'nada em claro');
+      const det = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+      assert.equal(det.documento, '52601815906', 'documento da ficha completou o cadastro (libera o check-in)');
+      assert.ok(det.precheckinEm);
+      const f = await recep.req('GET', `/api/reservas/${id}/precheckin`);
+      assert.equal(f.json.precheckin.ficha.titular.cidadeResidencia, 'Curitiba');
+      assert.equal(f.json.precheckin.ficha.acompanhantes[0].nome, 'Pedro Ficha');
+      assert.equal((await donoB.req('GET', `/api/reservas/${id}/precheckin`)).status, 404);
+      assert.equal((await anon.req('GET', `/api/publico/checkin/${token}`)).json.reserva.enviado, true);
+    });
+
+    it('reserva cancelada encerra o pré-check-in', async () => {
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'teste' })).status, 200);
+      const anon = new Cliente(base, '198.51.100.223');
+      assert.equal((await anon.req('POST', `/api/publico/checkin/${token}`, ficha())).status, 409);
+      assert.equal((await anon.req('GET', `/api/publico/checkin/${token}`)).json.reserva.aberto, false);
+    });
+  });
+
   describe('quartos', () => {
     it('pousada nasce com os quartos do onboarding, nomeados', async () => {
       const r = await donoA.req('GET', '/api/quartos');

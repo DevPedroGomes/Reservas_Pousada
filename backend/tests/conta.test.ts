@@ -40,6 +40,8 @@ describe('LGPD — exportar, excluir e reter', { skip: !temBanco && 'DATABASE_UR
         (1, 1, 'Hóspede Antigo', 'cifrado', 'h-antigo', '48911112222', '2024-01-01'),
         (2, 1, 'Hóspede Recente', 'cifrado', 'h-recente', '48933334444', '2024-01-01');
       UPDATE reservas SET hospede_id = 1 WHERE id = 10;
+      UPDATE reservas SET precheckin_token = repeat('a', 48) WHERE id = 10;
+      INSERT INTO precheckins (reserva_id, pousada_id, dados_cifrados) VALUES (10, 1, 'cifrado'), (11, 1, 'cifrado');
       UPDATE reservas SET hospede_id = 2 WHERE id = 11;
       INSERT INTO financeiro_lancamentos (pousada_id, competencia, categoria, valor_centavos) VALUES
         (1, '2026-09', 'receita_assinatura', 14900);
@@ -77,6 +79,8 @@ describe('LGPD — exportar, excluir e reter', { skip: !temBanco && 'DATABASE_UR
     assert.equal(fichas[1].telefone, '48933334444');
     const { rows: [antiga] } = await pool.query(`SELECT hospede_id FROM reservas WHERE id = 10`);
     assert.equal(antiga.hospede_id, null, 'estadia antiga sai do histórico da pessoa');
+    const { rows: fichasPc } = await pool.query(`SELECT reserva_id FROM precheckins ORDER BY reserva_id`);
+    assert.deepEqual(fichasPc.map((f) => f.reserva_id), [11], 'ficha de pré-check-in da estadia antiga é apagada');
     assert.equal(await Conta.anonimizarHospedesAntigos(), 0, 'idempotente');
   });
 

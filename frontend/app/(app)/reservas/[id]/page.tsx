@@ -6,6 +6,7 @@ import { useApp } from "../../../../components/app/ContextoApp"
 import { ReservationForm } from "../../../../components/reservations/ReservationForm"
 import { ContaDaReserva } from "../../../../components/reservations/ContaDaReserva"
 import { MenuWhatsApp } from "../../../../components/whatsapp/MenuWhatsApp"
+import { PrecheckinDaReserva } from "../../../../components/reservations/PrecheckinDaReserva"
 import { hojeNaPousada } from "../../../../lib/status"
 import type { Modelo } from "../../../../lib/mensagens"
 import { useReservations } from "../../../../hooks/useReservations"
@@ -82,7 +83,7 @@ export default function EditarReserva() {
           }}
         />
       )}
-      conta={
+      conta={<>
         <ContaDaReserva
           reservaId={id}
           podeLancar={papel === "admin" || papel === "recepcao"}
@@ -93,7 +94,20 @@ export default function EditarReserva() {
           pousada={auth.pousada?.nome}
           onReservaMudou={() => { void r.editarReserva(id).then((dados) => dados && setReserva(dados)) }}
         />
-      }
+        {papel !== "auditoria" && (
+          <PrecheckinDaReserva
+            reservaId={id}
+            enviadoEm={reserva.precheckin_em}
+            hospede={reserva.nome}
+            telefone={reserva.telefone}
+            pousada={auth.pousada?.nome ?? ""}
+            quarto={quartos.find((q) => q.numero === Number(reserva.quarto))?.nome ?? `Quarto ${reserva.quarto}`}
+            entrada={reserva.data_entrada}
+            saida={reserva.data_saida}
+            onMensagem={auth.setMessage}
+          />
+        )}
+      </>}
     />
   )
 }

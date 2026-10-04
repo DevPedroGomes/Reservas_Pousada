@@ -52,6 +52,9 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
                 </span>
                 <span className="truncate">{r.nome}</span>
                 {aviso && <span className={`rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap ${aviso.cor}`}>{aviso.texto}</span>}
+                {r.precheckin_em && r.status !== "hospedada" && (
+                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-emerald-700" title="Pré-check-in feito">ficha ✓</span>
+                )}
               </Link>
               <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
                 {mostrarData === "entrada" && formatarData(r.data_entrada)}

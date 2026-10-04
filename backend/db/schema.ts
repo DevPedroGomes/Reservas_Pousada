@@ -140,6 +140,8 @@ export const reservas = pgTable('reservas', {
   icalUid: text('ical_uid'),
   // Lembrete de chegada pelo WhatsApp (migration 023).
   lembreteEnviadoEm: timestamp('lembrete_enviado_em', { withTimezone: true }),
+  // Link secreto do pré-check-in (migration 024).
+  precheckinToken: text('precheckin_token'),
   quarto: integer('quarto').notNull(),
   dataEntrada: date('data_entrada').notNull(),
   dataSaida: date('data_saida').notNull(),
