@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { cn } from "../../lib/utils"
 
@@ -17,6 +17,17 @@ export interface PousadaPublica {
   prazoHoras: number
   sinalPercentual: number
   politicas: string
+  pix?: boolean
+  /** Pix pelo Asaas: confirma sozinho, mas exige CPF de quem paga. */
+  cpfObrigatorio?: boolean
+}
+
+interface PixDoPedido {
+  copiaECola: string
+  qrCode: string
+  valorCentavos: number
+  token: string
+  automatico: boolean
 }
 
 export interface QuartoPublico {
@@ -74,6 +85,22 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
   const [escolhido, setEscolhido] = useState<Disponivel | null>(null)
   const [dados, setDados] = useState({ nome: "", telefone: "", email: "", documento: "", observacoes: "", aceite: false, site: "" })
   const [pedido, setPedido] = useState<Pedido | null>(null)
+  const [pix, setPix] = useState<PixDoPedido | null>(null)
+  const [pixPago, setPixPago] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+
+  // Pix automático: acompanha o pagamento e mostra a confirmação na hora.
+  useEffect(() => {
+    if (!pix?.automatico || pixPago) return
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/api/publico/pix/${pix.token}`)
+        const d = await r.json()
+        if (d.sucesso && d.status === "paga") setPixPago(true)
+      } catch { /* tenta de novo no próximo ciclo */ }
+    }, 5000)
+    return () => clearInterval(t)
+  }, [pix, pixPago])
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const local = [pousada.cidade, pousada.estado].filter(Boolean).join(" - ")
@@ -111,6 +138,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
         return
       }
       setPedido(d.pedido)
+      setPix(d.pix ?? null)
       window.scrollTo({ top: 0, behavior: "smooth" })
     } catch {
       setErro("Não foi possível enviar agora. Tente de novo em instantes.")
@@ -129,8 +157,10 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
             {pedido.quarto}, de {br(pedido.entrada)} a {br(pedido.saida)} — total de <strong>{reais(pedido.totalCentavos)}</strong>.
           </p>
           <p className="text-sm text-emerald-900">
-            O quarto fica reservado para você até <strong>{pedido.prazo}</strong>. Para confirmar, a {pousada.nome} vai combinar com você
-            {pedido.sinalCentavos > 0 ? <> o sinal de <strong>{reais(pedido.sinalCentavos)}</strong></> : " a confirmação"} pelo WhatsApp.
+            O quarto fica reservado para você até <strong>{pedido.prazo}</strong>.{" "}
+            {pix
+              ? <>Para confirmar, pague o sinal de <strong>{reais(pix.valorCentavos)}</strong> por Pix logo abaixo.</>
+              : <>Para confirmar, a {pousada.nome} vai combinar com você {pedido.sinalCentavos > 0 ? <>o sinal de <strong>{reais(pedido.sinalCentavos)}</strong></> : "a confirmação"} pelo WhatsApp.</>}
           </p>
           {zap && (
             <a href={zap} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center rounded-lg bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700">
@@ -138,6 +168,38 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
             </a>
           )}
         </section>
+        {pix && (
+          pixPago ? (
+            <section className="rounded-2xl border border-emerald-300 bg-emerald-100 p-6 text-emerald-900">
+              <h2 className="text-lg font-semibold">Pagamento confirmado!</h2>
+              <p className="text-sm">Recebemos o Pix de {reais(pix.valorCentavos)}. Sua reserva está confirmada.</p>
+            </section>
+          ) : (
+            <section className="space-y-3 rounded-2xl border border-border bg-white p-6">
+              <h2 className="text-lg font-semibold">Pague o sinal por Pix ({reais(pix.valorCentavos)})</h2>
+              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={pix.qrCode} alt="QR Code do Pix" className="h-48 w-48 rounded" />
+                <div className="min-w-0 flex-1 space-y-2 text-sm">
+                  <p>Abra o app do seu banco, escolha Pix e leia o QR Code — ou copie o código abaixo.</p>
+                  <p className="break-all rounded bg-muted/50 p-2 font-mono text-[11px] leading-tight">{pix.copiaECola}</p>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(pix.copiaECola).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2000) }) }}
+                    className="h-10 rounded-lg border border-border px-4 text-sm font-medium hover:bg-muted/50"
+                  >
+                    {copiado ? "Código copiado" : "Copiar código Pix"}
+                  </button>
+                  <p className="text-xs text-muted-foreground">
+                    {pix.automatico
+                      ? "Assim que o pagamento cair, esta página mostra a confirmação."
+                      : "Depois de pagar, a pousada confere o recebimento e confirma sua reserva."}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )
+        )}
       </Moldura>
     )
   }
@@ -238,8 +300,8 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
               <input id="m-email" type="email" autoComplete="email" value={dados.email} className={campo} onChange={(e) => setDados((x) => ({ ...x, email: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <label htmlFor="m-doc" className="text-xs font-medium">CPF ou passaporte (opcional)</label>
-              <input id="m-doc" value={dados.documento} className={campo} onChange={(e) => setDados((x) => ({ ...x, documento: e.target.value }))} />
+              <label htmlFor="m-doc" className="text-xs font-medium">{pousada.cpfObrigatorio ? "CPF (para o Pix do sinal) *" : "CPF ou passaporte (opcional)"}</label>
+              <input id="m-doc" required={pousada.cpfObrigatorio} inputMode={pousada.cpfObrigatorio ? "numeric" : undefined} value={dados.documento} className={campo} onChange={(e) => setDados((x) => ({ ...x, documento: e.target.value }))} />
             </div>
           </div>
           <div className="space-y-1">
@@ -261,6 +323,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
           </div>
           <p className="text-xs text-muted-foreground">
             O pedido segura o quarto por {pousada.prazoHoras} hora{pousada.prazoHoras > 1 ? "s" : ""} enquanto a pousada confirma com você.
+            {pousada.pix && pousada.sinalPercentual > 0 ? " Você já recebe o Pix do sinal na próxima tela." : ""}
           </p>
         </form>
       )}

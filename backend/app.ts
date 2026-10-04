@@ -17,6 +17,7 @@ import tarifaRoutes from './routes/tarifas.js';
 import icalRoutes from './routes/ical.js';
 import relatorioRoutes from './routes/relatorios.js';
 import publicoRoutes from './routes/publico.js';
+import webhookPixRoutes from './routes/webhookPix.js';
 import { calendarioExportado } from './models/Ical.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import { authMiddleware, requirePousada } from './middleware/auth.js';
@@ -218,6 +219,8 @@ const userLimiter = criarLimitador('usuario', {
 app.use('/api/telemetria', telemetriaRoutes);
 // Motor de reservas: público, sem login (limites próprios em routes/publico.ts).
 app.use('/api/publico', publicoRoutes);
+// Avisos de pagamento Pix (gateway): token secreto da pousada no endereço.
+app.use('/api/webhooks/pix', webhookPixRoutes);
 app.use('/api/convites', conviteRoutes);
 app.use('/api/reservas', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, reservaRoutes);
 app.use('/api/hospedes', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, hospedeRoutes);

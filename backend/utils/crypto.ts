@@ -152,3 +152,14 @@ export function hashDocumento(tipo: TipoDocumento, valor: string): string {
     .update(`doc-hash:v1:${tipo}:${normalizarDocumento(tipo, valor)}`)
     .digest('hex');
 }
+
+// ---------------------------------------------------------------------------
+// Segredos de integração (token de gateway): mesma cifra, texto livre.
+
+export function cifrarSegredo(texto: string): string {
+  return cifrarTexto(texto);
+}
+
+export function decifrarSegredo(cifrado: string): string {
+  return decryptCpf(cifrado);
+}

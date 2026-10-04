@@ -66,6 +66,11 @@ export async function expirarPreReservas(): Promise<number> {
            FROM unnest($1::int[]) AS id`,
         [rows.map((r) => r.id)],
       );
+      // O Pix do sinal dessas pré-reservas deixa de valer.
+      await cliente.query(
+        `UPDATE cobrancas_pix SET status = 'expirada' WHERE reserva_id = ANY($1::int[]) AND status = 'pendente'`,
+        [rows.map((r) => r.id)],
+      );
     }
     await cliente.query('COMMIT');
     return rows.length;

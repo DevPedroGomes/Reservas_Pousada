@@ -70,7 +70,7 @@ export function lerConsumo(corpo: Record<string, unknown>): { dados: DadosConsum
 }
 
 /** Recalcula `reservas.pago` a partir dos lançamentos (sem mexer na versão). */
-async function recalcularPago(cliente: PoolClient, reservaId: number): Promise<void> {
+export async function recalcularPago(cliente: PoolClient, reservaId: number): Promise<void> {
   await cliente.query(
     `UPDATE reservas r
         SET pago = t.pago > 0 AND t.pago >= t.total, updated_at = now()

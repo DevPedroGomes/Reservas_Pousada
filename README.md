@@ -15,6 +15,8 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 - **iCal sync** with Booking/Airbnb: per-room secret export feed (no guest data), imported OTA calendars every 30 min become reservations (so the DB overbooking guard covers them too); SSRF-guarded fetch.
 - **Reports**: occupancy, ADR, RevPAR, revenue by channel (accrual), cash received by payment method, receivables.
 - **CSV import** from Excel/Google Sheets with dry-run preview, per-row errors, idempotent re-import.
+- **Public booking page** `/r/<slug>`: availability with tariff prices, request becomes a pre-reservation (channel `site`) with deadline; abuse limits (per-IP rate limit, honeypot, max open requests per phone).
+- **Pix for the deposit**: BR Code "copia e cola" + QR built from the inn's own Pix key (manual "Recebi o Pix"), or automatic confirmation through the inn's own **Asaas** account (key stored encrypted, webhook registered via API, authenticated by header and re-checked against the Asaas API). Gateways sit behind `lib/gatewayPix.ts` (`GatewayPix`), so Pagar.me & co. plug in without touching the rest. Webhook URLs use `API_PUBLIC_URL` (falls back to `BETTER_AUTH_URL`).
 - Team roles (owner/admin, front desk, auditor), multi-property (Rede plan), Stripe billing, LGPD tooling (export, deletion, retention).
 
 ## Overview

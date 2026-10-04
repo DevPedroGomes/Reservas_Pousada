@@ -496,8 +496,13 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.equal(r.json.conta.saldoCentavos, 0);
       assert.equal(await pago(), true);
-      const { rows } = await pool.query(`SELECT action FROM auditoria WHERE entity = 'reserva' AND entity_id = $1 ORDER BY id`, [id]);
-      assert.ok(rows.some((x) => x.action === 'remover_pagamento') && rows.some((x) => x.action === 'lancar_consumo'));
+      // Auditoria é gravada em segundo plano: espera aparecer (até 2 s).
+      let acoes: string[] = [];
+      for (let i = 0; i < 20 && !(acoes.includes('remover_pagamento') && acoes.includes('lancar_consumo')); i++) {
+        if (i) await new Promise((ok) => setTimeout(ok, 100));
+        acoes = (await pool.query(`SELECT action FROM auditoria WHERE entity = 'reserva' AND entity_id = $1`, [id])).rows.map((x) => x.action);
+      }
+      assert.ok(acoes.includes('remover_pagamento') && acoes.includes('lancar_consumo'), acoes.join(','));
     });
 
     it('outra pousada não vê nem lança na conta', async () => {
@@ -769,6 +774,115 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}/motor`, { ativo: false })).status, 200);
       assert.equal((await visitante().req('GET', `/api/publico/${SLUG}`)).status, 404);
       assert.equal((await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ entrada: d(260), saida: d(261) }))).status, 404);
+    });
+  });
+
+  describe('Pix do sinal', () => {
+    const novaPre = async (quarto: number, ini: number) => {
+      const r = await recep.req('POST', '/api/reservas', {
+        nome: 'Pix Teste', telefone: '48966665555', quarto, data_entrada: d(ini), data_saida: d(ini + 2), valor: 500, status: 'pre_reserva', prazo_horas: 24,
+      });
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      return r.json.reserva.id as number;
+    };
+    const status = async (id: number) => (await pool.query(`SELECT status FROM reservas WHERE id = $1`, [id])).rows[0].status;
+
+    it('dono cadastra a chave; chave inválida e recepção são recusadas', async () => {
+      assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}/pix`, { tipo_chave: 'cpf', chave: '123', nome: 'Pousada A', cidade: 'Floripa' })).status, 400);
+      assert.equal((await recep.req('PUT', `/api/pousadas/${pousadaA}/pix`, { tipo_chave: 'telefone', chave: '48999990000', nome: 'A', cidade: 'B' })).status, 403);
+      const r = await donoA.req('PUT', `/api/pousadas/${pousadaA}/pix`, { tipo_chave: 'telefone', chave: '(48) 99999-0000', nome: 'Pousada A da Praia', cidade: 'Florianópolis' });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.pix.chave.chave, '+5548999990000');
+      assert.equal(r.json.pix.automatico, false);
+    });
+
+    it('Pix pela chave: copia e cola com o sinal; "Recebi o Pix" lança o pagamento e confirma', async () => {
+      assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}/motor`, { ativo: false, sinal_percentual: 50 })).status, 200);
+      const id = await novaPre(6, 300);
+      const c = await recep.req('POST', `/api/reservas/${id}/pix`);
+      assert.equal(c.status, 201, JSON.stringify(c.json));
+      assert.equal(c.json.cobranca.provedor, 'chave');
+      assert.equal(c.json.cobranca.valorCentavos, 25000, 'sinal de 50% (configurado no motor) de R$ 500');
+      assert.match(c.json.cobranca.copiaECola, /^000201.*br\.gov\.bcb\.pix.*\+5548999990000.*5406250\.00/);
+      assert.match(c.json.cobranca.qrCode, /^data:image\/png;base64,/);
+      const ok = await recep.req('POST', `/api/reservas/${id}/pix/${c.json.cobranca.id}/recebida`);
+      assert.equal(ok.status, 200, JSON.stringify(ok.json));
+      assert.equal(ok.json.confirmou, true);
+      assert.equal(await status(id), 'confirmada');
+      const { rows: [pg] } = await pool.query(`SELECT valor_centavos, forma, tipo FROM pagamentos WHERE reserva_id = $1`, [id]);
+      assert.deepEqual(pg, { valor_centavos: 25000, forma: 'pix', tipo: 'sinal' });
+      assert.equal((await recep.req('POST', `/api/reservas/${id}/pix/${c.json.cobranca.id}/recebida`)).status, 409, 'baixa uma vez só');
+      assert.equal((await donoB.req('POST', `/api/reservas/${id}/pix`)).status, 404);
+    });
+
+    it('Asaas: webhook autenticado consulta a cobrança no Asaas e confirma sozinho, uma vez só', async () => {
+      const { usarGatewayDeTeste } = await import('../lib/gatewayPix.js');
+      let situacao: 'pendente' | 'paga' = 'pendente';
+      const consultas: string[] = [];
+      const webhooks: { url: string; tokenAutenticacao: string }[] = [];
+      const clientes: (string | null)[] = [];
+      usarGatewayDeTeste(() => ({
+        exigeDocumento: true,
+        async criarCobranca(d) {
+          clientes.push(d.cliente.cpfCnpj);
+          return { id: 'pay_abc123', copiaECola: `00020101021226-asaas-${d.referencia}`, expiraEm: d.expiraEm };
+        },
+        async consultar(idPg) { consultas.push(idPg); return { status: situacao, valorCentavos: 25000, referencia: null }; },
+        async registrarWebhook(w) { webhooks.push(w); },
+      }));
+      try {
+        assert.equal((await donoA.req('PUT', `/api/pousadas/${pousadaA}/pix`, { asaas_chave: 'chave-sem-formato' })).status, 400);
+        const cfg = await donoA.req('PUT', `/api/pousadas/${pousadaA}/pix`, {
+          tipo_chave: 'telefone', chave: '48999990000', nome: 'Pousada A', cidade: 'Floripa',
+          asaas_chave: '$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmFkZmM',
+        });
+        assert.equal(cfg.status, 200, JSON.stringify(cfg.json));
+        assert.equal(cfg.json.pix.automatico, true);
+        assert.equal(cfg.json.pix.webhook.registrado, true);
+        assert.ok(!JSON.stringify(cfg.json).includes('$aact'), 'a chave nunca volta');
+        assert.match(webhooks[0].url, /\/api\/webhooks\/pix\/asaas\/[0-9a-f]{48}$/);
+        const { rows: [cred] } = await pool.query(`SELECT token_cifrado, webhook_token, webhook_auth FROM credenciais_pagamento WHERE pousada_id = $1`, [pousadaA]);
+        assert.ok(!cred.token_cifrado.includes('$aact'), 'chave cifrada no banco');
+        assert.equal(webhooks[0].tokenAutenticacao, cred.webhook_auth);
+
+        // Sem CPF do hóspede, o Asaas não cobra: cai no Pix pela chave.
+        const semCpf = await novaPre(7, 310);
+        const c1 = await recep.req('POST', `/api/reservas/${semCpf}/pix`);
+        assert.equal(c1.json.cobranca.provedor, 'chave');
+
+        const r = await recep.req('POST', '/api/reservas', {
+          nome: 'Pix Com Cpf', cpf: '86288366757', telefone: '48966665554', quarto: 8, data_entrada: d(320), data_saida: d(322), valor: 500, status: 'pre_reserva',
+        });
+        assert.equal(r.status, 201, JSON.stringify(r.json));
+        const id = r.json.reserva.id;
+        const c = await recep.req('POST', `/api/reservas/${id}/pix`);
+        assert.equal(c.json.cobranca.provedor, 'asaas');
+        assert.equal(clientes.at(-1), '86288366757', 'CPF vai para o Asaas');
+
+        const anon = new Cliente(base, '198.51.100.230');
+        const aviso = (token: string, auth: string) =>
+          anon.req('POST', `/api/webhooks/pix/asaas/${token}`, { event: 'PAYMENT_RECEIVED', payment: { id: 'pay_abc123', status: 'RECEIVED' } }, { 'asaas-access-token': auth });
+
+        assert.equal((await aviso(cred.webhook_token, cred.webhook_auth)).status, 200);
+        assert.equal(await status(id), 'pre_reserva', 'pendente no Asaas: nada muda');
+        situacao = 'paga';
+        assert.equal((await aviso(cred.webhook_token, 'f'.repeat(48))).status, 200);
+        assert.equal(await status(id), 'pre_reserva', 'cabeçalho errado não baixa nada');
+        assert.equal((await aviso('f'.repeat(48), cred.webhook_auth)).status, 200);
+        assert.equal(await status(id), 'pre_reserva', 'endereço errado não baixa nada');
+        assert.equal((await aviso(cred.webhook_token, cred.webhook_auth)).status, 200);
+        assert.equal(await status(id), 'confirmada');
+        await aviso(cred.webhook_token, cred.webhook_auth);
+        const { rows } = await pool.query(`SELECT forma, tipo FROM pagamentos WHERE reserva_id = $1`, [id]);
+        assert.deepEqual(rows, [{ forma: 'pix', tipo: 'sinal' }], 'aviso repetido não lança de novo');
+        assert.ok(consultas.length >= 2, 'status sempre consultado no Asaas');
+
+        const pub = await anon.req('GET', `/api/publico/pix/${c.json.cobranca.tokenPublico}`);
+        assert.deepEqual([pub.json.status, pub.json.reserva], ['paga', 'confirmada']);
+      } finally {
+        usarGatewayDeTeste(null);
+        await donoA.req('PUT', `/api/pousadas/${pousadaA}/pix`, { tipo_chave: 'telefone', chave: '48999990000', nome: 'Pousada A', cidade: 'Floripa', remover_asaas: true });
+      }
     });
   });
 

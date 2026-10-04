@@ -8,6 +8,7 @@ import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
 import { lerConfigMotor } from '../models/Motor.js';
+import { lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
@@ -332,6 +333,39 @@ router.put('/:id/motor', requirePousadaOwner, async (req: Request, res: Response
     res.json({ sucesso: true, pousada });
   } catch (error) {
     console.error('Erro ao salvar o motor de reservas:', error);
+    res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
+  }
+});
+
+/**
+ * GET/PUT /api/pousadas/:id/pix
+ * Chave Pix (copia e cola com confirmação manual) e, opcionalmente, o token
+ * do Mercado Pago (confirmação automática). O token nunca volta na resposta.
+ */
+router.get('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) => {
+  res.json({ sucesso: true, pix: await situacaoPix(parseInt(param(req, 'id'))) });
+});
+
+router.put('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(param(req, 'id'));
+    const { config, erros } = lerConfigPix(req.body ?? {});
+    const chaveApi = typeof req.body?.asaas_chave === 'string' ? req.body.asaas_chave.trim() : '';
+    if (chaveApi && !/^\$aact_[A-Za-z0-9_=+/.-]{20,400}$/.test(chaveApi)) {
+      erros.push('Chave de API do Asaas inválida (Asaas > Integrações > Chave de API; começa com $aact_).');
+    }
+    if (erros.length) return res.status(400).json({ sucesso: false, mensagem: erros[0], erros });
+    await PousadaModel.atualizar(id, { configuracoes: { pix: config } });
+    let aviso: string | undefined;
+    if (chaveApi) {
+      const r = await salvarCredencial(id, chaveApi, req.user!.email ?? '');
+      if (!r.webhookRegistrado) aviso = `Chave salva, mas o aviso de pagamento não pôde ser registrado no Asaas (${r.erro ?? 'sem detalhe'}). Cadastre o webhook manualmente com o endereço e o token abaixo.`;
+    }
+    if (req.body?.remover_asaas === true) await salvarCredencial(id, null);
+    await AuditoriaModel.log(req.user!.id, 'config_pix', 'pousada', id, { chave: Boolean(config), asaas: Boolean(chaveApi) }, req.ip || null);
+    res.json({ sucesso: true, aviso, pix: await situacaoPix(id) });
+  } catch (error) {
+    console.error('Erro ao salvar Pix:', error);
     res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
   }
 });

@@ -11,6 +11,7 @@ import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
 import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
+import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, valorSugerido } from '../models/Pix.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
@@ -354,6 +355,51 @@ router.delete('/:id/consumos/:consumoId', authorize(['admin', 'recepcao']), asyn
     await responderConta(res, reserva);
   } catch (err) {
     next(new AppError('Erro ao remover consumo', 500, 'CTA_005'));
+  }
+});
+
+// Cobrança Pix da reserva (sinal ou saldo).
+router.get('/:id/pix', authorize(['admin', 'recepcao', 'auditoria']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    res.json({
+      sucesso: true,
+      cobrancas: await listarCobrancas(reserva.id, reserva.pousadaId),
+      valorSugeridoCentavos: await valorSugerido(reserva.id, reserva.pousadaId),
+    });
+  } catch (err) {
+    next(new AppError('Erro ao listar cobranças', 500, 'PIX_001'));
+  }
+});
+
+router.post('/:id/pix', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const informado = req.body?.valor;
+    const valor = informado === undefined || informado === null || informado === ''
+      ? await valorSugerido(reserva.id, reserva.pousadaId)
+      : Math.round(Number(String(informado).replace(/\./g, '').replace(',', '.')) * 100);
+    const cobranca = await gerarCobranca(reserva.pousadaId, reserva.id, valor, { userId: req.user!.id });
+    AuditoriaModel.log(req.user!.id, 'gerar_pix', 'reserva', reserva.id, { valorCentavos: valor, provedor: cobranca.provedor }, req.ip || null).catch(() => {});
+    res.status(201).json({ sucesso: true, cobranca });
+  } catch (err) {
+    if (err instanceof PixIndisponivel) return res.status(err.status).json({ sucesso: false, mensagem: err.message });
+    next(new AppError('Erro ao gerar Pix', 500, 'PIX_002'));
+  }
+});
+
+// "Recebi o Pix" (cobrança pela chave): lança o pagamento e confirma a pré-reserva.
+router.post('/:id/pix/:cobrancaId/recebida', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const reserva = await reservaDaRota(req, res);
+    if (!reserva) return;
+    const r = await marcarRecebida(reserva.pousadaId, reserva.id, Number(param(req, 'cobrancaId')), req.user!.id);
+    res.json({ sucesso: true, confirmou: r.confirmou, mensagem: r.confirmou ? 'Pix recebido e reserva confirmada.' : 'Pix recebido.' });
+  } catch (err) {
+    if (err instanceof PixIndisponivel) return res.status(err.status).json({ sucesso: false, mensagem: err.message });
+    next(new AppError('Erro ao baixar o Pix', 500, 'PIX_003'));
   }
 });
 

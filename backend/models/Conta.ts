@@ -136,6 +136,7 @@ export async function excluirPousada(pousadaId: number, confirmacaoNome: string)
     await cliente.query(`DELETE FROM reservas WHERE pousada_id = $1`, [pousadaId]);
     // Links dos calendários das OTAs são credenciais da pousada.
     await cliente.query(`DELETE FROM ical_importacoes WHERE pousada_id = $1`, [pousadaId]);
+    await cliente.query(`DELETE FROM credenciais_pagamento WHERE pousada_id = $1`, [pousadaId]);
     await cliente.query(`DELETE FROM auditoria WHERE entity = 'hospede' AND entity_id IN (SELECT id FROM hospedes WHERE pousada_id = $1)`, [pousadaId]);
     await cliente.query(`DELETE FROM hospedes WHERE pousada_id = $1`, [pousadaId]);
     await cliente.query(`DELETE FROM staff_invites WHERE pousada_id = $1`, [pousadaId]);

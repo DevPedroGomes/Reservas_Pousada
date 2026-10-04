@@ -358,6 +358,120 @@ function ReservasPeloSite() {
   )
 }
 
+interface SituacaoPix {
+  chave: { tipoChave: string; chave: string; nome: string; cidade: string } | null
+  automatico: boolean
+  webhook: { registrado: boolean; url: string; token: string | null } | null
+}
+
+/** Pix para o sinal: chave da pousada (confirmação manual) e, opcional, Asaas (automática). */
+function PixDaPousada() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [sit, setSit] = useState<SituacaoPix | null>(null)
+  const [form, setForm] = useState({ tipo_chave: "telefone", chave: "", nome: "", cidade: "", asaas_chave: "" })
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/pix`)
+      const d = await r.json()
+      if (!d.sucesso) return
+      setSit(d.pix)
+      const c = d.pix.chave
+      setForm((f) => ({ ...f, tipo_chave: c?.tipoChave ?? "telefone", chave: c?.chave ?? "", nome: c?.nome ?? p.nome, cidade: c?.cidade ?? p.cidade ?? "" }))
+    })()
+  }, [p.id, p.nome, p.cidade])
+
+  async function salvar(e: React.FormEvent, extra: Record<string, unknown> = {}) {
+    e.preventDefault()
+    setMsg(null)
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}/pix`, { method: "PUT", body: JSON.stringify({ ...form, ...extra }) })
+    const d = await r.json()
+    if (d.sucesso) {
+      setSit(d.pix)
+      setForm((f) => ({ ...f, asaas_chave: "" }))
+      setMsg(d.aviso ? { type: "error", text: d.aviso } : { type: "success", text: "Pix configurado." })
+    } else setMsg({ type: "error", text: d.mensagem || "Não foi possível salvar." })
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Pix para o sinal</CardTitle>
+        <CardDescription>
+          Com a chave Pix, o sistema gera o QR Code e o “copia e cola” com o valor certo para cada reserva — o hóspede paga
+          em qualquer banco e você clica em “Recebi o Pix”. Ligando sua conta Asaas, o pagamento confirma a reserva sozinho.
+          O dinheiro vai direto para a sua conta.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={(e) => void salvar(e)} className="space-y-4">
+          <Aviso m={msg} />
+          <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-tipo">Tipo de chave</Label>
+              <select id="pix-tipo" value={form.tipo_chave} onChange={(e) => setForm((f) => ({ ...f, tipo_chave: e.target.value }))} className="flex h-10 w-full rounded-lg border border-border bg-white px-2 text-sm">
+                <option value="telefone">Celular</option>
+                <option value="cpf">CPF</option>
+                <option value="cnpj">CNPJ</option>
+                <option value="email">E-mail</option>
+                <option value="aleatoria">Aleatória</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-chave">Chave Pix</Label>
+              <Input id="pix-chave" value={form.chave} onChange={(e) => setForm((f) => ({ ...f, chave: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-nome">Titular da conta</Label>
+              <Input id="pix-nome" value={form.nome} onChange={(e) => setForm((f) => ({ ...f, nome: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pix-cidade">Cidade do titular</Label>
+              <Input id="pix-cidade" value={form.cidade} onChange={(e) => setForm((f) => ({ ...f, cidade: e.target.value }))} />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-border p-3">
+            <p className="text-sm font-medium">
+              Confirmação automática (Asaas){" "}
+              {sit?.automatico ? <span className="text-emerald-700">· conectado</span> : <span className="text-muted-foreground">· opcional</span>}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              No Asaas: Integrações → Chave de API. O Asaas exige o CPF de quem paga; sem CPF, vale o Pix pela chave acima.
+            </p>
+            <Input
+              id="pix-asaas"
+              type="password"
+              autoComplete="off"
+              placeholder={sit?.automatico ? "Conectado — cole outra chave para trocar" : "$aact_..."}
+              value={form.asaas_chave}
+              onChange={(e) => setForm((f) => ({ ...f, asaas_chave: e.target.value }))}
+              aria-label="Chave de API do Asaas"
+            />
+            {sit?.webhook && !sit.webhook.registrado && (
+              <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 space-y-1">
+                <p>Cadastre o webhook no Asaas (Integrações → Webhooks), eventos de cobrança:</p>
+                <p className="break-all">URL: <code>{sit.webhook.url}</code></p>
+                <p className="break-all">Token de autenticação: <code>{sit.webhook.token}</code></p>
+              </div>
+            )}
+            {sit?.automatico && (
+              <button type="button" className="text-xs text-rose-700 underline" onClick={(e) => { if (window.confirm("Desligar o Asaas? O Pix volta a ser só pela chave.")) void salvar(e as unknown as React.FormEvent, { remover_asaas: true, asaas_chave: "" }) }}>
+                Desligar Asaas
+              </button>
+            )}
+          </div>
+          <Button type="submit">Salvar</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** Por quanto tempo guardar nome, CPF e observações dos hóspedes após a saída. */
 function RetencaoDeHospedes() {
   const { auth } = useApp()
@@ -476,7 +590,12 @@ export default function Configuracoes() {
         <DadosDaPousada />
         {gerencia && <Equipe />}
       </div>
-      {gerencia && <ReservasPeloSite />}
+      {gerencia && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <ReservasPeloSite />
+          <PixDaPousada />
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-2">
         <Seguranca />
         <RetencaoDeHospedes />

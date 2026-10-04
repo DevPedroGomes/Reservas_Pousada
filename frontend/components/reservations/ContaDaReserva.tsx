@@ -11,6 +11,7 @@ import { formatarData } from "../../lib/formatters"
 import { hojeNaPousada } from "../../lib/status"
 import { FORMAS_PAGAMENTO, reais, rotuloForma, rotuloTipo, TIPOS_PAGAMENTO } from "../../lib/conta"
 import { useConta } from "../../hooks/useConta"
+import { PixDaReserva } from "./PixDaReserva"
 import type { Message } from "../../lib/types"
 
 interface Props {
@@ -22,6 +23,10 @@ interface Props {
   onMensagem: (m: Message) => void
   /** Avisa a página que a conta mudou (o "pago" da reserva passa a ser da conta). */
   onMudou?: (temPagamentos: boolean) => void
+  /** Pix baixado: a reserva pode ter sido confirmada (a página recarrega). */
+  onReservaMudou?: () => void
+  hospede?: { nome: string; telefone?: string }
+  pousada?: string
 }
 
 const vazioPagamento = { valor: "", forma: "pix", tipo: "pagamento", recebido_em: "", observacao: "" }
@@ -32,7 +37,7 @@ const vazioConsumo = { descricao: "", quantidade: "1", valor_unitario: "" }
  * saldo sempre à vista. Substitui o "pago: sim/não", que não dizia quanto
  * faltava receber.
  */
-export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onMensagem, onMudou }: Props) {
+export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onMensagem, onMudou, onReservaMudou, hospede, pousada }: Props) {
   const c = useConta(reservaId)
   const [pag, setPag] = useState(vazioPagamento)
   const [con, setCon] = useState(vazioConsumo)
@@ -155,6 +160,16 @@ export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onM
             </form>
           )}
         </section>
+
+        <PixDaReserva
+          reservaId={reservaId}
+          telefone={hospede?.telefone}
+          hospede={hospede?.nome ?? ""}
+          pousada={pousada ?? ""}
+          podeCobrar={podeLancar}
+          onMensagem={onMensagem}
+          onMudou={() => { void c.carregar(); onReservaMudou?.() }}
+        />
 
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Consumos</h3>

@@ -67,6 +67,9 @@ export default function EditarReserva() {
           podeApagarPagamento={papel === "admin"}
           onMensagem={auth.setMessage}
           onMudou={setPagoPelaConta}
+          hospede={{ nome: reserva.nome, telefone: reserva.telefone }}
+          pousada={auth.pousada?.nome}
+          onReservaMudou={() => { void r.editarReserva(id).then((dados) => dados && setReserva(dados)) }}
         />
       }
     />
