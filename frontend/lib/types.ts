@@ -49,6 +49,8 @@ export interface Pousada {
   configuracoes?: {
     retencao_hospedes_meses?: number
     motor?: { ativo?: boolean; prazo_horas?: number; sinal_percentual?: number; politicas?: string }
+    mensagens?: Partial<Record<"confirmacao" | "sinal" | "chegada" | "agradecimento", string>>
+    whatsapp_lembrete?: boolean
   }
   ativa?: boolean
 }
@@ -82,6 +84,9 @@ export interface ItemAgenda {
   valor: string | number | null
   pago: boolean
   status: string
+  telefone?: string
+  pago_centavos?: number
+  consumos_centavos?: number
 }
 
 export interface Agenda {

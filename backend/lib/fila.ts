@@ -16,6 +16,7 @@ import { limpeza } from '../jobs/limpeza.js';
 import { expirarPreReservas, finalizarEstadiasVencidas } from '../jobs/estadias.js';
 import { anonimizarHospedesAntigos } from '../models/Conta.js';
 import { sincronizarTodas as sincronizarCalendarios } from '../models/Ical.js';
+import { lembretesDeChegada } from '../jobs/lembretes.js';
 
 export const FILAS = {
   email: 'email',
@@ -25,6 +26,7 @@ export const FILAS = {
   conversao: 'conversao',
   expirarPreReservas: 'expirar-pre-reservas',
   sincronizarIcal: 'sincronizar-ical',
+  lembretesWhatsapp: 'lembretes-whatsapp',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
@@ -99,6 +101,9 @@ export async function iniciarFila(): Promise<void> {
   // Calendários de Booking/Airbnb: a cada 30 min (a OTA atualiza o .ics com atraso parecido).
   await boss.schedule(FILAS.sincronizarIcal, '*/30 * * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.sincronizarIcal, async () => executarAgendado('sincronizar-ical', sincronizarCalendarios));
+  // Lembrete de chegada (véspera, 10h) — só envia com a API oficial do WhatsApp configurada.
+  await boss.schedule(FILAS.lembretesWhatsapp, '0 10 * * *', null, { tz: TIMEZONE });
+  await boss.work(FILAS.lembretesWhatsapp, async () => executarAgendado('lembretes-whatsapp', () => lembretesDeChegada()));
   await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.anonimizarHospedes, async () =>
     executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),

@@ -6,6 +6,8 @@ import { Button } from "../ui/button"
 import { formatarData } from "../../lib/formatters"
 import { acaoPrincipal, hojeNaPousada, ROTULO_ACAO, type StatusReserva } from "../../lib/status"
 import type { ItemAgenda } from "../../lib/types"
+import { MenuWhatsApp } from "../whatsapp/MenuWhatsApp"
+import type { Modelo, PousadaMensagem } from "../../lib/mensagens"
 
 type MudarStatus = (id: number, status: StatusReserva) => void
 
@@ -16,13 +18,17 @@ function avisoDeStatus(r: ItemAgenda, hoje: string): { texto: string; cor: strin
   return null
 }
 
-function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
+function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pousada, nomesDosQuartos, mensagem }: {
   titulo: string
   itens: ItemAgenda[]
   vazio: string
   mostrarData?: "entrada" | "saida"
   onMudarStatus?: MudarStatus
   mudando?: number | null
+  pousada?: PousadaMensagem
+  nomesDosQuartos?: Record<number, string>
+  /** Mensagem de WhatsApp mais provável nesta lista. */
+  mensagem?: Modelo
 }) {
   const hoje = hojeNaPousada()
   return (
@@ -51,6 +57,14 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
                 {mostrarData === "entrada" && formatarData(r.data_entrada)}
                 {mostrarData === "saida" && `até ${formatarData(r.data_saida)}`}
                 {!r.pago && <span className="text-amber-600">a pagar</span>}
+                {pousada && r.telefone && (
+                  <MenuWhatsApp
+                    compacto
+                    pousada={pousada}
+                    sugerido={r.status === "pre_reserva" ? "sinal" : mensagem}
+                    dados={{ nome: r.nome, telefone: r.telefone, quarto: nomesDosQuartos?.[r.quarto] ?? `Quarto ${r.quarto}`, data_entrada: r.data_entrada, data_saida: r.data_saida, valor: r.valor, pago_centavos: r.pago_centavos, consumos_centavos: r.consumos_centavos }}
+                  />
+                )}
                 {proximo && onMudarStatus && (
                   <Button
                     variant="outline"
@@ -74,7 +88,7 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando }: {
   )
 }
 
-export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarStatus, mudando }: {
+export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarStatus, mudando, pousada, nomesDosQuartos }: {
   chegadas: ItemAgenda[]
   saidas: ItemAgenda[]
   hospedados: ItemAgenda[]
@@ -82,14 +96,16 @@ export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarSta
   /** Sem esta função (perfil só leitura), a agenda não mostra botões. */
   onMudarStatus?: MudarStatus
   mudando?: number | null
+  pousada?: PousadaMensagem
+  nomesDosQuartos?: Record<number, string>
 }) {
-  const acoes = { onMudarStatus, mudando }
+  const acoes = { onMudarStatus, mudando, pousada, nomesDosQuartos }
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Lista titulo="Chegadas hoje" itens={chegadas} vazio="Nenhuma chegada prevista hoje." {...acoes} />
-      <Lista titulo="Saídas hoje" itens={saidas} vazio="Nenhuma saída prevista hoje." {...acoes} />
-      <Lista titulo="Hospedados agora" itens={hospedados} vazio="Nenhum hóspede no momento." mostrarData="saida" {...acoes} />
-      <Lista titulo="Próximas chegadas (7 dias)" itens={proximas} vazio="Nenhuma chegada nos próximos 7 dias." mostrarData="entrada" {...acoes} />
+      <Lista titulo="Chegadas hoje" itens={chegadas} vazio="Nenhuma chegada prevista hoje." mensagem="chegada" {...acoes} />
+      <Lista titulo="Saídas hoje" itens={saidas} vazio="Nenhuma saída prevista hoje." mensagem="agradecimento" {...acoes} />
+      <Lista titulo="Hospedados agora" itens={hospedados} vazio="Nenhum hóspede no momento." mostrarData="saida" mensagem="chegada" {...acoes} />
+      <Lista titulo="Próximas chegadas (7 dias)" itens={proximas} vazio="Nenhuma chegada nos próximos 7 dias." mostrarData="entrada" mensagem="chegada" {...acoes} />
     </div>
   )
 }

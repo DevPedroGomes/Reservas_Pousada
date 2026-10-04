@@ -14,6 +14,7 @@ import { changePassword } from "../../../lib/auth-client"
 import { useEquipe } from "../../../hooks/useEquipe"
 import { useStaffInvites } from "../../../hooks/useStaffInvites"
 import type { Message } from "../../../lib/types"
+import { MODELOS, preencher, VARIAVEIS, type Modelo } from "../../../lib/mensagens"
 
 const PAPEIS: Record<string, string> = { admin: "Administração", recepcao: "Recepção", auditoria: "Auditoria" }
 
@@ -472,6 +473,75 @@ function PixDaPousada() {
   )
 }
 
+/** Textos das mensagens prontas de WhatsApp (e o lembrete automático, se a API oficial estiver ligada). */
+function MensagensWhatsApp() {
+  const { auth } = useApp()
+  const p = auth.pousada!
+  const [textos, setTextos] = useState<Record<Modelo, string>>(() =>
+    Object.fromEntries(MODELOS.map((m) => [m.modelo, p.configuracoes?.mensagens?.[m.modelo] || m.padrao])) as Record<Modelo, string>)
+  const [lembrete, setLembrete] = useState(Boolean(p.configuracoes?.whatsapp_lembrete))
+  const [apiOficial, setApiOficial] = useState(false)
+  const [msg, setMsg] = useState<Message | null>(null)
+
+  useEffect(() => {
+    void authenticatedFetch(`${API_URL}/pousadas/${p.id}/whatsapp`).then((r) => r.json()).then((d) => setApiOficial(Boolean(d.apiOficial))).catch(() => {})
+  }, [p.id])
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setMsg(null)
+    // Texto igual ao padrão não é gravado: se o padrão melhorar, a pousada ganha a melhoria.
+    const mensagens = Object.fromEntries(MODELOS.map((m) => [m.modelo, textos[m.modelo].trim() === m.padrao ? "" : textos[m.modelo]]))
+    const r = await authenticatedFetch(`${API_URL}/pousadas/${p.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ configuracoes: { mensagens, ...(apiOficial ? { whatsapp_lembrete: lembrete } : {}) } }),
+    })
+    const d = await r.json()
+    setMsg({ type: d.sucesso ? "success" : "error", text: d.sucesso ? "Mensagens salvas." : d.mensagem || "Não foi possível salvar." })
+    if (d.sucesso) await auth.refreshPousadas({ silencioso: true })
+  }
+
+  const exemplo = { nome: "Maria Silva", telefone: "", quarto: "Suíte Mar", data_entrada: "2026-12-20", data_saida: "2026-12-23", valor: 900, pago_centavos: 27000 }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Mensagens do WhatsApp</CardTitle>
+        <CardDescription>
+          O botão de WhatsApp da reserva e da agenda abre a conversa com o hóspede já com o texto pronto, no seu próprio WhatsApp.
+          Use as variáveis: {VARIAVEIS.join(" ")}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <Aviso m={msg} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            {MODELOS.map((m) => (
+              <div key={m.modelo} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`msg-${m.modelo}`}>{m.rotulo}</Label>
+                  {textos[m.modelo] !== m.padrao && (
+                    <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setTextos((t) => ({ ...t, [m.modelo]: m.padrao }))}>restaurar</button>
+                  )}
+                </div>
+                <Textarea id={`msg-${m.modelo}`} rows={4} maxLength={1000} value={textos[m.modelo]} onChange={(e) => setTextos((t) => ({ ...t, [m.modelo]: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">Exemplo: {preencher(textos[m.modelo], exemplo, p)}</p>
+              </div>
+            ))}
+          </div>
+          {apiOficial && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={lembrete} onChange={(e) => setLembrete(e.target.checked)} className="h-4 w-4 accent-primary" />
+              Enviar lembrete automático na véspera da chegada (WhatsApp oficial)
+            </label>
+          )}
+          <Button type="submit">Salvar mensagens</Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** Por quanto tempo guardar nome, CPF e observações dos hóspedes após a saída. */
 function RetencaoDeHospedes() {
   const { auth } = useApp()
@@ -596,6 +666,7 @@ export default function Configuracoes() {
           <PixDaPousada />
         </div>
       )}
+      {gerencia && <MensagensWhatsApp />}
       <div className="grid gap-5 lg:grid-cols-2">
         <Seguranca />
         <RetencaoDeHospedes />

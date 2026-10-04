@@ -119,6 +119,9 @@ function itemAgenda(r: Bruto): ItemAgenda {
     valor: (base.valor as string | number | null) ?? null,
     pago: base.pago,
     status: base.status,
+    telefone: base.telefone,
+    pago_centavos: base.pago_centavos,
+    consumos_centavos: base.consumos_centavos,
   }
 }
 

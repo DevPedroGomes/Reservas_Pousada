@@ -463,6 +463,17 @@ export function sanitizarPousada(pousada: PousadaData): Partial<PousadaData> {
     const limpo: Record<string, unknown> = {};
     const meses = Number(entrada.retencao_hospedes_meses);
     if (Number.isInteger(meses) && meses >= 0 && meses <= 240) limpo.retencao_hospedes_meses = meses;
+    // Modelos de mensagem do WhatsApp (texto livre, com {variáveis}).
+    if (entrada.mensagens && typeof entrada.mensagens === 'object') {
+      const mensagens: Record<string, string> = {};
+      for (const chave of ['confirmacao', 'sinal', 'chegada', 'agradecimento']) {
+        const texto = (entrada.mensagens as Record<string, unknown>)[chave];
+        if (typeof texto === 'string') mensagens[chave] = sanitizarString(texto, 1000, true);
+      }
+      limpo.mensagens = mensagens;
+    }
+    // Lembrete automático de chegada pela API oficial (só vale se a plataforma tiver a API ligada).
+    if (typeof entrada.whatsapp_lembrete === 'boolean') limpo.whatsapp_lembrete = entrada.whatsapp_lembrete;
     sanitizado.configuracoes = limpo;
   }
 

@@ -9,6 +9,7 @@ import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validat
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
 import { lerConfigMotor } from '../models/Motor.js';
 import { lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
+import { whatsappApiConfigurada } from '../lib/whatsapp.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
@@ -368,6 +369,11 @@ router.put('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) 
     console.error('Erro ao salvar Pix:', error);
     res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
   }
+});
+
+/** GET /api/pousadas/:id/whatsapp — a plataforma tem a API oficial ligada? */
+router.get('/:id/whatsapp', requirePousadaAccess, (req: Request, res: Response) => {
+  res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() });
 });
 
 router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {

@@ -59,7 +59,7 @@ interface ListarOptions {
  * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
  * é o documento quando ele é CPF, senão vazio.
  */
-export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid'> {
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'lembreteEnviadoEm'> {
   criadoPorNome?: string | null;
   documento: string;
   tipoDocumento: string;
@@ -547,18 +547,24 @@ export class ReservaModel {
       valor: reservas.valor,
       pago: reservas.pago,
       status: reservas.status,
+      // WhatsApp do hóspede: a agenda tem o botão de mensagem pronta.
+      telefone: hospedes.telefone,
+      // Para o {saldo} da mensagem bater com a conta.
+      pagoCentavos: CAMPOS_RESERVA.pagoCentavos,
+      consumosCentavos: CAMPOS_RESERVA.consumosCentavos,
     };
     const base = [eq(reservas.pousadaId, pousadaId), inArray(reservas.status, [...STATUS_QUE_OCUPAM]), isNull(reservas.deletedAt)];
+    const lista = () => db.select(campos).from(reservas).leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id));
     const ate = sql`(${dia}::date + ${diasAFrente}::int)`;
 
     const [chegadas, saidas, hospedados, proximas] = await Promise.all([
-      db.select(campos).from(reservas).where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
-      db.select(campos).from(reservas).where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
-      db.select(campos).from(reservas)
+      lista().where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
+      lista().where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
+      lista()
         // Pré-reserva segura o quarto, mas ninguém está hospedado nela.
         .where(and(...base, ne(reservas.status, 'pre_reserva'), lte(reservas.dataEntrada, dia), gt(reservas.dataSaida, dia)))
         .orderBy(reservas.quarto),
-      db.select(campos).from(reservas)
+      lista()
         .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))
         .orderBy(reservas.dataEntrada, reservas.quarto)
         .limit(50),

@@ -9,6 +9,7 @@ import { Button } from "../../../components/ui/button"
 import { usePainel } from "../../../hooks/usePainel"
 import { useAtualizacaoAutomatica } from "../../../hooks/useAtualizacaoAutomatica"
 import { useStatusReserva } from "../../../hooks/useStatusReserva"
+import { useQuartos } from "../../../hooks/useQuartos"
 import type { StatusReserva } from "../../../lib/status"
 
 export default function Painel() {
@@ -16,6 +17,9 @@ export default function Painel() {
   const pousada = auth.pousada!
   const { estatisticas, agenda, erro, carregar } = usePainel(pousada.id)
   const { mudarStatus, mudando } = useStatusReserva()
+  const { quartos, carregar: carregarQuartos } = useQuartos()
+  useEffect(() => { void carregarQuartos() }, [carregarQuartos, pousada.id])
+  const nomesDosQuartos = Object.fromEntries(quartos.map((q) => [q.numero, q.nome]))
   const somenteLeitura = auth.user?.role === "auditoria" && !auth.user?.is_owner
 
   async function mudar(id: number, status: StatusReserva) {
@@ -61,6 +65,8 @@ export default function Painel() {
           {...agenda}
           onMudarStatus={somenteLeitura ? undefined : (id, status) => void mudar(id, status)}
           mudando={mudando}
+          pousada={somenteLeitura ? undefined : pousada}
+          nomesDosQuartos={nomesDosQuartos}
         />
       )}
     </div>

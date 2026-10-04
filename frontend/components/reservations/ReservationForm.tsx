@@ -37,6 +37,8 @@ interface ReservationFormProps {
   pagoPelaConta?: boolean
   /** Painel da conta (pagamentos e consumos), entre o formulário e o histórico. */
   conta?: React.ReactNode
+  /** Ações ao lado do título (ex.: mensagens de WhatsApp). */
+  acoes?: React.ReactNode
 }
 
 const emptyForm: Reserva = {
@@ -69,6 +71,7 @@ export function ReservationForm({
   loading = false,
   pagoPelaConta = false,
   conta,
+  acoes,
 }: ReservationFormProps) {
   const [form, setForm] = useState<Reserva>(emptyForm)
 
@@ -140,7 +143,10 @@ export function ReservationForm({
         <h2 className="text-2xl font-semibold tracking-tight">
           {isEditing ? "Editar Reserva" : "Nova Reserva"}
         </h2>
-        <span className="text-xs text-muted-foreground">* Campos obrigatorios</span>
+        <div className="flex items-center gap-3">
+          {acoes}
+          <span className="text-xs text-muted-foreground">* Campos obrigatórios</span>
+        </div>
       </div>
 
       <Card>
