@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { ErrorBoundary } from '../components/error-boundary';
 import { AvisoDeCookies } from '../components/legal/AvisoDeCookies';
 import { Medicao } from '../components/medicao/Medicao';
+import { RegistrarPwa } from '../components/pwa/Pwa';
 
 const font = DM_Sans({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -18,6 +19,11 @@ export const metadata: Metadata = {
   },
   description: 'Reservas, hóspedes e equipe da sua pousada em um só lugar. Teste grátis por 14 dias.',
   applicationName: 'Diária',
+  icons: {
+    icon: [{ url: '/icones/icone-192.png', sizes: '192x192', type: 'image/png' }],
+    apple: [{ url: '/icones/apple-touch-icon.png', sizes: '180x180' }],
+  },
+  appleWebApp: { capable: true, title: 'Diária', statusBarStyle: 'default' },
 };
 
 export const viewport: Viewport = {
@@ -38,6 +44,7 @@ export default function RootLayout({
         </ErrorBoundary>
         <AvisoDeCookies />
         <Medicao />
+        <RegistrarPwa />
       </body>
     </html>
   );

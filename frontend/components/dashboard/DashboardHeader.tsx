@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 import type { Usuario, Pousada, UserPousada } from "../../lib/types"
+import { BotaoInstalar } from "../pwa/Pwa"
 
 interface DashboardHeaderProps {
   user: Usuario | null
@@ -175,6 +176,7 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
         </nav>
 
         <div className="flex items-center gap-2">
+          <BotaoInstalar />
           <span className="text-xs text-muted-foreground hidden 2xl:block whitespace-nowrap">{user?.nome}</span>
           {user?.is_owner && (
             <Link href="/assinatura">
