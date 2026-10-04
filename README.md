@@ -202,7 +202,7 @@ Authentication (`backend/lib/auth.ts`)
 
 - `better-auth` with the Drizzle adapter against the `user`, `session`, `account`, `verification` tables.
 - Email + password (8..100 chars). **E-mail must be verified before the first sign-in** (`requireEmailVerification`); signing in unverified re-sends the link. Password reset via Resend.
-- Google OAuth (`prompt=select_account`, no offline token) only registered when `GOOGLE_CLIENT_*` are set.
+- Google OAuth (`prompt=select_account`, no offline token) only registered when `GOOGLE_CLIENT_*` are set; the login screen asks `GET /api/config` and shows the button only then. The OAuth state carries the destination (invite, page that asked for login), the marketing attribution and the error return (`/entrar?error=<code>`).
 - Session: 12h absolute lifetime, 1h sliding refresh (`updateAge`), 5-minute cookie cache.
 - HTTPOnly secure cookies in production, no JWTs in headers, no client-side tokens.
 
@@ -411,7 +411,8 @@ GET    /api/auth/get-session            current session
 POST   /api/auth/forget-password        request password reset
 POST   /api/auth/reset-password         consume reset token
 POST   /api/auth/change-password        evicts other sessions on success
-GET    /api/auth/sign-in/google         Google OAuth start (when configured)
+POST   /api/auth/sign-in/social         Google OAuth start (when configured)
+GET    /api/config                      public install info for the login screen ({ google })
 ```
 
 ### Reservations (auth + active pousada + subscription in good standing)
@@ -509,6 +510,9 @@ GET    /health                                also checks Postgres; 503 when unr
   guests, payments, status cycle, rates, iCal, reports, import; Phase 2: booking
   engine, Pix, WhatsApp, online pre-check-in, PWA, WhatsApp Business per inn with
   virtual attendant).
+- [`docs/deploy-producao.md`](docs/deploy-producao.md) — production go-live runbook:
+  VPS secrets, Resend, GitHub Variables for the `NEXT_PUBLIC_*` build args, backup,
+  monitoring, Google OAuth, Stripe, GA4/Meta, WhatsApp, smoke test.
 - [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md) — what to set up at Meta (Tech
   Provider, Embedded Signup configuration, webhook, App Review) and the env vars.
 

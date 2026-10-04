@@ -165,7 +165,6 @@ services:
         NEXT_PUBLIC_EMPRESA_FORO: ${NEXT_PUBLIC_EMPRESA_FORO:-}
         NEXT_PUBLIC_GA_ID: ${NEXT_PUBLIC_GA_ID:-}
         NEXT_PUBLIC_META_PIXEL_ID: ${NEXT_PUBLIC_META_PIXEL_ID:-}
-        NEXT_PUBLIC_GOOGLE_LOGIN: ${NEXT_PUBLIC_GOOGLE_LOGIN:-}
     container_name: reservas-frontend
     restart: unless-stopped
     deploy:

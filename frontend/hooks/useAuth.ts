@@ -31,7 +31,7 @@ interface UseAuthReturn {
   login: (email: string, password: string) => Promise<boolean>;
   signup: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  googleLogin: () => Promise<void>;
+  googleLogin: (opcoes?: Parameters<typeof signInWithGoogle>[0]) => Promise<void>;
   setMessage: (message: Message | null) => void;
   clearMessage: () => void;
   refreshPousadas: (opcoes?: { silencioso?: boolean }) => Promise<void>;
@@ -248,11 +248,11 @@ export function useAuth(): UseAuthReturn {
   }, []);
 
   // Google Login
-  const googleLogin = useCallback(async () => {
+  const googleLogin = useCallback(async (opcoes?: Parameters<typeof signInWithGoogle>[0]) => {
     try {
       setGoogleLoading(true);
       setMessage(null);
-      await signInWithGoogle();
+      await signInWithGoogle(opcoes);
     } catch (error: any) {
       console.error("Erro ao iniciar login com Google:", error);
       setMessage({ type: "error", text: "Erro ao iniciar login com Google." });

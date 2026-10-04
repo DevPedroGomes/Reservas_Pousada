@@ -143,6 +143,21 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal(login.status, 403);
       assert.equal(login.json.code, 'EMAIL_NOT_VERIFIED');
     });
+
+    it('cadastro guarda a origem de marketing saneada', async () => {
+      const c = new Cliente(base, '198.51.100.252');
+      await c.req('POST', '/api/auth/sign-up/email', {
+        email: 'com.origem@teste.com', password: 'senha-forte-123', name: 'Origem',
+        origem: { utm_source: 'instagram', utm_campaign: 'verao', consentimento_anuncios: true, intrusa: 'x' },
+      });
+      const { rows: [u] } = await pool.query(`SELECT origem FROM "user" WHERE email = 'com.origem@teste.com'`);
+      assert.deepEqual(u.origem, { utm_source: 'instagram', utm_campaign: 'verao', consentimento_anuncios: true });
+    });
+
+    it('/api/config diz se o login com Google está disponível (sem credencial, não)', async () => {
+      const r = await new Cliente(base, '198.51.100.253').req('GET', '/api/config');
+      assert.deepEqual(r.json, { sucesso: true, google: false });
+    });
   });
 
   describe('isolamento entre pousadas', () => {
