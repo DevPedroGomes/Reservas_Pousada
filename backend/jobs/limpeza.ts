@@ -1,11 +1,26 @@
-/** Limpeza periódica: sessões expiradas, janelas de rate limit vencidas e conversas antigas do WhatsApp. */
+/** Limpeza periódica: sessões expiradas, janelas de rate limit vencidas, conversas antigas do WhatsApp e auditoria antiga. */
 import { pool } from '../db/index.js';
 import { limparRateLimitsVencidos } from '../utils/rateLimitStore.js';
 
 /** Mensagens do WhatsApp (dado pessoal) ficam 90 dias: o bastante para o atendimento. */
 const DIAS_WHATSAPP = 90;
 
-export async function limpeza(): Promise<{ sessoes: number; rateLimits: number; mensagensWhatsapp: number }> {
+/**
+ * Auditoria: 6 meses, como diz a política de privacidade. É também o mínimo do
+ * Marco Civil para registros de acesso (art. 15), por isso nenhum valor em
+ * AUDITORIA_RETENCAO_MESES baixa disso; um prazo maior é permitido.
+ */
+const MESES_AUDITORIA_MINIMO = 6;
+
+/** Por rodada: o job roda de hora em hora, e a primeira limpeza não pode travar a tabela. */
+const LOTE_AUDITORIA = 5000;
+
+export function mesesDeAuditoria(env: NodeJS.ProcessEnv = process.env): number {
+  const meses = Number(env.AUDITORIA_RETENCAO_MESES);
+  return Number.isInteger(meses) && meses > MESES_AUDITORIA_MINIMO ? meses : MESES_AUDITORIA_MINIMO;
+}
+
+export async function limpeza(): Promise<{ sessoes: number; rateLimits: number; mensagensWhatsapp: number; auditoria: number }> {
   const sessoes = (await pool.query('DELETE FROM session WHERE expires_at < NOW()')).rowCount ?? 0;
   const rateLimits = await limparRateLimitsVencidos(pool);
   const mensagensWhatsapp = (await pool.query(
@@ -17,5 +32,10 @@ export async function limpeza(): Promise<{ sessoes: number; rateLimits: number; 
        AND NOT EXISTS (SELECT 1 FROM whatsapp_mensagens m WHERE m.conversa_id = c.id)`,
     [DIAS_WHATSAPP],
   );
-  return { sessoes, rateLimits, mensagensWhatsapp };
+  const auditoria = (await pool.query(
+    `DELETE FROM auditoria WHERE id IN (
+       SELECT id FROM auditoria WHERE created_at < now() - make_interval(months => $1) ORDER BY id LIMIT $2)`,
+    [mesesDeAuditoria(), LOTE_AUDITORIA],
+  )).rowCount ?? 0;
+  return { sessoes, rateLimits, mensagensWhatsapp, auditoria };
 }

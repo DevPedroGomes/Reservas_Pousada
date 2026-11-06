@@ -62,6 +62,8 @@ services:
       FILA_HABILITADA: ${FILA_HABILITADA:-true}
       FILA_POOL_MAX: ${FILA_POOL_MAX:-3}
       RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-postgres}
+      # Meses de trilha de auditoria. Menos de 6 é ignorado (jobs/limpeza.ts).
+      AUDITORIA_RETENCAO_MESES: ${AUDITORIA_RETENCAO_MESES:-6}
       DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@central-db:5432/${POSTGRES_DB:-reservas_pousada}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       # Endereco canonico da API. E o que o better-auth usa para montar o
