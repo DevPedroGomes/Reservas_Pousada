@@ -5,8 +5,12 @@
  * cada plataforma): cadastro, pousada_criada, reserva_criada,
  * inicio_checkout, assinatura. A conversão de pagamento também sai pelo
  * servidor (backend/lib/conversoes.ts), que não depende do navegador.
+ *
+ * Nada carrega em página cujo endereço, ou o da página anterior, carregue
+ * credencial (lib/urlSensivel.ts): GA e Pixel registram a URL inteira.
  */
 import { lerConsentimento, type Consentimento } from "./consentimento"
+import { urlSensivel } from "./urlSensivel"
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID
 const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
@@ -14,12 +18,18 @@ const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID
 type Janela = Window & {
   dataLayer?: unknown[]
   gtag?: (...args: unknown[]) => void
-  fbq?: ((...args: unknown[]) => void) & { callMethod?: unknown; queue?: unknown[]; loaded?: boolean; version?: string; push?: unknown }
+  fbq?: ((...args: unknown[]) => void) & { callMethod?: unknown; queue?: unknown[]; loaded?: boolean; version?: string; push?: unknown; disablePushState?: boolean }
   _fbq?: unknown
 }
 
 let gaCarregado = false
 let pixelCarregado = false
+
+function paginaSensivel(): boolean {
+  if (urlSensivel(window.location.pathname + window.location.search)) return true
+  const anterior = document.referrer
+  return Boolean(anterior) && anterior.startsWith(window.location.origin) && urlSensivel(anterior.slice(window.location.origin.length))
+}
 
 function script(src: string) {
   const s = document.createElement("script")
@@ -29,8 +39,14 @@ function script(src: string) {
 }
 
 export function carregarRastreadores(c: Consentimento | null = lerConsentimento()): void {
-  if (typeof window === "undefined" || !c) return
+  if (typeof window === "undefined") return
   const w = window as Janela
+
+  // Rastreador já carregado que chegue a um endereço sensível por navegação do
+  // próprio app (sem recarregar) fica mudo enquanto estiver nele.
+  const sensivel = paginaSensivel()
+  if (GA_ID) (window as unknown as Record<string, unknown>)[`ga-disable-${GA_ID}`] = sensivel
+  if (!c || sensivel) return
 
   if (c.medicao && GA_ID && !gaCarregado) {
     gaCarregado = true
@@ -51,6 +67,7 @@ export function carregarRastreadores(c: Consentimento | null = lerConsentimento(
     fbq!.queue = []
     fbq!.loaded = true
     fbq!.version = "2.0"
+    fbq!.disablePushState = true // sem PageView automático nas trocas de rota
     fbq!.push = fbq
     w.fbq = fbq
     w._fbq = fbq
@@ -79,7 +96,7 @@ export type EventoDeFunil = keyof typeof PARA_GA
 
 /** Registra um evento de funil nos rastreadores carregados. Sem consentimento, não faz nada. */
 export function rastrear(evento: EventoDeFunil, params: Record<string, unknown> = {}): void {
-  if (typeof window === "undefined") return
+  if (typeof window === "undefined" || paginaSensivel()) return
   const w = window as Janela
   try {
     w.gtag?.("event", PARA_GA[evento], params)
