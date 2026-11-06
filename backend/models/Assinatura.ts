@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, assinaturas, quartos, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
+import { hashEmail } from '../utils/crypto.js';
 import {
   avaliarAcessoComUso,
   limitesVigentes,
@@ -23,12 +24,28 @@ export class AssinaturaModel {
    * uma pousada sem linha de assinatura é um tenant que o enforcement não sabe
    * avaliar, e o `ON CONFLICT DO NOTHING` cobre o caso de já existir.
    */
-  static async criarTrial(pousadaId: number, executor: Pick<typeof db, 'insert'> = db) {
-    const termina = new Date(Date.now() + DIAS_DE_TRIAL * MS_POR_DIA);
+  static async criarTrial(pousadaId: number, executor: Pick<typeof db, 'insert'> = db, inicio: Date = new Date()) {
+    const termina = new Date(inicio.getTime() + DIAS_DE_TRIAL * MS_POR_DIA);
     await executor
       .insert(assinaturas)
       .values({ pousadaId, status: 'trial', trialTerminaEm: termina })
       .onConflictDoNothing();
+  }
+
+  /**
+   * Quando começou o trial deste dono. Na primeira vez é agora, e fica gravado. O
+   * prazo conta sempre dessa data: quem exclui a pousada e cria outra continua no
+   * mesmo trial, e se ele já venceu a nova pousada nasce precisando assinar.
+   */
+  static async inicioDoTrial(userId: string, executor: Executor = db): Promise<Date> {
+    const { rows: [u] } = await executor.execute(sql`SELECT email, trial_usado_em FROM "user" WHERE id = ${userId}`);
+    const { rows: [email] } = await executor.execute(
+      sql`SELECT usado_em FROM trial_emails_usados WHERE email_hash = ${hashEmail(String(u.email))}`,
+    );
+    const anteriores = [u.trial_usado_em, email?.usado_em].filter((d): d is string | Date => Boolean(d)).map((d) => new Date(d));
+    const inicio = anteriores.length ? new Date(Math.min(...anteriores.map((d) => d.getTime()))) : new Date();
+    await executor.execute(sql`UPDATE "user" SET trial_usado_em = ${inicio.toISOString()}::timestamptz WHERE id = ${userId}`);
+    return inicio;
   }
 
   /**

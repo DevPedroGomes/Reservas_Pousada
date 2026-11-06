@@ -55,6 +55,15 @@ export async function situacao(pousadaId: number) {
     : { conectado: false };
 }
 
+/** Pousada em trial tentando conectar uma WABA que já passou por outra pousada? */
+async function wabaJaUsadaEmTrial(pousadaId: number, wabaId: string): Promise<boolean> {
+  if (!billingHabilitado()) return false;
+  const efetiva = await AssinaturaModel.efetiva(pousadaId);
+  if (efetiva?.row.status !== 'trial') return false;
+  const { rows } = await pool.query(`SELECT 1 FROM whatsapp_wabas_usadas WHERE waba_id = $1 AND pousada_id <> $2`, [wabaId, pousadaId]);
+  return rows.length > 0;
+}
+
 /**
  * Fim do Embedded Signup: troca o código pelo token da conta da pousada,
  * assina os webhooks, registra o número na Cloud API (exceto coexistência,
@@ -66,6 +75,9 @@ export async function conectar(pousadaId: number, d: { code: string; wabaId: str
   }
   const { rows: [outra] } = await pool.query(`SELECT pousada_id FROM whatsapp_contas WHERE phone_number_id = $1 AND pousada_id <> $2`, [d.phoneNumberId, pousadaId]);
   if (outra) throw new WhatsappRecusado('Este número já está conectado a outra pousada.', 409);
+  if (await wabaJaUsadaEmTrial(pousadaId, d.wabaId)) {
+    throw new WhatsappRecusado('Este WhatsApp já foi usado em outra pousada do Diária. Assine um plano para conectá-lo aqui.', 409);
+  }
   const m = meta();
   let token: string;
   try {
@@ -84,6 +96,7 @@ export async function conectar(pousadaId: number, d: { code: string; wabaId: str
        coexistencia = EXCLUDED.coexistencia, modelos_criados = false, atualizado_em = now()`,
     [pousadaId, d.wabaId, d.phoneNumberId, numero.numero, numero.nome, cifrarSegredo(token), d.coexistencia],
   );
+  await pool.query(`INSERT INTO whatsapp_wabas_usadas (waba_id, pousada_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [d.wabaId, pousadaId]);
   // Modelos para mensagens iniciadas pela pousada (lembrete, confirmação). A
   // Meta aprova em minutos a horas; falha aqui não impede a conexão.
   let criados = 0;

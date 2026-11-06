@@ -42,6 +42,7 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
     await pool.query(`
       INSERT INTO "user" (id, name, email, email_verified) VALUES ('u1', 'A', 'a@t.com', true), ('u2', 'B', 'b@t.com', true), ('u3', 'C', 'c@t.com', true), ('u4', 'D', 'd@t.com', true);
       INSERT INTO pousadas (id, nome, slug, num_quartos) VALUES (1, 'Um', 'um', 5), (2, 'Dois', 'dois', 5), (3, 'Três', 'tres', 5);
+      SELECT setval('pousadas_id_seq', 100);
     `);
   });
 
@@ -55,7 +56,7 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
     await pool.query(`DELETE FROM assinaturas; DELETE FROM user_pousadas; DELETE FROM quartos;`);
   });
 
-  async function assinatura(pousadaId: number, plano: string, extra: { status?: string; cobertaPor?: number } = {}) {
+  async function assinatura(pousadaId: number, plano: string | null, extra: { status?: string; cobertaPor?: number } = {}) {
     await pool.query(
       `INSERT INTO assinaturas (pousada_id, status, plano, coberta_por_pousada_id) VALUES ($1, $2, $3, $4)`,
       [pousadaId, extra.status ?? 'ativa', plano, extra.cobertaPor ?? null],
@@ -64,6 +65,101 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
   async function quartos(pousadaId: number, n: number) {
     await pool.query(`INSERT INTO quartos (pousada_id, numero, nome) SELECT $1, g, 'Q' || g FROM generate_series(1, $2::int) g`, [pousadaId, n]);
   }
+
+  describe('trial não renova', () => {
+    let seq = 0;
+    const novoUsuario = async () => {
+      const id = `t${++seq}`;
+      await pool.query(`INSERT INTO "user" (id, name, email, email_verified) VALUES ($1, 'T', $2, true)`, [id, `${id}@trial.com`]);
+      return id;
+    };
+    const criar = async (userId: string, nome: string) => {
+      const PousadaModel = (await import('../models/Pousada.js')).default;
+      return PousadaModel.criarComOwner({ nome, numQuartos: 3 }, userId);
+    };
+    const fimDoTrial = async (pousadaId: number): Promise<Date> =>
+      (await pool.query(`SELECT trial_termina_em FROM assinaturas WHERE pousada_id = $1`, [pousadaId])).rows[0].trial_termina_em;
+
+    it('a primeira pousada grava trial_usado_em e ganha os 14 dias', async () => {
+      const u = await novoUsuario();
+      const p = await criar(u, 'Primeira');
+      const dias = (((await fimDoTrial(p.id)).getTime() - Date.now()) / 864e5);
+      assert.ok(dias > 13.9 && dias <= 14);
+      const { rows: [r] } = await pool.query(`SELECT trial_usado_em FROM "user" WHERE id = $1`, [u]);
+      assert.ok(r.trial_usado_em instanceof Date);
+    });
+
+    it('excluir a pousada e criar outra não renova: segue o prazo original', async () => {
+      const u = await novoUsuario();
+      const p = await criar(u, 'Original');
+      const fim = await fimDoTrial(p.id);
+      await (await import('../models/Conta.js')).excluirPousada(p.id, 'Original');
+      const nova = await criar(u, 'Recriada');
+      assert.equal((await fimDoTrial(nova.id)).getTime(), fim.getTime());
+    });
+
+    it('trial já vencido: a pousada recriada nasce bloqueada, precisando assinar', async () => {
+      const u = await novoUsuario();
+      await pool.query(`UPDATE "user" SET trial_usado_em = now() - interval '20 days' WHERE id = $1`, [u]);
+      const p = await criar(u, 'Atrasada');
+      const r = await guard(p.id);
+      assert.equal(r.status, 402);
+      assert.equal(r.corpo.motivo, 'trial_expirado');
+    });
+
+    it('excluir a conta e se cadastrar de novo com o mesmo e-mail também não renova', async () => {
+      const u = await novoUsuario();
+      const email = `${u}@trial.com`;
+      await pool.query(`UPDATE "user" SET trial_usado_em = now() - interval '20 days' WHERE id = $1`, [u]);
+      await (await import('../models/Conta.js')).excluirConta(u);
+      const { rows: [anon] } = await pool.query(`SELECT email FROM "user" WHERE id = $1`, [u]);
+      assert.notEqual(anon.email, email, 'o e-mail em si não fica guardado');
+      const { rows: guardados } = await pool.query(`SELECT email_hash FROM trial_emails_usados`);
+      assert.ok(guardados.every((g) => !String(g.email_hash).includes('@')));
+
+      const novoId = `${u}-novo`;
+      await pool.query(`INSERT INTO "user" (id, name, email, email_verified) VALUES ($1, 'T', $2, true)`, [novoId, email.toUpperCase()]);
+      const p = await criar(novoId, 'Recadastro');
+      assert.ok((await fimDoTrial(p.id)).getTime() < Date.now());
+    });
+
+    describe('WABA já usada', () => {
+      const dados = (wabaId: string, phoneNumberId: string) => ({ code: 'c', wabaId, phoneNumberId, coexistencia: true });
+      before(async () => {
+        (await import('../lib/metaWhatsapp.js')).usarClienteMetaDeTeste({
+          async trocarCodigo() { return 'token'; },
+          async assinarWebhooks() {},
+          async registrarNumero() {},
+          async dadosDoNumero() { return { numero: null, nome: null }; },
+          async criarModelo() {},
+          async desassinarWebhooks() {},
+        } as never);
+      });
+      after(async () => { (await import('../lib/metaWhatsapp.js')).usarClienteMetaDeTeste(null); });
+      beforeEach(async () => { await pool.query(`DELETE FROM whatsapp_contas; DELETE FROM whatsapp_wabas_usadas;`); });
+
+      it('outra pousada em trial não conecta a mesma WABA', async () => {
+        const Whats = await import('../models/WhatsappBusiness.js');
+        await assinatura(1, null, { status: 'trial' });
+        await assinatura(2, null, { status: 'trial' });
+        await Whats.conectar(1, dados('10000001', '20000001'));
+        await Whats.desconectar(1);
+        await assert.rejects(Whats.conectar(2, dados('10000001', '20000002')), (e: Error & { status?: number }) => e.status === 409 && /plano/.test(e.message));
+        assert.equal((await pool.query(`SELECT 1 FROM whatsapp_contas WHERE pousada_id = 2`)).rows.length, 0);
+      });
+
+      it('a mesma pousada reconecta, e quem paga conecta', async () => {
+        const Whats = await import('../models/WhatsappBusiness.js');
+        await assinatura(1, null, { status: 'trial' });
+        await assinatura(2, 'pousada');
+        await Whats.conectar(1, dados('10000002', '20000003'));
+        await Whats.desconectar(1);
+        await Whats.conectar(1, dados('10000002', '20000003'));
+        await Whats.desconectar(1);
+        await Whats.conectar(2, dados('10000002', '20000004'));
+      });
+    });
+  });
 
   describe('reconciliação diária com o Stripe', () => {
     const assinaturaStripe = (id: string, customer: string, status: string) => ({

@@ -13,6 +13,7 @@
  */
 import { pool } from '../db/index.js';
 import { temAssinaturaViva } from '../utils/assinatura.js';
+import { hashEmail } from '../utils/crypto.js';
 
 /** Marcador gravado na coluna legada `cpf` da reserva quando o hóspede é anonimizado. */
 export const CPF_ANONIMIZADO = 'anonimizado';
@@ -72,6 +73,15 @@ export async function excluirConta(userId: string): Promise<void> {
   const cliente = await pool.connect();
   try {
     await cliente.query('BEGIN');
+    // O usuário vira anônimo logo abaixo: sem isto, recadastrar o mesmo e-mail
+    // renovaria o trial.
+    const { rows: [usuario] } = await cliente.query(`SELECT email, trial_usado_em FROM "user" WHERE id = $1`, [userId]);
+    if (usuario?.trial_usado_em) {
+      await cliente.query(
+        `INSERT INTO trial_emails_usados (email_hash, usado_em) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [hashEmail(usuario.email), usuario.trial_usado_em],
+      );
+    }
     await cliente.query(`DELETE FROM session WHERE user_id = $1`, [userId]);
     await cliente.query(`DELETE FROM account WHERE user_id = $1`, [userId]);
     await cliente.query(`DELETE FROM user_pousadas WHERE user_id = $1`, [userId]);
