@@ -109,6 +109,7 @@ jobs:
           NEXT_PUBLIC_ENCARREGADO_NOME: ${{ vars.NEXT_PUBLIC_ENCARREGADO_NOME }}
           NEXT_PUBLIC_GA_ID: ${{ vars.NEXT_PUBLIC_GA_ID }}
           NEXT_PUBLIC_META_PIXEL_ID: ${{ vars.NEXT_PUBLIC_META_PIXEL_ID }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ vars.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
         run: |
           export IMAGE_TAG="${GITHUB_SHA::12}"
           docker compose build

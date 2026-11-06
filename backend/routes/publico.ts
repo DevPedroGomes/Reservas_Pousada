@@ -4,9 +4,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import AuditoriaModel from '../models/Auditoria.js';
 import {
-  disponibilidade, emailsDaPousada, lerPedido, PedidoRecusado, pousadaPublica, quartosPublicos, solicitarReserva, validarEstadia,
+  disponibilidade, emailsDaPousada, lerPedido, PedidoRecusado, podeEnviarRecibo, pousadaPublica, quartosPublicos, solicitarReserva, validarEstadia,
 } from '../models/Motor.js';
 import { enviarPedidoParaPousada, enviarPedidoRecebido } from '../lib/email.js';
+import { verificarTurnstile } from '../lib/turnstile.js';
 import { cobrancaPublica, gerarCobranca, situacaoPix } from '../models/Pix.js';
 import { enviarFicha, PrecheckinRecusado, resumoPublico } from '../models/Precheckin.js';
 import { criarLimitador } from '../utils/limitadores.js';
@@ -103,6 +104,9 @@ router.post('/:slug/reservas', pedidoLimiter, async (req: Request, res: Response
   try {
     // Campo isca: invisível para gente, preenchido por robô.
     if (req.body?.site) return res.status(400).json({ sucesso: false, mensagem: 'Pedido inválido' });
+    if (!(await verificarTurnstile(req.body?.turnstile_token, req.ip))) {
+      return res.status(400).json({ sucesso: false, mensagem: 'Não foi possível confirmar que você não é um robô. Tente de novo.' });
+    }
     const p = await pousadaPublica(param(req, 'slug'));
     if (!p) return res.status(404).json({ sucesso: false, mensagem: 'Página de reservas não encontrada' });
     const { pedido, erros } = lerPedido(req.body ?? {});
@@ -124,7 +128,12 @@ router.post('/:slug/reservas', pedidoLimiter, async (req: Request, res: Response
     };
     // Avisos não seguram a resposta (a fila tenta de novo se o provedor falhar).
     void emailsDaPousada(p.id).then((emails) => enviarPedidoParaPousada(emails, dados)).catch((e) => console.error('[Motor] aviso à pousada:', e));
-    if (pedido.email) void enviarPedidoRecebido(pedido.email, dados).catch((e) => console.error('[Motor] recibo ao hóspede:', e));
+    if (pedido.email) {
+      const para = pedido.email;
+      void podeEnviarRecibo(para)
+        .then((pode) => (pode ? enviarPedidoRecebido(para, dados) : undefined))
+        .catch((e) => console.error('[Motor] recibo ao hóspede:', e));
+    }
 
     // Sinal por Pix já no pedido, se a pousada configurou (chave ou gateway).
     let pix = null;

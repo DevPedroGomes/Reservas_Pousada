@@ -63,6 +63,7 @@ services:
       # mais forte, porque valida o formato e faz round-trip da cifra.
       CPF_ENCRYPTION_KEY: ${CPF_ENCRYPTION_KEY:-}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Sao_Paulo}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       META_PIXEL_ID: ${META_PIXEL_ID:-}
       META_CAPI_TOKEN: ${META_CAPI_TOKEN:-}
@@ -173,6 +174,7 @@ services:
         NEXT_PUBLIC_EMPRESA_FORO: ${NEXT_PUBLIC_EMPRESA_FORO:-}
         NEXT_PUBLIC_GA_ID: ${NEXT_PUBLIC_GA_ID:-}
         NEXT_PUBLIC_META_PIXEL_ID: ${NEXT_PUBLIC_META_PIXEL_ID:-}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: reservas-frontend
     restart: unless-stopped
     deploy:

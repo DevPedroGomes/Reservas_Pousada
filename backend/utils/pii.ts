@@ -45,6 +45,12 @@ export function mascararCpf(cpf: string | null | undefined): string {
   return `***.***.***-${digitos.slice(-2)}`;
 }
 
+/** Chave ou segredo mascarado: só os 4 últimos caracteres, para reconhecer na auditoria. */
+export function mascararSegredo(valor: string | null | undefined): string | null {
+  if (!valor) return null;
+  return valor.length <= 4 ? '****' : `****${valor.slice(-4)}`;
+}
+
 /**
  * Documento mascarado conforme o tipo: CPF como acima; passaporte e outros
  * mostram só os 3 últimos caracteres.

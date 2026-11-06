@@ -76,6 +76,19 @@ describe('Pix — adaptador Asaas', () => {
     assert.ok(asaas('$aact_prod_x', falso) && true);
   });
 
+  it('cancelar remove a cobrança no Asaas e valida o id', async () => {
+    const { asaas } = await import('../lib/gatewayPix.js');
+    const chamadas: string[] = [];
+    const falso = (async (url: string, init?: RequestInit) => {
+      chamadas.push(`${init?.method} ${new URL(url).pathname}`);
+      return new Response(JSON.stringify({ deleted: true }), { status: 200 });
+    }) as typeof fetch;
+    const g = asaas('$aact_hmlg_abc', falso);
+    await g.cancelarCobranca('pay_9');
+    assert.deepEqual(chamadas, ['DELETE /v3/payments/pay_9']);
+    await assert.rejects(g.cancelarCobranca('../admin'), /inválido/);
+  });
+
   it('sem CPF o Asaas não cobra', async () => {
     const { asaas } = await import('../lib/gatewayPix.js');
     await assert.rejects(

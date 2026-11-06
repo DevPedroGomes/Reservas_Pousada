@@ -9,14 +9,17 @@ import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
-import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
+import ContaReservaModel, { centavos, lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
-import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, valorSugerido } from '../models/Pix.js';
+import { encerrarCobrancas, gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, saldoDaReserva, valorSugerido } from '../models/Pix.js';
 import { fichaDaReserva, linkDaReserva } from '../models/Precheckin.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
+
+/** Status em que a reserva deixa de valer: as cobranças Pix abertas são anuladas. */
+const STATUS_ENCERRADOS = ['cancelada', 'no_show'];
 
 /**
  * Prefix CSV field with a leading apostrophe when the first char could trigger
@@ -379,9 +382,20 @@ router.post('/:id/pix', authorize(['admin', 'recepcao']), async (req: Request, r
     const reserva = await reservaDaRota(req, res);
     if (!reserva) return;
     const informado = req.body?.valor;
-    const valor = informado === undefined || informado === null || informado === ''
-      ? await valorSugerido(reserva.id, reserva.pousadaId)
-      : Math.round(Number(String(informado).replace(/\./g, '').replace(',', '.')) * 100);
+    let valor: number;
+    if (informado === undefined || informado === null || informado === '') {
+      valor = await valorSugerido(reserva.id, reserva.pousadaId);
+    } else {
+      valor = centavos(informado);
+      if (!Number.isFinite(valor) || valor <= 0) {
+        return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Valor do Pix inválido.' });
+      }
+      const saldo = await saldoDaReserva(reserva.id, reserva.pousadaId);
+      if (valor > saldo) {
+        const emReais = (saldo / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: `O valor passa do saldo da reserva (${emReais}).` });
+      }
+    }
     const cobranca = await gerarCobranca(reserva.pousadaId, reserva.id, valor, { userId: req.user!.id });
     AuditoriaModel.log(req.user!.id, 'gerar_pix', 'reserva', reserva.id, { valorCentavos: valor, provedor: cobranca.provedor }, req.ip || null).catch(() => {});
     res.status(201).json({ sucesso: true, cobranca });
@@ -397,7 +411,11 @@ router.post('/:id/pix/:cobrancaId/recebida', authorize(['admin', 'recepcao']), a
     const reserva = await reservaDaRota(req, res);
     if (!reserva) return;
     const r = await marcarRecebida(reserva.pousadaId, reserva.id, Number(param(req, 'cobrancaId')), req.user!.id);
-    res.json({ sucesso: true, confirmou: r.confirmou, mensagem: r.confirmou ? 'Pix recebido e reserva confirmada.' : 'Pix recebido.' });
+    const mensagem = r.estornar
+      ? 'Pix registrado, mas a reserva está encerrada e não pôde voltar: estorne o valor ao hóspede.'
+      : r.reativou ? 'Pix recebido e reserva reativada.'
+      : r.confirmou ? 'Pix recebido e reserva confirmada.' : 'Pix recebido.';
+    res.json({ sucesso: true, confirmou: r.confirmou, reativou: r.reativou, estornoPendente: r.estornar, mensagem });
   } catch (err) {
     if (err instanceof PixIndisponivel) return res.status(err.status).json({ sucesso: false, mensagem: err.message });
     next(new AppError('Erro ao baixar o Pix', 500, 'PIX_003'));
@@ -682,6 +700,10 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    if (statusNovo !== reservaAntes.status && STATUS_ENCERRADOS.includes(statusNovo)) {
+      await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
+    }
+
     res.json({
       sucesso: true,
       mensagem: 'Reserva atualizada com sucesso',
@@ -743,7 +765,10 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
     const recusa = recusaDeTransicao(reservaAntes, status, documentoValido(reservaAntes.documento));
     if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
 
-    const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
+    const version = Number(req.body.version);
+    if (req.body.version === undefined || req.body.version === null || !Number.isInteger(version)) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_010', mensagem: 'Informe a versão da reserva (version). Recarregue a página e tente novamente.' });
+    }
     const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!, version, {
       motivo: typeof req.body.motivo === 'string' ? sanitizarString(req.body.motivo, 300) || null : null,
       expiraEm: status === 'pre_reserva' ? prazoDaPreReserva(req.body.prazo_horas) : null,
@@ -752,6 +777,8 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
+
+    if (STATUS_ENCERRADOS.includes(status)) await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
 
     res.json({
       sucesso: true,
@@ -809,6 +836,8 @@ router.delete('/:id', authorize(['admin']), async (req: Request, res: Response, 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
+
+    await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
 
     res.json({
       sucesso: true,

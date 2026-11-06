@@ -120,6 +120,9 @@ export const hospedes = pgTable('hospedes', {
   dataNascimento: date('data_nascimento'),
   observacoes: text('observacoes'),
   anonimizadoEm: timestamp('anonimizado_em', { withTimezone: true }),
+  // Pedido público que usou o documento de outro cadastro (migration 032).
+  revisaoMotivo: text('revisao_motivo'),
+  revisaoHospedeId: integer('revisao_hospede_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -138,6 +141,15 @@ export const reservas = pgTable('reservas', {
   // Reserva que veio do calendário de uma OTA (migration 021).
   icalImportacaoId: integer('ical_importacao_id'),
   icalUid: text('ical_uid'),
+  // Sincronizações seguidas em que o evento faltou no feed (migration 030).
+  icalAusencias: integer('ical_ausencias').notNull().default(0),
+  // Data fechada na OTA, não hóspede (migration 030).
+  icalBloqueio: boolean('ical_bloqueio').notNull().default(false),
+  // Cancelamento manual: a sincronização não reativa (migration 030).
+  canceladaManualmente: boolean('cancelada_manualmente').notNull().default(false),
+  // Confirmada que passou da saída sem check-in (migration 034).
+  revisaoEm: timestamp('revisao_em', { withTimezone: true }),
+  revisaoMotivo: text('revisao_motivo'),
   // Lembrete de chegada pelo WhatsApp (migration 023).
   lembreteEnviadoEm: timestamp('lembrete_enviado_em', { withTimezone: true }),
   // Link secreto do pré-check-in (migration 024).
@@ -194,6 +206,8 @@ export const icalImportacoes = pgTable('ical_importacoes', {
   url: text('url').notNull(),
   ativo: boolean('ativo').notNull().default(true),
   ultimaSincronizacao: timestamp('ultima_sincronizacao', { withTimezone: true }),
+  // Gravada antes de buscar o feed (migration 030).
+  ultimaTentativa: timestamp('ultima_tentativa', { withTimezone: true }),
   ultimoErro: text('ultimo_erro'),
   eventos: integer('eventos'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

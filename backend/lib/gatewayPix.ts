@@ -45,6 +45,8 @@ export interface GatewayPix {
     expiraEm: Date;
   }): Promise<CobrancaCriada>;
   consultar(id: string): Promise<SituacaoCobranca>;
+  /** Anula a cobrança: o código deixa de aceitar pagamento. */
+  cancelarCobranca(id: string): Promise<void>;
   /** Registra na conta da pousada o endereço que recebe os avisos. */
   registrarWebhook(dados: { url: string; tokenAutenticacao: string; email: string }): Promise<void>;
 }
@@ -112,6 +114,10 @@ export function asaas(chaveApi: string, fetchImpl: Fetch = fetch): GatewayPix {
         valorCentavos: Math.round(Number(j.value ?? 0) * 100),
         referencia: j.externalReference ?? null,
       };
+    },
+    async cancelarCobranca(id) {
+      if (!/^pay_[A-Za-z0-9]{1,60}$/.test(id)) throw new GatewayRecusou('id de cobrança inválido');
+      await chamar(`/payments/${id}`, { method: 'DELETE' });
     },
     async registrarWebhook({ url, tokenAutenticacao, email }) {
       await chamar('/webhooks', {

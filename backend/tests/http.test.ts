@@ -298,7 +298,8 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       // pré-reserva não faz check-in direto
       assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'hospedada' })).status, 409);
       for (const status of ['confirmada', 'hospedada', 'finalizada']) {
-        const t = await recep.req('PATCH', `/api/reservas/${id}/status`, { status });
+        const { version } = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+        const t = await recep.req('PATCH', `/api/reservas/${id}/status`, { status, version });
         assert.equal(t.status, 200, `${status}: ${JSON.stringify(t.json)}`);
       }
       const det = await donoA.req('GET', `/api/reservas/${id}`);
@@ -313,7 +314,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
     it('cancelamento guarda o motivo e libera o quarto', async () => {
       const r = await recep.req('POST', '/api/reservas', { nome: 'Vai cancelar', cpf: CPF, quarto: 7, data_entrada: d(70), data_saida: d(72) });
-      const c = await recep.req('PATCH', `/api/reservas/${r.json.reserva.id}/status`, { status: 'cancelada', motivo: 'Hóspede desistiu' });
+      const c = await recep.req('PATCH', `/api/reservas/${r.json.reserva.id}/status`, { status: 'cancelada', motivo: 'Hóspede desistiu', version: r.json.reserva.version });
       assert.equal(c.status, 200);
       const det = await donoA.req('GET', `/api/reservas/${r.json.reserva.id}`);
       assert.equal(det.json.reserva.motivoCancelamento, 'Hóspede desistiu');
@@ -642,7 +643,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
       // Na OTA: "a" mudou de data, "b" foi cancelada.
       const r2 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
-      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas], [0, 1, 1]);
+      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas, r2.ausentes], [0, 1, 0, 1]);
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      const r2c = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.equal(r2c.canceladas, 1, 'só na terceira leitura seguida sem o evento');
       const { rows: depois } = await pool.query(
         `SELECT ical_uid, status, data_entrada::text AS ini, motivo_cancelamento FROM reservas WHERE ical_importacao_id = $1 ORDER BY ical_uid`, [imp.id]);
       assert.equal(depois[0].ini, d(151));
@@ -845,6 +849,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
           return { id: 'pay_abc123', copiaECola: `00020101021226-asaas-${d.referencia}`, expiraEm: d.expiraEm };
         },
         async consultar(idPg) { consultas.push(idPg); return { status: situacao, valorCentavos: 25000, referencia: null }; },
+        async cancelarCobranca() {},
         async registrarWebhook(w) { webhooks.push(w); },
       }));
       try {
@@ -968,7 +973,8 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
 
     it('reserva cancelada encerra o pré-check-in', async () => {
-      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'teste' })).status, 200);
+      const { version } = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'teste', version })).status, 200);
       const anon = new Cliente(base, '198.51.100.223');
       assert.equal((await anon.req('POST', `/api/publico/checkin/${token}`, ficha())).status, 409);
       assert.equal((await anon.req('GET', `/api/publico/checkin/${token}`)).json.reserva.aberto, false);

@@ -410,6 +410,9 @@ function PixDaPousada() {
       <CardContent>
         <form onSubmit={(e) => void salvar(e)} className="space-y-4">
           <Aviso m={msg} />
+          {!auth.user?.is_owner && (
+            <p className="text-sm text-muted-foreground">Só o proprietário pode alterar a chave Pix e a conta Asaas.</p>
+          )}
           <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
             <div className="space-y-1.5">
               <Label htmlFor="pix-tipo">Tipo de chave</Label>

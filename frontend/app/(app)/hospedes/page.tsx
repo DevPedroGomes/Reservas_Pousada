@@ -101,6 +101,9 @@ export default function Hospedes() {
                   <TableRow key={h.id}>
                     <TableCell>
                       <Link href={`/hospedes/${h.id}`} className="font-medium hover:underline">{h.nome}</Link>
+                      {h.revisao_motivo && (
+                        <span title={h.revisao_motivo} className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">conferir cadastro</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {zap ? <a href={zap} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline">{formatarTelefone(h.telefone)}</a> : "-"}

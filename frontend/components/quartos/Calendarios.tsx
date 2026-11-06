@@ -82,7 +82,7 @@ export function Calendarios() {
     const d = await r.json()
     setOcupado(false)
     setMensagem(d.sucesso
-      ? { type: "success", text: `${i.nome}: ${d.resumo.criadas} nova(s), ${d.resumo.atualizadas} alterada(s), ${d.resumo.canceladas} cancelada(s).` }
+      ? { type: "success", text: `${i.nome}: ${d.resumo.criadas} nova(s), ${d.resumo.atualizadas} alterada(s), ${d.resumo.canceladas} cancelada(s).${d.resumo.aviso ? ` ${d.resumo.aviso}` : ""}` }
       : { type: "error", text: d.mensagem })
     await carregar()
   }

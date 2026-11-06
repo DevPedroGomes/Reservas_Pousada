@@ -88,6 +88,7 @@ export interface ItemAgenda {
   pago_centavos?: number
   consumos_centavos?: number
   precheckin_em?: string | null
+  version?: number
 }
 
 export interface Agenda {
@@ -96,6 +97,8 @@ export interface Agenda {
   saidas: ItemAgenda[]
   hospedados: ItemAgenda[]
   proximas: ItemAgenda[]
+  /** Confirmadas com a saída vencida e sem check-in. */
+  em_revisao: ItemAgenda[]
 }
 
 export interface UserPousada {
@@ -166,6 +169,8 @@ export interface Hospede {
   data_nascimento: string
   observacoes: string
   anonimizado: boolean
+  /** Pedido público usou o documento de outro cadastro: conferir. */
+  revisao_motivo?: string | null
   /** Só na listagem. */
   estadias?: number
   ultima_estadia?: string | null
