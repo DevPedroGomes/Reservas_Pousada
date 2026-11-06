@@ -30,6 +30,7 @@ import { criarLimitador } from './utils/limitadores.js';
 import { origensPermitidas } from './utils/origens.js';
 import { requerAssinaturaAtiva } from './middleware/assinatura.js';
 import { requestId } from './lib/observabilidade.js';
+import { exigirOrigemConfiavel } from './middleware/origemConfiavel.js';
 
 /**
  * Montagem do app Express — sem efeitos colaterais de boot (sem listen, sem
@@ -156,6 +157,12 @@ const signupLimiter = criarLimitador('cadastro', {
 app.use('/api/auth/sign-up/email', signupLimiter);
 
 // ==========================================
+// Origem das escritas com cookie (CSRF)
+// ==========================================
+// Antes do better-auth e de toda rota. Ver middleware/origemConfiavel.ts.
+app.use(exigirOrigemConfiavel);
+
+// ==========================================
 // Session Invalidation on Sensitive Auth Changes
 // ==========================================
 // Better Auth does not expose a clean afterUpdate hook for change-password /
@@ -219,7 +226,13 @@ app.use('/api/webhooks/whatsapp', webhookWhatsappRoutes);
 // Importação de planilha manda até 2.000 linhas: limite próprio, antes do geral.
 app.use('/api/reservas/importar', express.json({ limit: '3mb' }));
 app.use(express.json({ limit: '256kb' }));
-app.use(express.urlencoded({ extended: true, limit: '256kb' }));
+// Só JSON. Formulário HTML é a única forma de um site alheio mandar corpo sem
+// preflight de CORS, e nenhuma rota precisa dele. Corpo de outro tipo chega
+// vazio à rota e cai na validação dela, em vez de estourar como 500.
+app.use((req, _res, next) => {
+  req.body ??= {};
+  next();
+});
 
 // ==========================================
 // Activity Logger

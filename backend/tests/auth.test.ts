@@ -1,6 +1,6 @@
 /**
- * Esqueci a senha de ponta a ponta e proteção contra envio em massa, pela API
- * de verdade.
+ * Esqueci a senha de ponta a ponta, proteção contra envio em massa e CSRF de
+ * subdomínio irmão, pela API de verdade.
  *
  * O link de redefinição é lido do log que o envio de e-mail escreve fora de
  * produção. O cliente é o mesmo `createAuthClient` que o frontend usa: é ele
@@ -48,7 +48,7 @@ class Navegador {
   }
 }
 
-describe('auth — esqueci a senha e limites', { skip: !temBanco && 'DATABASE_URL não definida' }, () => {
+describe('auth — esqueci a senha, limites e origem', { skip: !temBanco && 'DATABASE_URL não definida' }, () => {
   let descartar: () => Promise<void>;
   let fechar: () => Promise<void>;
   let pool: import('pg').Pool;
@@ -181,6 +181,55 @@ describe('auth — esqueci a senha e limites', { skip: !temBanco && 'DATABASE_UR
       const r = await a.req('POST', '/api/auth/change-password', { currentPassword: SENHA, newPassword: SENHA_NOVA, revokeOtherSessions: true });
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.equal((await b.req('GET', '/api/conta/exportar')).status, 401);
+    });
+  });
+
+  describe('origem nas escritas com cookie', () => {
+    const CAMINHO = '/api/pousadas';
+
+    it('subdomínio irmão com o cookie da sessão é recusado antes da rota', async () => {
+      const email = 'csrf@teste.com';
+      await contaConfirmada(email);
+      const dono = await entrar(email);
+      const irmao = new Navegador(base, dono.ip, 'https://evil.pgdev.com.br');
+      irmao.cookies = dono.cookies;
+      for (const metodo of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+        const r = await irmao.req(metodo, CAMINHO);
+        assert.equal(r.status, 403, metodo);
+        assert.equal(r.json.codigo, 'ORIGEM_RECUSADA');
+      }
+      const semOrigem = new Navegador(base, dono.ip, null);
+      semOrigem.cookies = dono.cookies;
+      assert.equal((await semOrigem.req('POST', CAMINHO)).status, 403);
+      const nula = new Navegador(base, dono.ip, 'null');
+      nula.cookies = dono.cookies;
+      assert.equal((await nula.req('POST', CAMINHO)).status, 403);
+
+      // A origem do app passa; quem responde já é a rota (corpo vazio = 400).
+      assert.equal((await dono.req('POST', CAMINHO)).status, 400);
+      // Leitura com cookie não é barrada: a origem só importa na escrita.
+      assert.equal((await semOrigem.req('GET', '/api/conta/exportar')).status, 200);
+    });
+
+    it('sem cookie o cheque não se aplica (motor de reservas, telemetria)', async () => {
+      const anon = new Navegador(base, proximoIp(), 'https://site-da-pousada.example');
+      assert.notEqual((await anon.req('POST', '/api/telemetria/erro', { mensagem: 'x' })).status, 403);
+    });
+
+    it('webhook fica de fora mesmo com cookie e sem origem', async () => {
+      const w = new Navegador(base, proximoIp(), null);
+      w.cookies.set('qualquer', '1');
+      assert.notEqual((await w.req('POST', '/api/webhooks/pix/asaas/token-inexistente', { event: 'x' })).status, 403);
+    });
+
+    it('formulário não é mais interpretado', async () => {
+      const email = 'form@teste.com';
+      await contaConfirmada(email);
+      const dono = await entrar(email);
+      const r = await dono.req('POST', '/api/pousadas', 'nome=Forjada&num_quartos=3', { 'Content-Type': 'application/x-www-form-urlencoded' });
+      assert.equal(r.status, 400, JSON.stringify(r.json));
+      const { rows } = await pool.query(`SELECT count(*)::int AS n FROM pousadas WHERE nome = 'Forjada'`);
+      assert.equal(rows[0].n, 0);
     });
   });
 });
