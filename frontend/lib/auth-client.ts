@@ -102,7 +102,7 @@ export async function getCurrentSession() {
  * Request password reset email
  */
 export async function requestPasswordReset(email: string) {
-  return (authClient as any).forgetPassword({
+  return authClient.requestPasswordReset({
     email,
     redirectTo: `${APP_URL}/reset-password`,
   });

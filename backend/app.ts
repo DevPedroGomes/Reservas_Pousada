@@ -115,9 +115,28 @@ app.use(
   [
     '/api/auth/sign-in/email',
     '/api/auth/sign-in',
-    '/api/auth/forget-password',
+    '/api/auth/reset-password',
   ],
   authLimiter,
+);
+
+// Pedidos que disparam e-mail têm limitador PRÓPRIO, sem `skipSuccessfulRequests`.
+//
+// O better-auth responde 200 a todo pedido de redefinição (para não revelar se
+// o e-mail existe), então "só conta o que falhou" nunca contaria nada: qualquer
+// um poderia encher a caixa de qualquer pessoa. Aqui todo envio conta.
+const envioDeEmailLimiter = criarLimitador('envio-email', {
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5,
+  keyGenerator: (req) => chaveDeRateLimit(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Muitos pedidos de e-mail. Tente novamente em 1 hora.' },
+});
+
+app.use(
+  ['/api/auth/request-password-reset', '/api/auth/send-verification-email'],
+  envioDeEmailLimiter,
 );
 
 // Cadastro tem limitador PRÓPRIO, sem `skipSuccessfulRequests`.
@@ -143,9 +162,14 @@ app.use('/api/auth/sign-up/email', signupLimiter);
 // change-email at this version; intercept the response and, on 2xx, evict
 // every session for the user EXCEPT the current one. This forces other
 // devices to re-authenticate after credential changes.
+//
+// Na redefinição por token quem revoga é o `revokeSessionsOnPasswordReset`
+// (lib/auth.ts), que sabe de qual conta é o token; aqui a sessão lida é a do
+// navegador que abriu o link.
 const SENSITIVE_AUTH_PATHS = new Set([
   '/api/auth/change-password',
   '/api/auth/change-email',
+  '/api/auth/reset-password',
 ]);
 
 app.use((req, res, next) => {
