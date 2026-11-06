@@ -19,7 +19,7 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 - **Pix for the deposit**: BR Code "copia e cola" + QR built from the inn's own Pix key (manual "Recebi o Pix"), or automatic confirmation through the inn's own **Asaas** account (key stored encrypted, webhook registered via API, authenticated by header and re-checked against the Asaas API). Gateways sit behind `lib/gatewayPix.ts` (`GatewayPix`), so Pagar.me & co. plug in without touching the rest. Webhook URLs use `API_PUBLIC_URL` (falls back to `BETTER_AUTH_URL`).
 - **Online pre-check-in (FNRH fields)**: each reservation gets a secret link `/checkin/<token>`; the guest fills in their registration card and companions' before arriving. The card is stored AES-encrypted, completes the guest record (document → check-in allowed), shows "ficha ✓" in the agenda, can be viewed/printed by the front desk, closes on check-in/cancellation, and is deleted by the retention job.
 - **WhatsApp**: ready messages (confirmation, deposit request, arrival instructions, thank-you) that open the inn's own WhatsApp via `wa.me` with the text filled in — editable per inn with `{variables}`, available on the reservation page and in the daily agenda (no API, no cost). A daily job sends the arrival reminder the day before (for inns that opt in) through the inn's own connected number, or through an optional platform number (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_MODELO_LEMBRETE`, `WHATSAPP_IDIOMA`), using the template `lembrete_chegada` with body variables `{{1}}` guest first name, `{{2}}` inn, `{{3}}` arrival date (dd/mm), `{{4}}` room; guests who replied "parar" are skipped.
-- **WhatsApp Business per inn + virtual attendant**: each inn connects its own number from Settings via Meta's Embedded Signup (we are the Tech Provider; coexistence with the WhatsApp Business phone app supported). Token stored AES-encrypted; one signed webhook (`/api/webhooks/whatsapp`, `X-Hub-Signature-256` over the raw body) routes events by `phone_number_id` into a pg-boss queue; default utility templates are created on connect. Conversations page `/whatsapp` for the front desk (reply within the 24h window, hand back to the agent). Optional LLM attendant (`AGENTE_*`, Anthropic or any OpenAI-compatible API) with server-side tools (inn info, real availability and tariff prices, pre-reservation with Pix, the sender's own reservations, call a human); it never confirms payments, cancels or changes bookings. Human handoff by keyword, by tool, on media messages, on model failure or after the per-inn daily cap, with an e-mail to the inn; "parar"/"voltar" opt-out; staff replies (panel or phone echo) pause the agent for 12h; messages encrypted and purged after 90 days. Meta setup checklist in [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md).
+- **WhatsApp Business per inn + virtual attendant**: each inn connects its own number from Settings via Meta's Embedded Signup (coexistence with the WhatsApp Business phone app supported). Token stored AES-encrypted; one signed webhook (`/api/webhooks/whatsapp`, `X-Hub-Signature-256` over the raw body) routes events by `phone_number_id` into a pg-boss queue; default utility templates are created on connect. Conversations page `/whatsapp` for the front desk (reply within the 24h window, hand back to the agent). Optional LLM attendant (`AGENTE_*`, Anthropic or any OpenAI-compatible API) with server-side tools (inn info, real availability and tariff prices, pre-reservation with Pix, the sender's own reservations, call a human); it never confirms payments, cancels or changes bookings. Human handoff by keyword, by tool, on media messages, on model failure or after the per-inn daily cap, with an e-mail to the inn; "parar"/"voltar" opt-out; staff replies (panel or phone echo) pause the agent for 12h; messages encrypted and purged after 90 days. Meta setup checklist in [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md).
 - Team roles (owner/admin, front desk, auditor), multi-property (Rede plan), Stripe billing, LGPD tooling (export, deletion, retention).
 
 ## Overview
@@ -505,16 +505,11 @@ GET    /health                                also checks Postgres; 503 when unr
 
 ## Planned work
 
-- [`docs/plano-de-correcao.md`](docs/plano-de-correcao.md) — the fix/evolution
-  plan from the Oct/2026 audit (Phase 0 done; Phase 1: rooms, availability map,
-  guests, payments, status cycle, rates, iCal, reports, import; Phase 2: booking
-  engine, Pix, WhatsApp, online pre-check-in, PWA, WhatsApp Business per inn with
-  virtual attendant).
 - [`docs/deploy-producao.md`](docs/deploy-producao.md) — production go-live runbook:
   VPS secrets, Resend, GitHub Variables for the `NEXT_PUBLIC_*` build args, backup,
   monitoring, Google OAuth, Stripe, GA4/Meta, WhatsApp, smoke test.
-- [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md) — what to set up at Meta (Tech
-  Provider, Embedded Signup configuration, webhook, App Review) and the env vars.
+- [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md) — what to set up at Meta (business
+  verification, Embedded Signup configuration, webhook, App Review) and the env vars.
 
 Design decisions recorded before implementation, so the reasoning survives the
 conversation that produced it:

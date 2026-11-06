@@ -2,7 +2,7 @@
  * Cliente da Cloud API do WhatsApp (Graph API da Meta) para a conta de UMA
  * pousada — cada chamada leva o token daquela conta.
  *
- * App da Meta (Diária, como Tech Provider):
+ * App da Meta (Diária):
  *   META_APP_ID, META_APP_SECRET   app do tipo Business com o produto WhatsApp
  *   META_CONFIG_ID                 configuração do Embedded Signup (Login for Business)
  *   WHATSAPP_WEBHOOK_VERIFY_TOKEN  token que a Meta manda ao validar o webhook
