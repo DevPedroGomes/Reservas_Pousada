@@ -377,4 +377,127 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       }
     });
   });
+
+  // -------------------------------------------------------------------------
+  describe('canais públicos e o cadastro de hóspede', () => {
+    const SLUG = 'pousada-dominio';
+    const CPF_VITIMA = '39053344705';
+    const visitante = () => new Cliente(base, `203.0.113.${ipSeq++}`);
+    let dia = 200;
+    const pedido = (extra: Record<string, unknown> = {}) => {
+      dia += 3;
+      return { quarto: 1, entrada: d(dia), saida: d(dia + 1), adultos: 1, criancas: 0, nome: 'Atacante Silva', telefone: '48991110000', aceite: true, ...extra };
+    };
+    const hospedePorDoc = async (doc: string) => {
+      const { hashDocumento } = await import('../utils/crypto.js');
+      return (await pool.query(`SELECT * FROM hospedes WHERE pousada_id = $1 AND documento_hash = $2`, [pousada, hashDocumento('cpf', doc)])).rows[0];
+    };
+
+    before(async () => {
+      await pool.query(`UPDATE quartos SET preco_base_centavos = 20000, capacidade = 4 WHERE pousada_id = $1`, [pousada]);
+      const r = await dono.req('PUT', `/api/pousadas/${pousada}/motor`, { ativo: true, prazo_horas: 12, sinal_percentual: 0, slug: SLUG });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+    });
+
+    it('pedido com CPF de outra pessoa não troca nome, telefone nem e-mail dela', async () => {
+      const vitima = await recep.req('POST', '/api/reservas', {
+        nome: 'Vitima Original', cpf: CPF_VITIMA, telefone: '48992220000', email: 'vitima@example.com', quarto: novoQuarto(), data_entrada: d(40), data_saida: d(42),
+      });
+      assert.equal(vitima.status, 201, JSON.stringify(vitima.json));
+      const r = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ documento: CPF_VITIMA, email: 'atacante@example.com' }));
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+
+      const h = await hospedePorDoc(CPF_VITIMA);
+      assert.deepEqual([h.nome, h.telefone, h.email], ['Vitima Original', '5548992220000', 'vitima@example.com']);
+      const { rows: [nomeDaVitima] } = await pool.query(`SELECT nome FROM reservas WHERE id = $1`, [vitima.json.reserva.id]);
+      assert.equal(nomeDaVitima.nome, 'Vitima Original');
+
+      const { rows: [reserva] } = await pool.query(
+        `SELECT r.nome, r.observacoes, h.id AS hospede, h.telefone, h.documento_hash, h.revisao_motivo, h.revisao_hospede_id
+           FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [r.json.pedido.id]);
+      assert.notEqual(reserva.hospede, h.id, 'cadastro separado');
+      assert.equal(reserva.documento_hash, null, 'o documento continua só no cadastro de quem é dono dele');
+      assert.equal(reserva.telefone, '5548991110000');
+      assert.equal(reserva.revisao_hospede_id, h.id);
+      assert.match(reserva.revisao_motivo, /documento/i);
+      assert.match(reserva.observacoes, /confira/i, 'a recepção vê o alerta na reserva');
+    });
+
+    it('atendente virtual: minhas_reservas não devolve as reservas da vítima a quem usou o CPF dela', async () => {
+      const { usarModeloDeTeste } = await import('../lib/llm.js');
+      const { responder } = await import('../models/Agente.js');
+      const contato = '5548993330000';
+      const ctx = { pousadaId: pousada, conversaId: 0, contato, nomeContato: null };
+      let resultado: unknown;
+      const passos = [
+        { texto: '', chamadas: [{ id: '1', nome: 'criar_pre_reserva', argumentos: { quarto: 2, entrada: d(230), saida: d(231), adultos: 1, nome_completo: 'Golpista Pereira', cpf: CPF_VITIMA } }] },
+        { texto: 'ok', chamadas: [] },
+        { texto: '', chamadas: [{ id: '2', nome: 'minhas_reservas', argumentos: {} }] },
+        { texto: 'fim', chamadas: [] },
+      ];
+      usarModeloDeTeste({
+        async responder(_s, mensagens) {
+          const ultima = mensagens.at(-1);
+          if (ultima?.papel === 'ferramenta' && ultima.nome === 'minhas_reservas') resultado = JSON.parse(ultima.resultado);
+          return passos.shift()!;
+        },
+      });
+      try {
+        await responder(ctx, [{ papel: 'usuario', texto: 'reserva' }]);
+        await responder(ctx, [{ papel: 'usuario', texto: 'minhas reservas' }]);
+      } finally {
+        usarModeloDeTeste(null);
+      }
+      const reservas = resultado as { entrada: string }[];
+      assert.equal(reservas.length, 1, JSON.stringify(reservas));
+      assert.equal(reservas[0].entrada, d(230));
+    });
+
+    it('mesmo contato preenche só os campos vazios, sem trocar o nome', async () => {
+      const cpf = '11144477735';
+      await recep.req('POST', '/api/reservas', { nome: 'Dona Cadastrada', cpf, telefone: '48994440000', quarto: novoQuarto(), data_entrada: d(40), data_saida: d(42) });
+      const r = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ documento: cpf, nome: 'Outro Nome', telefone: '48994440000', email: 'nova@example.com' }));
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      const h = await hospedePorDoc(cpf);
+      assert.deepEqual([h.nome, h.telefone, h.email, h.revisao_motivo], ['Dona Cadastrada', '5548994440000', 'nova@example.com', null]);
+      const { rows: [res] } = await pool.query(`SELECT hospede_id, nome FROM reservas WHERE id = $1`, [r.json.pedido.id]);
+      assert.deepEqual([res.hospede_id, res.nome], [h.id, 'Dona Cadastrada']);
+    });
+
+    it('cadastro sem telefone só ganha o telefone se o nome bater', async () => {
+      const cpf = '52998224725';
+      await pool.query(`INSERT INTO hospedes (pousada_id, nome, tipo_documento, documento, documento_hash)
+        SELECT $1, 'Sem Telefone', 'cpf', 'cifrado', $2`, [pousada, (await import('../utils/crypto.js')).hashDocumento('cpf', cpf)]);
+      const fora = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ documento: cpf, nome: 'Nome Diferente', telefone: '48995550000' }));
+      assert.equal(fora.status, 201, JSON.stringify(fora.json));
+      assert.equal((await hospedePorDoc(cpf)).telefone, null, 'telefone daria acesso às reservas pelo WhatsApp');
+      const dentro = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ documento: cpf, nome: 'Sem Telefone', telefone: '48995551111' }));
+      assert.equal(dentro.status, 201, JSON.stringify(dentro.json));
+      assert.equal((await hospedePorDoc(cpf)).telefone, '5548995551111');
+    });
+
+    it('sem documento, mesmo nome e telefone não sobrescreve o e-mail', async () => {
+      const a = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ nome: 'Clara Repetida', telefone: '48996660000', email: 'clara@example.com' }));
+      const b = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ nome: 'clara repetida', telefone: '48996660000', email: 'outra@example.com' }));
+      assert.equal(b.status, 201, JSON.stringify(b.json));
+      const { rows } = await pool.query(
+        `SELECT h.id, h.nome, h.email FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = ANY($1::int[])`, [[a.json.pedido.id, b.json.pedido.id]]);
+      assert.equal(rows[0].id, rows[1].id);
+      assert.deepEqual([rows[0].nome, rows[0].email], ['Clara Repetida', 'clara@example.com']);
+    });
+
+    it('a equipe continua podendo corrigir o contato pelo documento', async () => {
+      const cpf = '15350946056';
+      await recep.req('POST', '/api/reservas', { nome: 'Corrigida', cpf, telefone: '48997770000', quarto: novoQuarto(), data_entrada: d(40), data_saida: d(42) });
+      await recep.req('POST', '/api/reservas', { nome: 'Corrigida Nome', cpf, telefone: '48997771111', quarto: novoQuarto(), data_entrada: d(50), data_saida: d(52) });
+      const h = await hospedePorDoc(cpf);
+      assert.deepEqual([h.nome, h.telefone], ['Corrigida Nome', '5548997771111']);
+    });
+
+    it('a API de hóspedes mostra o cadastro em revisão à recepção', async () => {
+      const r = await recep.req('GET', `/api/hospedes?busca=${encodeURIComponent('Atacante Silva')}`);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.match(r.json.hospedes[0].revisaoMotivo, /documento/i);
+    });
+  });
 });

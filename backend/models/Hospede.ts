@@ -144,6 +144,39 @@ function ehUnicidade(err: unknown): boolean {
   return e?.code === PG_UNIQUE_VIOLATION || e?.cause?.code === PG_UNIQUE_VIOLATION;
 }
 
+const MOTIVO_DOCUMENTO_DE_OUTRO = 'Documento informado no pedido já pertence a outro cadastro, com outro contato. Confira antes de confirmar.';
+
+const mesmoNome = (a?: string | null, b?: string | null) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
+
+/**
+ * O contato do pedido público é de outra pessoa? O telefone é o que dá acesso
+ * às reservas pelo WhatsApp: cadastro sem telefone só o recebe com o mesmo nome.
+ */
+function contatoDiverge(atual: Hospede, d: DadosHospede): boolean {
+  if (atual.telefone && d.telefone) return atual.telefone !== d.telefone;
+  if (d.telefone) return !mesmoNome(atual.nome, d.nome);
+  if (atual.email && d.email) return atual.email.toLowerCase() !== d.email.toLowerCase();
+  return false;
+}
+
+/** Só o que o cadastro ainda não tem. Nome e documento nunca entram. */
+function camposVazios(atual: Hospede, d: DadosHospede): DadosHospede {
+  const novos: DadosHospede = {};
+  if (!atual.telefone && d.telefone) novos.telefone = d.telefone;
+  if (!atual.email && d.email) novos.email = d.email;
+  if (!atual.nacionalidade && d.nacionalidade) novos.nacionalidade = d.nacionalidade;
+  if (!atual.dataNascimento && d.dataNascimento) novos.dataNascimento = d.dataNascimento;
+  return novos;
+}
+
+export interface OpcoesResolver {
+  /**
+   * `publico`: site, atendente virtual e ficha de pré-check-in, onde quem
+   * digita não foi identificado. O que vem daí nunca troca o que já existe.
+   */
+  origem?: 'equipe' | 'publico';
+}
+
 export class HospedeModel {
   static paraApi(h: HospedeDecifrado, mascarar: boolean) {
     return {
@@ -157,6 +190,7 @@ export class HospedeModel {
       dataNascimento: h.dataNascimento,
       observacoes: h.observacoes,
       anonimizado: Boolean(h.anonimizadoEm),
+      revisaoMotivo: h.revisaoMotivo,
       createdAt: h.createdAt,
     };
   }
@@ -179,9 +213,16 @@ export class HospedeModel {
    * Hóspede da reserva: o indicado por `hospedeId`, o dono do documento, ou o
    * mesmo nome + telefone; senão, um cadastro novo. Contato informado agora
    * completa o cadastro existente (nunca apaga o que já havia).
+   *
+   * Vindo da equipe, o contato informado substitui o do cadastro. Vindo de canal
+   * público, só preenche o que está vazio; e se o documento é de um cadastro com
+   * outro contato, nasce um cadastro separado, sem o documento, para a recepção
+   * conferir. Sem isso, um CPF alheio bastava para tomar o telefone da pessoa e,
+   * com ele, as reservas dela no atendente virtual.
    */
-  static async resolver(pousadaId: number, dados: DadosHospede, hospedeId?: number | null): Promise<HospedeDecifrado> {
+  static async resolver(pousadaId: number, dados: DadosHospede, hospedeId?: number | null, opcoes: OpcoesResolver = {}): Promise<HospedeDecifrado> {
     const tipo = dados.tipoDocumento ?? 'cpf';
+    const publico = opcoes.origem === 'publico';
 
     if (hospedeId) {
       const atual = await this.buscar(hospedeId, pousadaId);
@@ -197,25 +238,37 @@ export class HospedeModel {
       return Object.keys(mudar).length > 0 ? (await this.atualizar(hospedeId, pousadaId, mudar))! : atual;
     }
 
+    // Documento de outro cadastro num canal público: segue sem ele, sinalizado.
+    let revisao: { revisaoMotivo: string; revisaoHospedeId: number } | null = null;
+    let novos = dados;
+
     if (dados.documento) {
       const existente = await this.porDocumento(pousadaId, tipo, dados.documento);
-      if (existente) {
+      if (existente && publico) {
+        if (!contatoDiverge(existente, dados)) return this.completarVazios(existente, pousadaId, dados);
+        revisao = { revisaoMotivo: MOTIVO_DOCUMENTO_DE_OUTRO, revisaoHospedeId: existente.id };
+        const { documento: _doc, ...semDocumento } = dados;
+        novos = semDocumento;
+      } else if (existente) {
         const { documento: _doc, tipoDocumento: _tipo, ...contato } = preenchidos(dados);
         return Object.keys(contato).length > 0 ? (await this.atualizar(existente.id, pousadaId, contato))! : decifrar(existente);
       }
-    } else if (dados.telefone && dados.nome) {
+    }
+
+    if (!novos.documento && novos.telefone && novos.nome) {
       const [mesmo] = await db
         .select()
         .from(hospedes)
         .where(and(
           eq(hospedes.pousadaId, pousadaId),
-          eq(hospedes.telefone, dados.telefone),
-          sql`lower(${hospedes.nome}) = lower(${dados.nome})`,
+          eq(hospedes.telefone, novos.telefone),
+          sql`lower(${hospedes.nome}) = lower(${novos.nome})`,
           isNull(hospedes.anonimizadoEm),
         ))
         .limit(1);
       if (mesmo) {
-        const { documento: _doc, tipoDocumento: _tipo, ...contato } = preenchidos(dados);
+        if (publico) return this.completarVazios(mesmo, pousadaId, novos, revisao);
+        const { documento: _doc, tipoDocumento: _tipo, ...contato } = preenchidos(novos);
         return (await this.atualizar(mesmo.id, pousadaId, contato))!;
       }
     }
@@ -223,7 +276,7 @@ export class HospedeModel {
     try {
       const [novo] = await db
         .insert(hospedes)
-        .values({ pousadaId, nome: dados.nome ?? '', tipoDocumento: tipo, ...colunas(dados) })
+        .values({ pousadaId, nome: novos.nome ?? '', tipoDocumento: tipo, ...colunas(novos), ...(revisao ?? {}) })
         .returning();
       return decifrar(novo);
     } catch (err) {
@@ -234,6 +287,23 @@ export class HospedeModel {
       }
       throw err;
     }
+  }
+
+  /** Canal público: grava só o que o cadastro ainda não tem (e a sinalização, se houver). */
+  private static async completarVazios(
+    atual: Hospede,
+    pousadaId: number,
+    dados: DadosHospede,
+    revisao: { revisaoMotivo: string; revisaoHospedeId: number } | null = null,
+  ): Promise<HospedeDecifrado> {
+    const novos = camposVazios(atual, dados);
+    if (Object.keys(novos).length === 0 && !revisao) return decifrar(atual);
+    const [h] = await db
+      .update(hospedes)
+      .set({ ...colunas(novos), ...(revisao ?? {}), updatedAt: new Date() })
+      .where(and(eq(hospedes.id, atual.id), eq(hospedes.pousadaId, pousadaId)))
+      .returning();
+    return decifrar(h ?? atual);
   }
 
   /** Atualiza o cadastro; o nome novo vale também nas reservas dele. */

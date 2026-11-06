@@ -150,6 +150,7 @@ export function hospedeDaApi(h: Bruto): Hospede {
     data_nascimento: texto(h.data_nascimento ?? h.dataNascimento),
     observacoes: texto(h.observacoes),
     anonimizado: Boolean(h.anonimizado),
+    revisao_motivo: (h.revisao_motivo ?? h.revisaoMotivo ?? null) as string | null,
     estadias: h.estadias as number | undefined,
     ultima_estadia: (h.ultima_estadia ?? h.ultimaEstadia ?? null) as string | null,
     total_gasto: (h.total_gasto ?? h.totalGasto) as number | undefined,

@@ -120,6 +120,9 @@ export const hospedes = pgTable('hospedes', {
   dataNascimento: date('data_nascimento'),
   observacoes: text('observacoes'),
   anonimizadoEm: timestamp('anonimizado_em', { withTimezone: true }),
+  // Pedido público que usou o documento de outro cadastro (migration 032).
+  revisaoMotivo: text('revisao_motivo'),
+  revisaoHospedeId: integer('revisao_hospede_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -206,7 +206,7 @@ export async function enviarFicha(token: string, corpo: Record<string, unknown>,
     ...(normalizarTelefone(t.telefone) ? { telefone: normalizarTelefone(t.telefone)! } : {}),
   };
   try {
-    const hospede = await HospedeModel.resolver(r.pousada_id, { ...contato, ...docCadastro }, r.hospede_id);
+    const hospede = await HospedeModel.resolver(r.pousada_id, { ...contato, ...docCadastro }, r.hospede_id, { origem: 'publico' });
     if (!r.hospede_id) await pool.query(`UPDATE reservas SET hospede_id = $2, nome = $3 WHERE id = $1`, [r.id, hospede.id, hospede.nome]);
   } catch (err) {
     // Documento de outro cadastro (ex.: reservou com o CPF de um familiar):

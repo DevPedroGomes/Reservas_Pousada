@@ -232,7 +232,7 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
     ...(pedido.documento
       ? { tipoDocumento: /^\d{11}$/.test(pedido.documento) ? 'cpf' as const : 'passaporte' as const, documento: pedido.documento }
       : { tipoDocumento: 'cpf' as const }),
-  });
+  }, null, { origem: 'publico' });
   const expiraEm = new Date(Date.now() + p.motor.prazoHoras * 3600_000);
   try {
     const reserva = await ReservaModel.criar({
@@ -248,7 +248,7 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
       adultos: pedido.adultos,
       criancas: pedido.criancas,
       canal,
-      observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes].filter(Boolean).join(' '),
+      observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes, hospede.revisaoMotivo].filter(Boolean).join(' '),
     });
     const totalCentavos = quarto.totalCentavos ?? 0;
     return {

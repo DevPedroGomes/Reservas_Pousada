@@ -166,6 +166,8 @@ export interface Hospede {
   data_nascimento: string
   observacoes: string
   anonimizado: boolean
+  /** Pedido público usou o documento de outro cadastro: a recepção confere. */
+  revisao_motivo?: string | null
   /** Só na listagem. */
   estadias?: number
   ultima_estadia?: string | null
