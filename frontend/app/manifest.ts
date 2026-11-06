@@ -3,15 +3,15 @@ import type { MetadataRoute } from "next"
 /** App instalável: abre direto no painel, como um aplicativo. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Diária — reservas da pousada",
+    name: "Diária: reservas da pousada",
     short_name: "Diária",
     description: "Mapa de ocupação, reservas, hóspedes e recebimentos da sua pousada.",
     start_url: "/painel?origem=app",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#fafaf9",
-    theme_color: "#ea580c",
+    background_color: "#f4f2ed",
+    theme_color: "#f4f2ed",
     lang: "pt-BR",
     categories: ["business", "productivity", "travel"],
     icons: [

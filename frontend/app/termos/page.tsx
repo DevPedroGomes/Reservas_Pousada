@@ -4,7 +4,7 @@ import { PaginaLegal } from "../../components/legal/PaginaLegal"
 import { EMPRESA, VIGENCIA_DOCUMENTOS } from "../../lib/empresa"
 
 export const metadata: Metadata = {
-  title: "Termos de uso — Diária",
+  title: "Termos de uso | Diária",
   description: "Condições de uso do Diária, sistema de gestão de reservas para pousadas.",
 }
 
@@ -41,26 +41,38 @@ export default function Termos() {
         <li>Se um pagamento falhar, o acesso continua por alguns dias de tolerância; depois disso, a operação fica pausada até a regularização. Os dados não são apagados por isso.</li>
       </ul>
 
-      <h2>4. Cancelamento</h2>
+      <h2>4. Cancelamento, arrependimento e reembolso</h2>
       <p>
         Não há fidelidade. Você pode cancelar a qualquer momento pela área de assinatura; o acesso continua até o
         fim do período já pago. Antes de encerrar a conta, você pode exportar suas reservas em planilha.
       </p>
+      <ul>
+        <li>
+          <strong>Direito de arrependimento:</strong> a contratação é feita pela internet. Quem contrata como
+          consumidor pode desistir em até 7 dias da contratação (Código de Defesa do Consumidor, art. 49) e recebe de
+          volta tudo o que pagou, em qualquer plano, inclusive no anual. Para pedir, escreva para {EMPRESA.emailContato}.
+        </li>
+        <li>
+          <strong>Plano anual:</strong> depois desses 7 dias, cancelar interrompe a renovação e o acesso segue até o
+          fim dos 12 meses pagos, sem devolução proporcional. Situações em que a lei garanta outro direito, como falha
+          do serviço, são tratadas pelo mesmo contato.
+        </li>
+        <li>O plano mensal, depois dos 7 dias, não tem devolução do mês em curso e não é renovado no mês seguinte.</li>
+      </ul>
 
       <h2>5. Dados da pousada e dos hóspedes</h2>
       <ul>
         <li>Os dados que você insere são seus. O Diária os trata apenas para prestar o serviço, como operador (LGPD).</li>
         <li>A pousada é responsável por informar aos hóspedes sobre o tratamento dos dados deles e por ter base legal para isso.</li>
         <li>Se a assinatura terminar, os dados continuam guardados e disponíveis para exportação até que você peça a exclusão.</li>
-        <li>Ao excluir a pousada (em Configurações), os dados dela e dos hóspedes são eliminados de forma definitiva — exporte antes. Registros de cobrança da assinatura são mantidos pelo prazo exigido em lei.</li>
+        <li>Ao excluir a pousada (em Configurações), os dados dela e dos hóspedes são eliminados de forma definitiva, exporte antes. Registros de cobrança da assinatura são mantidos pelo prazo exigido em lei.</li>
         <li>A pousada pode definir em quantos meses após a estadia os dados pessoais dos hóspedes são anonimizados automaticamente.</li>
       </ul>
 
       <h2>6. Disponibilidade e responsabilidade</h2>
       <p>
-        Trabalhamos para manter o serviço disponível e os dados protegidos, com cópias de segurança e
-        monitoramento, mas não garantimos funcionamento ininterrupto. Paradas programadas serão avisadas sempre
-        que possível. A responsabilidade do Diária por danos diretos fica limitada ao valor pago nos 12 meses
+        Trabalhamos para manter o serviço disponível e os dados protegidos, mas não garantimos funcionamento
+        ininterrupto. Paradas programadas serão avisadas sempre que possível. A responsabilidade do Diária por danos diretos fica limitada ao valor pago nos 12 meses
         anteriores ao evento, exceto nos casos em que a lei não permite essa limitação.
       </p>
 
@@ -77,7 +89,7 @@ export default function Termos() {
       </p>
 
       <h2>9. Contato</h2>
-      <p>{EMPRESA.razaoSocial} — {EMPRESA.endereco} — {EMPRESA.emailContato}</p>
+      <p>{EMPRESA.razaoSocial}, {EMPRESA.endereco}, {EMPRESA.emailContato}</p>
     </PaginaLegal>
   )
 }

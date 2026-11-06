@@ -46,6 +46,20 @@ function recusarSeCoberta(row: { cobertaPorPousadaId: number | null } | null, re
   return true;
 }
 
+/** Status do Stripe em que a assinatura ainda cobra ou pode voltar a cobrar. */
+const STATUS_VIVOS_NO_STRIPE: string[] = ['active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete'];
+
+function recusarJaAssina(res: Response, status: string) {
+  return res.status(409).json({
+    sucesso: false,
+    codigo: 'BILLING_JA_ASSINA',
+    mensagem: status === 'ativa'
+      ? 'Você já tem uma assinatura. Use "Mudar para este plano" para trocar.'
+      : 'Sua assinatura tem um pagamento pendente. Regularize em "Gerenciar assinatura".',
+    usarTrocaDePlano: status === 'ativa',
+  });
+}
+
 /**
  * GET /api/billing/situacao
  * Estado da assinatura do tenant ativo. Base do banner de trial e da tela de
@@ -155,14 +169,7 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
     // Quem já assina troca de plano na assinatura existente. Um segundo
     // checkout criaria uma segunda assinatura: cobrança em dobro.
     if (assinatura && temAssinaturaViva(assinatura)) {
-      return res.status(409).json({
-        sucesso: false,
-        codigo: 'BILLING_JA_ASSINA',
-        mensagem: assinatura.status === 'ativa'
-          ? 'Você já tem uma assinatura. Use "Mudar para este plano" para trocar.'
-          : 'Sua assinatura tem um pagamento pendente. Regularize em "Gerenciar assinatura".',
-        usarTrocaDePlano: assinatura.status === 'ativa',
-      });
+      return recusarJaAssina(res, assinatura.status);
     }
 
     // Reaproveita o customer se já existe — criar um novo a cada checkout
@@ -186,11 +193,33 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
       customerId = (await AssinaturaModel.buscarPorPousada(pousadaId))?.stripeCustomerId ?? customer.id;
     }
 
+    // O banco pode estar atrás do Stripe (webhook atrasado ou perdido). Quem
+    // manda em "já assina" é o Stripe, e aproveita para acertar o estado local.
+    const assinaturasDoCliente = await stripe().subscriptions.list({ customer: customerId, status: 'all', limit: 100 });
+    const viva = assinaturasDoCliente.data.find((s) => STATUS_VIVOS_NO_STRIPE.includes(s.status));
+    if (viva) {
+      await aplicarAssinaturaAgora(viva);
+      const local = await AssinaturaModel.buscarPorPousada(pousadaId);
+      return recusarJaAssina(res, local?.status ?? 'ativa');
+    }
+
     const appUrl = urlDoApp();
     // Mesma pousada + plano + ciclo no mesmo minuto = a mesma sessão. Impede
     // que um duplo clique abra duas sessões que, pagas, virariam duas
     // assinaturas.
     const janela = Math.floor(Date.now() / 60_000);
+    const chave = `checkout-${pousadaId}-${plano}-${ciclo}-${janela}`;
+
+    // Sessão de checkout fica aberta por até 24h, e cada uma paga vira uma
+    // assinatura. Só pode existir uma. A chave preserva o duplo clique: expirar a
+    // sessão da mesma chave faria o Stripe repetir a resposta com a sessão morta.
+    const abertas = await stripe().checkout.sessions.list({ customer: customerId, status: 'open', limit: 100 });
+    const mesma = abertas.data.find((s) => s.metadata?.chave === chave);
+    if (mesma?.url) return res.json({ sucesso: true, url: mesma.url });
+    for (const aberta of abertas.data) {
+      await stripe().checkout.sessions.expire(aberta.id);
+    }
+
     const sessao = await stripe().checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
@@ -199,10 +228,11 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
       // O trial de 14 dias já foi consumido antes do checkout (é nosso, sem
       // cartão), então aqui a cobrança começa imediatamente.
       subscription_data: { metadata: { pousada_id: String(pousadaId), plano, ciclo } },
+      metadata: { chave },
       success_url: `${appUrl}/assinatura?status=sucesso`,
       cancel_url: `${appUrl}/assinatura?status=cancelado`,
     }, {
-      idempotencyKey: `checkout-${pousadaId}-${plano}-${ciclo}-${janela}`,
+      idempotencyKey: chave,
     });
 
     AuditoriaModel.log(req.user!.id, 'checkout_iniciado', 'pousada', pousadaId, { plano, ciclo }, req.ip || null)

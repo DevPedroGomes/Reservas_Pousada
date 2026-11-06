@@ -133,7 +133,7 @@ export class PousadaModel {
       if (cobertaPor) {
         await AssinaturaModel.criarCoberta(pousada.id, cobertaPor, tx);
       } else {
-        await AssinaturaModel.criarTrial(pousada.id, tx);
+        await AssinaturaModel.criarTrial(pousada.id, tx, await AssinaturaModel.inicioDoTrial(userId, tx));
       }
 
       return pousada;
@@ -227,7 +227,7 @@ export class PousadaModel {
     const result = await db.execute(sql`
       SELECT
         COUNT(*)::int AS total_reservas,
-        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada'))::int AS reservas_ativas,
+        COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada') AND revisao_em IS NULL)::int AS reservas_ativas,
         COUNT(*) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada') AND (data_entrada = ${hoje} OR data_saida = ${hoje}))::int AS reservas_hoje,
         -- Ocupação usa intervalo semiaberto [entrada, saída): quem faz check-out
         -- hoje já liberou o quarto e não conta como ocupado.
@@ -243,7 +243,7 @@ export class PousadaModel {
           COALESCE(round(valor * 100), 0)
           + COALESCE((SELECT SUM(c.quantidade * c.valor_unitario_centavos) FROM consumos c WHERE c.reserva_id = reservas.id), 0)
           - COALESCE((SELECT SUM(p.valor_centavos) FROM pagamentos p WHERE p.reserva_id = reservas.id), 0),
-          0)) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')), 0)::numeric / 100 AS receita_pendente
+          0)) FILTER (WHERE status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada') AND revisao_em IS NULL), 0)::numeric / 100 AS receita_pendente
       FROM reservas
       WHERE pousada_id = ${pousadaId} AND deleted_at IS NULL
     `);

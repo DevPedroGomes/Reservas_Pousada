@@ -41,16 +41,16 @@ export function AvisoAssinatura({ situacao, billingHabilitado }: Props) {
       className={cn(
         "rounded-lg border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3",
         urgente
-          ? "border-rose-200/80 bg-rose-50/80"
+          ? "border-destructive/30 bg-destructive/10"
           : atencao
-          ? "border-amber-200/80 bg-amber-50/80"
-          : "border-sky-200/80 bg-sky-50/80",
+          ? "border-warning/30 bg-warning/10"
+          : "border-primary/25 bg-accent",
       )}
     >
       <p
         className={cn(
           "text-sm",
-          urgente ? "text-rose-800" : atencao ? "text-amber-800" : "text-sky-800",
+          urgente ? "text-destructive" : atencao ? "text-warning" : "text-accent-foreground",
         )}
       >
         {texto}
@@ -74,6 +74,10 @@ function textoBloqueado(s: SituacaoAssinatura): string {
       return "Sua assinatura está suspensa. Entre em contato com o suporte."
     case "cancelada":
       return "Sua assinatura foi cancelada. Escolha um plano para voltar a usar."
+    case "disputa":
+      return "Há uma contestação de pagamento nesta assinatura. Fale com o suporte para regularizar o acesso."
+    case "acima_do_limite":
+      return "Sua conta está acima do limite do plano. Reduza quartos, usuários ou pousadas, ou faça upgrade. Nenhum dado foi apagado."
     default:
       return "Sua assinatura precisa de atenção."
   }

@@ -17,6 +17,7 @@ import type { Server } from 'node:http';
 import { prepararBanco, temBanco } from './helpers/banco.js';
 import { createHmac } from 'node:crypto';
 import type { MensagemLLM, RespostaLLM } from '../lib/llm.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 type Resposta = { status: number; json: any };
 
@@ -298,7 +299,8 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       // pré-reserva não faz check-in direto
       assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'hospedada' })).status, 409);
       for (const status of ['confirmada', 'hospedada', 'finalizada']) {
-        const t = await recep.req('PATCH', `/api/reservas/${id}/status`, { status });
+        const { version } = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+        const t = await recep.req('PATCH', `/api/reservas/${id}/status`, { status, version });
         assert.equal(t.status, 200, `${status}: ${JSON.stringify(t.json)}`);
       }
       const det = await donoA.req('GET', `/api/reservas/${id}`);
@@ -313,7 +315,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
     it('cancelamento guarda o motivo e libera o quarto', async () => {
       const r = await recep.req('POST', '/api/reservas', { nome: 'Vai cancelar', cpf: CPF, quarto: 7, data_entrada: d(70), data_saida: d(72) });
-      const c = await recep.req('PATCH', `/api/reservas/${r.json.reserva.id}/status`, { status: 'cancelada', motivo: 'Hóspede desistiu' });
+      const c = await recep.req('PATCH', `/api/reservas/${r.json.reserva.id}/status`, { status: 'cancelada', motivo: 'Hóspede desistiu', version: r.json.reserva.version });
       assert.equal(c.status, 200);
       const det = await donoA.req('GET', `/api/reservas/${r.json.reserva.id}`);
       assert.equal(det.json.reserva.motivoCancelamento, 'Hóspede desistiu');
@@ -642,7 +644,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
       // Na OTA: "a" mudou de data, "b" foi cancelada.
       const r2 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
-      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas], [0, 1, 1]);
+      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas, r2.ausentes], [0, 1, 0, 1]);
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      const r2c = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.equal(r2c.canceladas, 1, 'só na terceira leitura seguida sem o evento');
       const { rows: depois } = await pool.query(
         `SELECT ical_uid, status, data_entrada::text AS ini, motivo_cancelamento FROM reservas WHERE ical_importacao_id = $1 ORDER BY ical_uid`, [imp.id]);
       assert.equal(depois[0].ini, d(151));
@@ -781,6 +786,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal(res.valor, 400);
       assert.ok(res.horas > 11.9 && res.horas <= 12, `prazo de 12h (${res.horas})`);
       assert.equal(res.telefone, '5548991234567');
+      const { rows: [aceite] } = await pool.query(`SELECT aceite_em, aceite_versao, aceite_forma FROM reservas WHERE id = $1`, [r.json.pedido.id]);
+      assert.ok(aceite.aceite_em);
+      assert.equal(aceite.aceite_versao, VERSAO_POLITICA);
+      assert.equal(aceite.aceite_forma, 'marcado_no_site');
       const de_novo = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ nome: 'Outra Pessoa', telefone: '48990000000' }));
       assert.equal(de_novo.status, 409, 'quarto não está mais livre');
       const disp = await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(250)}&saida=${d(252)}&pessoas=2`);
@@ -845,6 +854,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
           return { id: 'pay_abc123', copiaECola: `00020101021226-asaas-${d.referencia}`, expiraEm: d.expiraEm };
         },
         async consultar(idPg) { consultas.push(idPg); return { status: situacao, valorCentavos: 25000, referencia: null }; },
+        async cancelarCobranca() {},
         async registrarWebhook(w) { webhooks.push(w); },
       }));
       try {
@@ -955,8 +965,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const anon = new Cliente(base, '198.51.100.222');
       const r = await anon.req('POST', `/api/publico/checkin/${token}`, ficha({}, [{ nome: 'Pedro Ficha', dataNascimento: '2016-03-10', parentesco: 'filho' }]));
       assert.equal(r.status, 200, JSON.stringify(r.json));
-      const { rows: [pc] } = await pool.query(`SELECT dados_cifrados FROM precheckins WHERE reserva_id = $1`, [id]);
+      const { rows: [pc] } = await pool.query(`SELECT dados_cifrados, aceite_em, aceite_versao FROM precheckins WHERE reserva_id = $1`, [id]);
       assert.ok(!pc.dados_cifrados.includes('52601815906') && !pc.dados_cifrados.includes('Curitiba'), 'nada em claro');
+      assert.ok(pc.aceite_em, 'data do aceite gravada');
+      assert.equal(pc.aceite_versao, VERSAO_POLITICA);
       const det = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
       assert.equal(det.documento, '52601815906', 'documento da ficha completou o cadastro (libera o check-in)');
       assert.ok(det.precheckinEm);
@@ -968,7 +980,8 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     });
 
     it('reserva cancelada encerra o pré-check-in', async () => {
-      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'teste' })).status, 200);
+      const { version } = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'teste', version })).status, 200);
       const anon = new Cliente(base, '198.51.100.223');
       assert.equal((await anon.req('POST', `/api/publico/checkin/${token}`, ficha())).status, 409);
       assert.equal((await anon.req('GET', `/api/publico/checkin/${token}`)).json.reserva.aberto, false);
@@ -1006,10 +1019,11 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
     before(async () => {
       envAntes = { ...process.env };
-      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste' });
+      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste', AGENTE_DEMO_SEM_BILLING: 'true' });
       const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
       usarClienteMetaDeTeste({
         async trocarCodigo(code) { if (code !== 'codigo-ok') throw new Error('código expirado'); return 'token-da-pousada'; },
+        async numerosDaWaba() { return [NUMERO]; },
         async assinarWebhooks() {},
         async desassinarWebhooks(waba) { desassinadas.push(waba); },
         async registrarNumero() {},
@@ -1046,7 +1060,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     it('conectar troca o código, guarda o token cifrado e cria os modelos de mensagem', async () => {
       const ruim = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'velho', waba_id: '100200300', phone_number_id: NUMERO });
       assert.equal(ruim.status, 502);
-      assert.match(ruim.json.mensagem, /código expirado/);
+      assert.match(ruim.json.mensagem, /Meta recusou/);
       const r = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'codigo-ok', waba_id: '100200300', phone_number_id: NUMERO, coexistencia: true });
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.deepEqual([r.json.conta.conectado, r.json.conta.numero, r.json.conta.coexistencia, r.json.conta.agenteAtivo, r.json.conta.modelosCriados], [true, '+55 48 3000-0000', true, false, true]);
@@ -1121,6 +1135,14 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const { rows: [res] } = await pool.query(
         `SELECT r.status, r.canal, h.telefone, h.nome FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [reservaId]);
       assert.deepEqual(res, { status: 'pre_reserva', canal: 'whatsapp', telefone: contato, nome: 'Joana Zap Silva' });
+      // No chat não há caixa para marcar: fica registrado como informado, e com a
+      // data do aviso, não como aceite do momento do pedido.
+      const { rows: [aceite] } = await pool.query(
+        `SELECT r.aceite_forma, r.aceite_versao,
+                abs(extract(epoch FROM r.aceite_em - (SELECT min(m.created_at) FROM whatsapp_mensagens m JOIN whatsapp_conversas c ON c.id = m.conversa_id
+                                WHERE c.contato = $2 AND m.direcao = 'sistema'))) < 0.01 AS na_data_do_aviso
+           FROM reservas r WHERE r.id = $1`, [reservaId, contato]);
+      assert.deepEqual(aceite, { aceite_forma: 'informado_no_whatsapp', aceite_versao: VERSAO_POLITICA, na_data_do_aviso: true });
 
       roteiro = [
         ferramenta('minhas_reservas', {}),
@@ -1358,11 +1380,121 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal((await donoB.req('GET', '/api/billing/situacao')).json.assinatura.liberado, false);
     });
 
+    it('relatórios, dashboard e sincronização iCal também ficam atrás do guard', async () => {
+      // pousadaB está com o trial vencido desde o teste anterior.
+      const relatorio = await donoB.req('GET', '/api/relatorios');
+      assert.equal(relatorio.status, 402);
+      assert.equal(relatorio.json.precisaAssinar, true);
+      assert.equal((await donoB.req('GET', `/api/pousadas/${pousadaB}/dashboard`)).status, 402);
+      const { rows: [imp] } = await pool.query(
+        `INSERT INTO ical_importacoes (pousada_id, quarto_numero, nome, canal, url) VALUES ($1, 1, 'Airbnb', 'airbnb', 'https://airbnb.exemplo/a.ics') RETURNING id`,
+        [pousadaB],
+      );
+      assert.equal((await donoB.req('POST', `/api/ical/importacoes/${imp.id}/sincronizar`)).status, 402);
+      assert.equal((await donoB.req('POST', '/api/ical/importacoes', { quarto: 1, nome: 'Booking', canal: 'booking', url: 'https://booking.exemplo/b.ics' })).status, 402);
+    });
+
+    it('quem está bloqueado continua conseguindo configurar e regularizar', async () => {
+      assert.equal((await donoB.req('GET', '/api/ical')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/quartos')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/conta/exportar')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/billing/situacao')).status, 200);
+      const { rows: [imp] } = await pool.query(`SELECT id FROM ical_importacoes WHERE pousada_id = $1 LIMIT 1`, [pousadaB]);
+      assert.equal((await donoB.req('DELETE', `/api/ical/importacoes/${imp.id}`)).status, 200);
+    });
+
+    it('o feed iCal de exportação segue no ar para pousada bloqueada', async () => {
+      const { rows: [q] } = await pool.query(`SELECT ical_token FROM quartos WHERE pousada_id = $1 AND ical_token IS NOT NULL LIMIT 1`, [pousadaB]);
+      const r = await new Cliente(base, '203.0.113.200').req('GET', `/ical/${q.ical_token}.ics`);
+      assert.equal(r.status, 200);
+      assert.match(String(r.json), /BEGIN:VCALENDAR/);
+    });
+
     it('segunda pousada em trial é recusada (402)', async () => {
       const r = await donoA.req('POST', '/api/pousadas', {
         nome: 'Segunda da A', num_quartos: 5, endereco: 'Rua B, 200', telefone: '48999990000', email: 'b@b.com',
       });
       assert.equal(r.status, 402);
+    });
+
+    describe('checkout não cria assinatura duplicada', () => {
+      let dono: Cliente;
+      let pousada: number;
+      let vivas: { id: string; status: string; customer: string; metadata: object; cancel_at_period_end: boolean; items: { data: unknown[] } }[];
+      let abertas: { id: string; url: string; metadata: Record<string, string> }[];
+      let expiradas: string[];
+      let criadas: Record<string, any>[];
+      let falhaAoExpirar: boolean;
+
+      before(async () => {
+        process.env.STRIPE_PRICE_POUSADA_MENSAL = 'price_pm';
+        process.env.STRIPE_PRICE_REDE_MENSAL = 'price_rm';
+        (await import('../lib/stripe.js')).usarStripeDeTeste({
+          customers: { create: async () => ({ id: 'cus_dup' }) },
+          subscriptions: { list: async () => ({ data: vivas }) },
+          checkout: { sessions: {
+            list: async () => ({ data: abertas }),
+            expire: async (id: string) => {
+              if (falhaAoExpirar) throw new Error('Stripe fora do ar');
+              expiradas.push(id);
+              abertas = abertas.filter((s) => s.id !== id);
+            },
+            create: async (params: Record<string, any>) => {
+              criadas.push(params);
+              const s = { id: `cs_${criadas.length}`, url: `https://checkout/${criadas.length}`, metadata: params.metadata };
+              abertas.push(s);
+              return s;
+            },
+          } },
+        } as never);
+        dono = await novoUsuario('dono.checkout@teste.com', 'Dono Checkout');
+        dono.pousada = pousada = await criarPousada(dono, 'Pousada Checkout');
+      });
+      after(async () => { (await import('../lib/stripe.js')).usarStripeDeTeste(null); });
+      const reiniciar = () => { vivas = []; abertas = []; expiradas = []; criadas = []; falhaAoExpirar = false; };
+
+      it('expira as sessões abertas antes de criar outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: { chave: 'outra' } }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 200, JSON.stringify(r.json));
+        assert.deepEqual(expiradas, ['cs_velha']);
+        assert.equal(criadas.length, 1);
+        assert.equal(r.json.url, 'https://checkout/1');
+      });
+
+      it('duplo clique reaproveita a mesma sessão em vez de expirá-la', async () => {
+        reiniciar();
+        const r1 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        const r2 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r2.json.url, r1.json.url);
+        assert.equal(criadas.length, 1);
+        assert.deepEqual(expiradas, []);
+      });
+
+      it('falha ao expirar a sessão antiga não abre outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        falhaAoExpirar = true;
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'rede', ciclo: 'mensal' });
+        assert.equal(r.status, 502);
+        assert.equal(criadas.length, 0);
+      });
+
+      it('assinatura viva no Stripe que o banco ainda não conhece impede o checkout e é aplicada', async () => {
+        reiniciar();
+        vivas = [{
+          id: 'sub_webhook_atrasado', status: 'active', customer: 'cus_dup', metadata: {}, cancel_at_period_end: false,
+          items: { data: [{ current_period_end: 1893456000, price: { id: 'price_rm' } }] },
+        }];
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 409);
+        assert.equal(r.json.codigo, 'BILLING_JA_ASSINA');
+        assert.equal(criadas.length, 0);
+        const { rows: [a] } = await pool.query(`SELECT status, plano, stripe_subscription_id FROM assinaturas WHERE pousada_id = $1`, [pousada]);
+        assert.deepEqual([a.status, a.plano, a.stripe_subscription_id], ['ativa', 'rede', 'sub_webhook_atrasado']);
+      });
     });
 
     it('só o dono abre checkout', async () => {

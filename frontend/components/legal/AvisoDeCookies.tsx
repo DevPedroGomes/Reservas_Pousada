@@ -19,7 +19,7 @@ export function AvisoDeCookies() {
   }
 
   return (
-    <div role="dialog" aria-label="Aviso de cookies" className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-2xl rounded-xl border border-border bg-white p-4 shadow-xl sm:inset-x-6">
+    <div role="dialog" aria-label="Aviso de cookies" className="fixed inset-x-3 bottom-3 z-[60] mx-auto max-w-2xl rounded-xl border border-border bg-card p-4 shadow-xl sm:inset-x-6">
       <p className="text-sm text-muted-foreground">
         Usamos cookies essenciais para o site funcionar e, se você permitir, cookies para medir visitas e
         melhorar nossos anúncios. Veja a <Link href="/privacidade" className="underline">política de privacidade</Link>.

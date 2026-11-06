@@ -1,10 +1,46 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { cn } from "../../lib/utils"
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "")
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+
+interface ApiTurnstile {
+  render(alvo: HTMLElement, opcoes: Record<string, unknown>): string
+  remove(id: string): void
+}
+
+/** Desafio Cloudflare do pedido público; só aparece com a chave configurada. */
+function VerificacaoTurnstile({ siteKey, onToken }: { siteKey: string; onToken: (token: string) => void }) {
+  const alvo = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const api = () => (window as unknown as { turnstile?: ApiTurnstile }).turnstile
+    let id: string | undefined
+    const desenhar = () => {
+      if (alvo.current && api()) id = api()!.render(alvo.current, { sitekey: siteKey, callback: onToken, "expired-callback": () => onToken("") })
+    }
+    let script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SCRIPT}"]`)
+    if (api()) {
+      desenhar()
+    } else {
+      if (!script) {
+        script = document.createElement("script")
+        script.src = TURNSTILE_SCRIPT
+        script.async = true
+        document.head.appendChild(script)
+      }
+      script.addEventListener("load", desenhar, { once: true })
+    }
+    return () => {
+      script?.removeEventListener("load", desenhar)
+      if (id) api()?.remove(id)
+    }
+  }, [siteKey, onToken])
+  return <div ref={alvo} />
+}
 
 export interface PousadaPublica {
   nome: string
@@ -73,7 +109,7 @@ function whatsapp(telefone: string | null, texto: string): string | null {
   return `https://wa.me/${d.length <= 11 ? `55${d}` : d}?text=${encodeURIComponent(texto)}`
 }
 
-const campo = "h-11 w-full rounded-lg border border-border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+const campo = "h-11 w-full rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
 
 /**
  * Busca de datas → quartos livres com o preço do tarifário → pedido.
@@ -87,6 +123,10 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
   const [pedido, setPedido] = useState<Pedido | null>(null)
   const [pix, setPix] = useState<PixDoPedido | null>(null)
   const [pixPago, setPixPago] = useState(false)
+  const [pixEstorno, setPixEstorno] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState("")
+  // O token vale uma vez: pedido recusado desenha o desafio de novo.
+  const [desafio, setDesafio] = useState(0)
   const [copiado, setCopiado] = useState(false)
 
   // Pix automático: acompanha o pagamento e mostra a confirmação na hora.
@@ -96,7 +136,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       try {
         const r = await fetch(`${API}/api/publico/pix/${pix.token}`)
         const d = await r.json()
-        if (d.sucesso && d.status === "paga") setPixPago(true)
+        if (d.sucesso && d.status === "paga") { setPixEstorno(Boolean(d.estorno)); setPixPago(true) }
       } catch { /* tenta de novo no próximo ciclo */ }
     }, 5000)
     return () => clearInterval(t)
@@ -129,11 +169,16 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       const r = await fetch(`${API}/api/publico/${slug}/reservas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...dados, quarto: escolhido.numero, entrada: busca.entrada, saida: busca.saida, adultos: busca.adultos, criancas: busca.criancas }),
+        body: JSON.stringify({
+          ...dados, quarto: escolhido.numero, entrada: busca.entrada, saida: busca.saida, adultos: busca.adultos, criancas: busca.criancas,
+          ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
+        }),
       })
       const d = await r.json()
       if (!d.sucesso) {
         setErro(d.mensagem)
+        setTurnstileToken("")
+        setDesafio((n) => n + 1)
         if (r.status === 409) { setEscolhido(null); setLivres(null) }
         return
       }
@@ -151,37 +196,41 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
     const zap = whatsapp(pousada.telefone, `Olá! Fiz o pedido de reserva #${pedido.id} (${pedido.quarto}, ${br(pedido.entrada)} a ${br(pedido.saida)}). Como faço o sinal de ${reais(pedido.sinalCentavos)}?`)
     return (
       <Moldura pousada={pousada} local={local}>
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 space-y-3">
-          <h2 className="text-xl font-semibold text-emerald-900">Pedido #{pedido.id} recebido!</h2>
-          <p className="text-sm text-emerald-900">
-            {pedido.quarto}, de {br(pedido.entrada)} a {br(pedido.saida)} — total de <strong>{reais(pedido.totalCentavos)}</strong>.
+        <section className="rounded-2xl border border-success/30 bg-success/10 p-6 space-y-3">
+          <h2 className="text-xl font-semibold text-success">Pedido #{pedido.id} recebido!</h2>
+          <p className="text-sm text-success">
+            {pedido.quarto}, de {br(pedido.entrada)} a {br(pedido.saida)}, total de <strong>{reais(pedido.totalCentavos)}</strong>.
           </p>
-          <p className="text-sm text-emerald-900">
+          <p className="text-sm text-success">
             O quarto fica reservado para você até <strong>{pedido.prazo}</strong>.{" "}
             {pix
               ? <>Para confirmar, pague o sinal de <strong>{reais(pix.valorCentavos)}</strong> por Pix logo abaixo.</>
               : <>Para confirmar, a {pousada.nome} vai combinar com você {pedido.sinalCentavos > 0 ? <>o sinal de <strong>{reais(pedido.sinalCentavos)}</strong></> : "a confirmação"} pelo WhatsApp.</>}
           </p>
           {zap && (
-            <a href={zap} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center rounded-lg bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700">
+            <a href={zap} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center rounded-lg bg-success px-5 text-sm font-semibold text-primary-foreground hover:bg-success/90">
               Falar com a pousada no WhatsApp
             </a>
           )}
         </section>
         {pix && (
           pixPago ? (
-            <section className="rounded-2xl border border-emerald-300 bg-emerald-100 p-6 text-emerald-900">
-              <h2 className="text-lg font-semibold">Pagamento confirmado!</h2>
-              <p className="text-sm">Recebemos o Pix de {reais(pix.valorCentavos)}. Sua reserva está confirmada.</p>
+            <section className="rounded-2xl border border-success/30 bg-success/15 p-6 text-success">
+              <h2 className="text-lg font-semibold">{pixEstorno ? "Pagamento recebido" : "Pagamento confirmado"}</h2>
+              <p className="text-sm">
+                {pixEstorno
+                  ? <>Recebemos o Pix de {reais(pix.valorCentavos)}, mas o prazo da reserva já tinha acabado e o quarto não está mais disponível. A {pousada.nome} vai devolver o valor.</>
+                  : <>Recebemos o Pix de {reais(pix.valorCentavos)}. Sua reserva está confirmada.</>}
+              </p>
             </section>
           ) : (
-            <section className="space-y-3 rounded-2xl border border-border bg-white p-6">
+            <section className="space-y-3 rounded-2xl border border-border bg-card p-6">
               <h2 className="text-lg font-semibold">Pague o sinal por Pix ({reais(pix.valorCentavos)})</h2>
               <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={pix.qrCode} alt="QR Code do Pix" className="h-48 w-48 rounded" />
                 <div className="min-w-0 flex-1 space-y-2 text-sm">
-                  <p>Abra o app do seu banco, escolha Pix e leia o QR Code — ou copie o código abaixo.</p>
+                  <p>Abra o app do seu banco, escolha Pix e leia o QR Code, ou copie o código abaixo.</p>
                   <p className="break-all rounded bg-muted/50 p-2 font-mono text-[11px] leading-tight">{pix.copiaECola}</p>
                   <button
                     type="button"
@@ -206,7 +255,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
 
   return (
     <Moldura pousada={pousada} local={local}>
-      <form onSubmit={procurar} className="grid gap-3 rounded-2xl border border-border bg-white p-4 shadow-sm sm:grid-cols-[1fr_1fr_0.7fr_0.7fr_auto] sm:items-end">
+      <form onSubmit={procurar} className="grid gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:grid-cols-[1fr_1fr_0.7fr_0.7fr_auto] sm:items-end">
         <div className="space-y-1">
           <label htmlFor="m-entrada" className="text-xs font-medium">Entrada</label>
           <input id="m-entrada" type="date" required min={hoje()} value={busca.entrada} className={campo}
@@ -232,16 +281,16 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
         </button>
       </form>
 
-      {erro && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{erro}</p>}
+      {erro && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{erro}</p>}
 
       {livres === null ? (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Acomodações</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             {quartos.map((q) => (
-              <article key={q.numero} className="rounded-xl border border-border bg-white p-4">
+              <article key={q.numero} className="rounded-xl border border-border bg-card p-4">
                 <h3 className="font-semibold">{q.nome}</h3>
-                <p className="text-xs text-muted-foreground">{[q.tipo, `até ${q.capacidade} pessoa${q.capacidade > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}</p>
+                <p className="text-xs text-muted-foreground">{[q.tipo, `até ${q.capacidade} pessoa${q.capacidade > 1 ? "s" : ""}`].filter(Boolean).join(", ")}</p>
                 {q.descricao && <p className="mt-2 text-sm text-muted-foreground">{q.descricao}</p>}
                 {q.aPartirDeCentavos !== null && <p className="mt-2 text-sm">a partir de <strong>{reais(q.aPartirDeCentavos)}</strong>/noite</p>}
               </article>
@@ -249,7 +298,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
           </div>
         </section>
       ) : livres.length === 0 ? (
-        <p className="rounded-xl border border-border bg-white p-5 text-sm">
+        <p className="rounded-xl border border-border bg-card p-5 text-sm">
           Nenhuma acomodação livre para essas datas e número de pessoas. Tente outras datas
           {pousada.telefone ? " ou fale com a pousada pelo WhatsApp" : ""}.
         </p>
@@ -257,11 +306,11 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Disponíveis de {br(busca.entrada)} a {br(busca.saida)}</h2>
           {livres.map((q) => (
-            <article key={q.numero} className={cn("rounded-xl border bg-white p-4", escolhido?.numero === q.numero ? "border-primary ring-2 ring-primary/20" : "border-border")}>
+            <article key={q.numero} className={cn("rounded-xl border bg-card p-4", escolhido?.numero === q.numero ? "border-primary ring-2 ring-primary/20" : "border-border")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="font-semibold">{q.nome}</h3>
-                  <p className="text-xs text-muted-foreground">{[q.tipo, `até ${q.capacidade} pessoa${q.capacidade > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}</p>
+                  <p className="text-xs text-muted-foreground">{[q.tipo, `até ${q.capacidade} pessoa${q.capacidade > 1 ? "s" : ""}`].filter(Boolean).join(", ")}</p>
                   {q.descricao && <p className="mt-1 text-sm text-muted-foreground">{q.descricao}</p>}
                 </div>
                 <div className="text-right">
@@ -272,7 +321,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
                       {escolhido?.numero === q.numero ? "Escolhido" : "Reservar"}
                     </button>
                   ) : (
-                    <p className="mt-2 text-xs text-amber-700">Mínimo de {q.minimoNoites} noites neste período</p>
+                    <p className="mt-2 text-xs text-warning">Mínimo de {q.minimoNoites} noites neste período</p>
                   )}
                 </div>
               </div>
@@ -282,7 +331,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       )}
 
       {escolhido && (
-        <form onSubmit={pedir} className="space-y-4 rounded-2xl border border-border bg-white p-5 shadow-sm">
+        <form onSubmit={pedir} className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Seus dados</h2>
           {/* Campo isca: escondido de pessoas, robôs preenchem. */}
           <input type="text" name="site" tabIndex={-1} autoComplete="off" value={dados.site} onChange={(e) => setDados((x) => ({ ...x, site: e.target.value }))} className="hidden" aria-hidden />
@@ -306,18 +355,19 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
           </div>
           <div className="space-y-1">
             <label htmlFor="m-obs" className="text-xs font-medium">Observações</label>
-            <textarea id="m-obs" rows={3} maxLength={500} value={dados.observacoes} className="w-full rounded-lg border border-border bg-white p-3 text-sm" onChange={(e) => setDados((x) => ({ ...x, observacoes: e.target.value }))} placeholder="Horário de chegada, pedidos especiais..." />
+            <textarea id="m-obs" rows={3} maxLength={500} value={dados.observacoes} className="w-full rounded-lg border border-border bg-card p-3 text-sm" onChange={(e) => setDados((x) => ({ ...x, observacoes: e.target.value }))} placeholder="Horário de chegada, pedidos especiais..." />
           </div>
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" required checked={dados.aceite} onChange={(e) => setDados((x) => ({ ...x, aceite: e.target.checked }))} className="mt-1 h-4 w-4 accent-primary" />
-            <span>Concordo que a {pousada.nome} use meus dados para tratar esta reserva.</span>
+            <span>Concordo que a {pousada.nome} use meus dados para tratar esta reserva, conforme a <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline">política de privacidade</a>.</span>
           </label>
+          {TURNSTILE_SITE_KEY && <VerificacaoTurnstile key={desafio} siteKey={TURNSTILE_SITE_KEY} onToken={setTurnstileToken} />}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
             <p className="text-sm">
-              {escolhido.nome} · {br(busca.entrada)} a {br(busca.saida)} · <strong>{reais(escolhido.totalCentavos)}</strong>
+              {escolhido.nome}, {br(busca.entrada)} a {br(busca.saida)}, <strong>{reais(escolhido.totalCentavos)}</strong>
               {pousada.sinalPercentual > 0 && <span className="block text-xs text-muted-foreground">Sinal de {pousada.sinalPercentual}% ({reais(Math.round(escolhido.totalCentavos * pousada.sinalPercentual / 100))}) para confirmar.</span>}
             </p>
-            <button type="submit" disabled={ocupado} className="h-11 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+            <button type="submit" disabled={ocupado || Boolean(TURNSTILE_SITE_KEY && !turnstileToken)} className="h-11 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               {ocupado ? "Enviando..." : "Pedir reserva"}
             </button>
           </div>
@@ -329,7 +379,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       )}
 
       {pousada.politicas && (
-        <section className="rounded-xl border border-border bg-white p-4">
+        <section className="rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold">Políticas da pousada</h2>
           <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{pousada.politicas}</p>
         </section>
@@ -351,7 +401,7 @@ function Moldura({ pousada, local, children }: { pousada: PousadaPublica; local:
         <footer className="pt-6 text-center text-xs text-muted-foreground">
           Reservas por{" "}
           <Link href="/?utm_source=motor&utm_medium=rodape&utm_campaign=pagina_de_reservas" className="font-medium underline hover:text-foreground">Diária</Link>
-          {" "}— sistema para pousadas
+          , sistema para pousadas
         </footer>
       </div>
     </main>

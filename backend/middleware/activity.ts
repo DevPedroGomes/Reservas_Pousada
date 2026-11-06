@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { rotaSegura } from '../utils/rotaSegura.js';
 
 /**
  * Activity logger middleware
@@ -11,7 +12,6 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
   const logEntry = {
     timestamp: new Date().toISOString(),
     method: req.method,
-    path: req.path,
     ip: req.ip || req.socket.remoteAddress,
     userAgent: req.get('User-Agent') || 'Unknown',
   };
@@ -26,6 +26,8 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
     // produção dizerem `user: anonymous`, inclusive os 4xx/5xx, e a
     // rastreabilidade por usuário simplesmente não existia.
     const userId = req.user?.id || 'anonymous';
+    // Também só aqui: o template da rota só existe depois que ela casou.
+    const rota = rotaSegura(req);
 
     if (process.env.NODE_ENV === 'production') {
       // Structured JSON log - captured by Docker and queryable via `docker compose logs`
@@ -33,7 +35,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
         t: logEntry.timestamp,
         rid: req.id,
         method: logEntry.method,
-        path: logEntry.path,
+        path: rota,
         status: res.statusCode,
         ms: duration,
         user: userId,
@@ -45,7 +47,7 @@ export function activityLogger(req: Request, res: Response, next: NextFunction) 
         console.log(JSON.stringify(logData));
       }
     } else {
-      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${logEntry.path} | ${res.statusCode} | ${duration}ms | User: ${userId} | ${req.id ?? '-'}`;
+      const logMessage = `${logEntry.timestamp} | ${logEntry.method} ${rota} | ${res.statusCode} | ${duration}ms | User: ${userId} | ${req.id ?? '-'}`;
       console.log(logMessage);
     }
   });

@@ -10,12 +10,18 @@ import { agenteConfigurado, type MensagemLLM } from '../lib/llm.js';
 import { enfileirar, FILAS, registrarTrabalhador } from '../lib/fila.js';
 import { enviarAtendimentoSolicitado } from '../lib/email.js';
 import { cifrarSegredo, decifrarSegredo } from '../utils/crypto.js';
+import { reportarErro } from '../lib/observabilidade.js';
+import { limitesAgente } from '../config/agente.js';
+import { cotaDoAgente } from '../config/planos.js';
+import { billingHabilitado } from '../lib/stripe.js';
+import { hojeLocal } from '../utils/datas.js';
+import AssinaturaModel from './Assinatura.js';
 import { responder } from './Agente.js';
+import { primeiroAlerta, tokensHojeDaPlataforma, tokensHojeDaPousada } from './AgenteUso.js';
 import { emailsDaPousada } from './Motor.js';
 
 /** Equipe respondeu: o agente fica calado por este tempo. */
 const HORAS_HUMANO = 12;
-const LIMITE_DIARIO = () => Number(process.env.AGENTE_LIMITE_DIARIO) || 300;
 
 export class WhatsappRecusado extends Error {
   constructor(mensagem: string, readonly status: 400 | 404 | 409 | 502 = 400) {
@@ -49,6 +55,15 @@ export async function situacao(pousadaId: number) {
     : { conectado: false };
 }
 
+/** Pousada em trial tentando conectar uma WABA que já passou por outra pousada? */
+async function wabaJaUsadaEmTrial(pousadaId: number, wabaId: string): Promise<boolean> {
+  if (!billingHabilitado()) return false;
+  const efetiva = await AssinaturaModel.efetiva(pousadaId);
+  if (efetiva?.row.status !== 'trial') return false;
+  const { rows } = await pool.query(`SELECT 1 FROM whatsapp_wabas_usadas WHERE waba_id = $1 AND pousada_id <> $2`, [wabaId, pousadaId]);
+  return rows.length > 0;
+}
+
 /**
  * Fim do Embedded Signup: troca o código pelo token da conta da pousada,
  * assina os webhooks, registra o número na Cloud API (exceto coexistência,
@@ -60,24 +75,40 @@ export async function conectar(pousadaId: number, d: { code: string; wabaId: str
   }
   const { rows: [outra] } = await pool.query(`SELECT pousada_id FROM whatsapp_contas WHERE phone_number_id = $1 AND pousada_id <> $2`, [d.phoneNumberId, pousadaId]);
   if (outra) throw new WhatsappRecusado('Este número já está conectado a outra pousada.', 409);
+  if (await wabaJaUsadaEmTrial(pousadaId, d.wabaId)) {
+    throw new WhatsappRecusado('Este WhatsApp já foi usado em outra pousada do Diária. Assine um plano para conectá-lo aqui.', 409);
+  }
   const m = meta();
+  // Em coexistência o número segue no celular: não há registro nem PIN.
+  const pin = d.coexistencia ? null : String(randomInt(100000, 1000000));
   let token: string;
+  let assinou = false;
   try {
     token = await m.trocarCodigo(d.code);
+    // Os ids vêm do navegador: só a Meta diz se este número é mesmo desta conta.
+    const numeros = await m.numerosDaWaba(d.wabaId, token);
+    if (!numeros.includes(d.phoneNumberId)) throw new WhatsappRecusado('Este número não pertence à conta do WhatsApp informada. Conecte de novo e escolha o número certo.');
     await m.assinarWebhooks(d.wabaId, token);
-    if (!d.coexistencia) await m.registrarNumero(d.phoneNumberId, token, String(randomInt(100000, 1000000)));
+    assinou = true;
+    if (pin) await m.registrarNumero(d.phoneNumberId, token, pin);
   } catch (err) {
-    throw new WhatsappRecusado(`Não foi possível concluir a conexão com a Meta (${(err as Error).message}).`, 502);
+    if (err instanceof WhatsappRecusado) throw err;
+    // O detalhe da Meta fica no log; pode citar token ou identificadores internos.
+    console.error('[WhatsApp] conexão recusada pela Meta:', (err as Error).message);
+    // Sem conta gravada, a assinatura deixaria a Meta mandando eventos para ninguém.
+    if (assinou) await m.desassinarWebhooks(d.wabaId, token!).catch((e: Error) => console.warn('[WhatsApp] desassinar webhooks:', e.message));
+    throw new WhatsappRecusado('A Meta recusou a conexão. Confira o número escolhido e tente de novo.', 502);
   }
   const numero = await m.dadosDoNumero(d.phoneNumberId, token).catch(() => ({ numero: null, nome: null }));
   await pool.query(
-    `INSERT INTO whatsapp_contas (pousada_id, waba_id, phone_number_id, numero_exibicao, nome_verificado, token_cifrado, coexistencia)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO whatsapp_contas (pousada_id, waba_id, phone_number_id, numero_exibicao, nome_verificado, token_cifrado, coexistencia, pin_cifrado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (pousada_id) DO UPDATE SET waba_id = EXCLUDED.waba_id, phone_number_id = EXCLUDED.phone_number_id,
        numero_exibicao = EXCLUDED.numero_exibicao, nome_verificado = EXCLUDED.nome_verificado, token_cifrado = EXCLUDED.token_cifrado,
-       coexistencia = EXCLUDED.coexistencia, modelos_criados = false, atualizado_em = now()`,
-    [pousadaId, d.wabaId, d.phoneNumberId, numero.numero, numero.nome, cifrarSegredo(token), d.coexistencia],
+       coexistencia = EXCLUDED.coexistencia, pin_cifrado = EXCLUDED.pin_cifrado, modelos_criados = false, atualizado_em = now()`,
+    [pousadaId, d.wabaId, d.phoneNumberId, numero.numero, numero.nome, cifrarSegredo(token), d.coexistencia, pin ? cifrarSegredo(pin) : null],
   );
+  await pool.query(`INSERT INTO whatsapp_wabas_usadas (waba_id, pousada_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [d.wabaId, pousadaId]);
   // Modelos para mensagens iniciadas pela pousada (lembrete, confirmação). A
   // Meta aprova em minutos a horas; falha aqui não impede a conexão.
   let criados = 0;
@@ -97,8 +128,22 @@ export async function desconectar(pousadaId: number): Promise<void> {
   await pool.query(`DELETE FROM whatsapp_contas WHERE pousada_id = $1`, [pousadaId]);
 }
 
+/**
+ * O atendente custa dinheiro a cada resposta, e sem cobrança nenhuma pousada paga
+ * por isso nem tem plano que limite o uso. Só roda sem billing com a variável
+ * explícita de demonstração.
+ */
+function cobrancaPermiteAgente(): boolean {
+  return billingHabilitado() || process.env.AGENTE_DEMO_SEM_BILLING === 'true';
+}
+
+export function agenteDisponivel(): boolean {
+  return agenteConfigurado() && cobrancaPermiteAgente();
+}
+
 export async function definirAgente(pousadaId: number, ativo: boolean): Promise<void> {
   if (ativo && !agenteConfigurado()) throw new WhatsappRecusado('O atendente virtual ainda não está disponível nesta instalação.', 409);
+  if (ativo && !cobrancaPermiteAgente()) throw new WhatsappRecusado('O atendente virtual depende da cobrança ativa, que está desligada nesta instalação.', 409);
   const r = await pool.query(`UPDATE whatsapp_contas SET agente_ativo = $2, atualizado_em = now() WHERE pousada_id = $1`, [pousadaId, ativo]);
   if (!r.rowCount) throw new WhatsappRecusado('Conecte o WhatsApp primeiro.', 404);
 }
@@ -134,7 +179,9 @@ export async function receberWebhook(corpo: Record<string, any>): Promise<number
           const contato = String(m.from ?? '').replace(/\D/g, '');
           if (!contato || !m.id) continue;
           const texto = m.type === 'text' ? m.text?.body ?? '' : m.type === 'button' ? m.button?.text ?? '' : m.type === 'interactive' ? (m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? '') : null;
-          await enfileirar(FILAS.whatsappEntrada, { phoneNumberId, contato, nome: nomes.get(contato) ?? null, wamid: String(m.id), tipo: String(m.type), texto } satisfies Entrada as unknown as Record<string, unknown>);
+          const entrada: Entrada = { phoneNumberId, contato, nome: nomes.get(contato) ?? null, wamid: String(m.id), tipo: String(m.type), texto };
+          // A tabela de jobs não guarda a conversa em claro: o conteúdo vai cifrado, como em whatsapp_mensagens.
+          await enfileirar(FILAS.whatsappEntrada, { cifrado: cifrarSegredo(JSON.stringify(entrada)) });
           n++;
         }
       } else if (mudanca.field === 'smb_message_echoes') {
@@ -171,16 +218,44 @@ async function gravar(conversaId: number, direcao: 'entrada' | 'agente' | 'equip
 /**
  * Mensagem já gravada (reenvio da Meta ou retentativa da fila): só volta a
  * ser tratada se nada saiu depois dela — a tentativa anterior falhou antes
- * de responder.
+ * de responder. Com resposta pendente, só a própria resposta do atendente conta:
+ * o aviso de privacidade pode ter saído antes da falha.
  */
 async function idSemResposta(conversaId: number, wamid: string): Promise<number | null> {
   const { rows: [m] } = await pool.query(
     `SELECT m.id FROM whatsapp_mensagens m
       WHERE m.wamid = $1 AND m.conversa_id = $2
-        AND NOT EXISTS (SELECT 1 FROM whatsapp_mensagens d WHERE d.conversa_id = m.conversa_id AND d.id > m.id)`,
+        AND NOT EXISTS (
+          SELECT 1 FROM whatsapp_mensagens d
+           WHERE d.conversa_id = m.conversa_id AND d.id > m.id
+             AND (m.resposta_pendente_cifrada IS NULL OR d.direcao = 'agente')
+        )`,
     [wamid, conversaId],
   );
   return m?.id ?? null;
+}
+
+interface RespostaDoAgente { texto: string; transferir?: string }
+
+/** Resposta já paga ao modelo e ainda não entregue. */
+async function respostaPendente(entradaId: number): Promise<RespostaDoAgente | null> {
+  const { rows: [m] } = await pool.query(
+    `SELECT resposta_pendente_cifrada, resposta_transferir FROM whatsapp_mensagens WHERE id = $1`,
+    [entradaId],
+  );
+  if (!m?.resposta_pendente_cifrada) return null;
+  return { texto: decifrarSegredo(m.resposta_pendente_cifrada), transferir: m.resposta_transferir ?? undefined };
+}
+
+async function guardarResposta(entradaId: number, r: RespostaDoAgente): Promise<void> {
+  await pool.query(
+    `UPDATE whatsapp_mensagens SET resposta_pendente_cifrada = $2, resposta_transferir = $3 WHERE id = $1`,
+    [entradaId, cifrarSegredo(r.texto), r.transferir ?? null],
+  );
+}
+
+async function limparResposta(entradaId: number): Promise<void> {
+  await pool.query(`UPDATE whatsapp_mensagens SET resposta_pendente_cifrada = NULL, resposta_transferir = NULL WHERE id = $1`, [entradaId]);
 }
 
 /** Chegou outra mensagem do hóspede depois desta? A resposta fica para a mais nova (com o histórico todo). */
@@ -219,6 +294,60 @@ const PARAR = /^(parar|pare|sair|stop|cancelar mensagens|não quero mais mensage
 const VOLTAR = /^(voltar|start|quero receber)$/i;
 const HUMANO = /\b(atendente|humano|pessoa|recep[cç][aã]o|falar com algu[eé]m)\b/i;
 
+const AVISO_TETO = 'No momento o atendente virtual não consegue continuar por aqui. Já avisei a equipe da pousada e alguém vai responder você em breve.';
+
+interface Barreira { codigo: string; motivo: string }
+
+/**
+ * Algum teto de custo impede chamar o modelo agora? Só lê: quem decide o que
+ * dizer ao hóspede e à equipe é o chamador.
+ */
+async function barreiraDeCusto(pousadaId: number, conversaId: number): Promise<Barreira | null> {
+  const limites = limitesAgente();
+
+  // Com a cobrança desligada (demonstração), vale a menor cota.
+  let cota = cotaDoAgente({ status: 'trial', plano: null });
+  if (billingHabilitado()) {
+    const veredito = await AssinaturaModel.vereditoDaPousada(pousadaId);
+    if (veredito && !veredito.liberado) {
+      return { codigo: 'assinatura bloqueada', motivo: 'a assinatura da pousada precisa de atenção, e o atendente virtual fica parado até regularizar' };
+    }
+    const efetiva = await AssinaturaModel.efetiva(pousadaId);
+    if (efetiva) cota = cotaDoAgente(AssinaturaModel.paraEstado(efetiva.row));
+  }
+
+  const { rows: [contato] } = await pool.query(
+    `SELECT count(*)::int AS n FROM whatsapp_mensagens WHERE conversa_id = $1 AND direcao = 'entrada' AND created_at > now() - interval '1 hour'`,
+    [conversaId],
+  );
+  if (contato.n > limites.mensagensContatoHora) {
+    return { codigo: 'limite do contato', motivo: 'muitas mensagens deste contato na última hora' };
+  }
+
+  const tokensPlataforma = await tokensHojeDaPlataforma();
+  if (tokensPlataforma >= limites.tetoGlobalTokensDia) {
+    if (await primeiroAlerta(`teto-global:${hojeLocal()}`)) {
+      const erro = new Error(`Teto global do atendente virtual atingido: ${tokensPlataforma} tokens hoje (teto ${limites.tetoGlobalTokensDia}). O atendente fica desligado até a virada do dia.`);
+      console.error(erro.message);
+      reportarErro(erro, { origem: 'agente_teto_global' });
+    }
+    return { codigo: 'teto global', motivo: 'atendente virtual indisponível no momento' };
+  }
+
+  if ((await tokensHojeDaPousada(pousadaId)) >= cota.tokensDia) {
+    return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
+  }
+  const { rows: [uso] } = await pool.query(
+    `SELECT count(*)::int AS n FROM whatsapp_mensagens m JOIN whatsapp_conversas cv ON cv.id = m.conversa_id
+      WHERE cv.pousada_id = $1 AND m.direcao = 'agente' AND m.created_at > now() - interval '1 day'`,
+    [pousadaId],
+  );
+  if (uso.n >= cota.respostasDia) {
+    return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
+  }
+  return null;
+}
+
 /** Trata uma mensagem recebida (job da fila). */
 export async function tratarEntrada(e: Entrada): Promise<string> {
   const conta = await contaPorNumero(e.phoneNumberId);
@@ -240,14 +369,14 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     await enviar(conta, c.id, e.contato, 'Pronto, você voltou a receber nossas mensagens.', 'sistema');
     return 'voltou';
   }
-  if (!conta.agente_ativo || !agenteConfigurado()) return 'agente desligado';
+  if (!conta.agente_ativo || !agenteDisponivel()) return 'agente desligado';
   if (c.modo === 'humano' && c.humano_ate && new Date(c.humano_ate) > new Date()) return 'equipe na conversa';
 
   if (!c.aviso_enviado) {
     const { rows: [p] } = await pool.query(`SELECT nome FROM pousadas WHERE id = $1`, [conta.pousada_id]);
     const base = (process.env.APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
     await enviar(conta, c.id, e.contato,
-      `Olá! Sou o atendente virtual da ${p?.nome ?? 'pousada'}: consulto vagas e preços e faço sua pré-reserva. Seus dados são usados só para o seu atendimento${base ? ` (${base}/privacidade)` : ''}. Para falar com uma pessoa, escreva "atendente".`,
+      `Olá! Sou o atendente virtual da ${p?.nome ?? 'pousada'}: consulto vagas e preços e faço sua pré-reserva. Seus dados são usados para este atendimento e passam pelos fornecedores listados na política de privacidade${base ? ` (${base}/privacidade)` : ''}. Para falar com uma pessoa, escreva "atendente".`,
       'sistema');
     await pool.query(`UPDATE whatsapp_conversas SET aviso_enviado = true WHERE id = $1`, [c.id]);
   }
@@ -262,29 +391,35 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     return 'pediu humano';
   }
 
-  // Teto diário de respostas do agente por pousada (custo previsível).
-  const { rows: [uso] } = await pool.query(
-    `SELECT count(*)::int AS n FROM whatsapp_mensagens m JOIN whatsapp_conversas cv ON cv.id = m.conversa_id
-      WHERE cv.pousada_id = $1 AND m.direcao = 'agente' AND m.created_at > now() - interval '1 day'`,
-    [conta.pousada_id],
-  );
-  if (uso.n >= LIMITE_DIARIO()) {
-    await passarParaEquipe(conta, c, 'limite diário do atendente virtual');
-    return 'limite diário';
-  }
+  // Retentativa com a resposta já paga: só falta entregar. Nem o teto se aplica,
+  // porque o custo já aconteceu.
+  let r = await respostaPendente(entradaId);
+  if (!r) {
+    const barreira = await barreiraDeCusto(conta.pousada_id, c.id);
+    if (barreira) {
+      // O aviso é cortesia: Meta fora do ar não pode impedir de chamar a equipe.
+      await enviar(conta, c.id, e.contato, AVISO_TETO, 'sistema').catch((err) => console.error('[WhatsApp] aviso de teto:', err));
+      await passarParaEquipe(conta, c, barreira.motivo);
+      return barreira.codigo;
+    }
 
-  if (await superada(c.id, entradaId)) return 'superada';
-  const historico = await historicoParaAgente(c.id);
-  let r: { texto: string; transferir?: string };
-  try {
-    r = await responder({ pousadaId: conta.pousada_id, conversaId: c.id, contato: e.contato, nomeContato: c.nome_contato ?? e.nome }, historico);
-  } catch (err) {
-    // Provedor do modelo fora do ar: o hóspede não fica sem resposta.
-    console.error('[WhatsApp] atendente virtual falhou:', err);
-    r = { texto: 'Desculpe, tive um problema para responder agora. Vou chamar alguém da equipe.', transferir: 'falha do atendente virtual' };
+    if (await superada(c.id, entradaId)) return 'superada';
+    const historico = await historicoParaAgente(c.id);
+    try {
+      r = await responder({ pousadaId: conta.pousada_id, conversaId: c.id, contato: e.contato, nomeContato: c.nome_contato ?? e.nome }, historico);
+    } catch (err) {
+      // Provedor do modelo fora do ar: o hóspede não fica sem resposta.
+      console.error('[WhatsApp] atendente virtual falhou:', err);
+      r = { texto: 'Desculpe, tive um problema para responder agora. Vou chamar alguém da equipe.', transferir: 'falha do atendente virtual' };
+    }
+    await guardarResposta(entradaId, r);
   }
-  if (await superada(c.id, entradaId)) return 'superada';
+  if (await superada(c.id, entradaId)) {
+    await limparResposta(entradaId);
+    return 'superada';
+  }
   await enviar(conta, c.id, e.contato, r.texto, 'agente');
+  await limparResposta(entradaId);
   if (r.transferir) await passarParaEquipe(conta, c, r.transferir);
   return r.transferir ? 'respondeu e passou para a equipe' : 'respondeu';
 }
@@ -295,9 +430,10 @@ async function historicoParaAgente(conversaId: number): Promise<MensagemLLM[]> {
     `SELECT direcao, texto_cifrado FROM (SELECT * FROM whatsapp_mensagens WHERE conversa_id = $1 ORDER BY id DESC LIMIT 12) t ORDER BY id`,
     [conversaId],
   );
+  const { maxCharsMensagem, maxCharsHistorico } = limitesAgente();
   const msgs: MensagemLLM[] = [];
   for (const r of rows) {
-    const texto = r.texto_cifrado ? decifrarSegredo(r.texto_cifrado) : '';
+    const texto = r.texto_cifrado ? decifrarSegredo(r.texto_cifrado).slice(0, maxCharsMensagem) : '';
     if (!texto || r.direcao === 'sistema') continue;
     const nova: MensagemLLM = r.direcao === 'entrada' ? { papel: 'usuario', texto } : { papel: 'assistente', texto };
     // Mensagens seguidas do mesmo lado viram uma (os provedores alternam papéis).
@@ -305,14 +441,32 @@ async function historicoParaAgente(conversaId: number): Promise<MensagemLLM[]> {
     if (ultima && ultima.papel === nova.papel && 'texto' in ultima && ultima.texto) ultima.texto += `\n${texto}`;
     else msgs.push(nova);
   }
+  const recentes = dentroDoTeto(msgs, maxCharsHistorico);
   // O modelo precisa começar e terminar com o hóspede.
-  while (msgs.length && msgs[0].papel !== 'usuario') msgs.shift();
-  return msgs;
+  while (recentes.length && recentes[0].papel !== 'usuario') recentes.shift();
+  return recentes;
+}
+
+/** Fica com as mensagens mais novas que cabem no teto; a que estoura entra só pelo final. */
+function dentroDoTeto(msgs: MensagemLLM[], teto: number): MensagemLLM[] {
+  const cabem: MensagemLLM[] = [];
+  let restante = teto;
+  for (let i = msgs.length - 1; i >= 0 && restante > 0; i--) {
+    const m = msgs[i];
+    if (m.papel === 'ferramenta') continue;
+    const texto = m.texto ?? '';
+    cabem.unshift({ ...m, texto: texto.length > restante ? texto.slice(-restante) : texto });
+    restante -= texto.length;
+  }
+  return cabem;
 }
 
 registrarTrabalhador(FILAS.whatsappEntrada, async (dados) => {
-  const r = await tratarEntrada(dados as unknown as Entrada);
-  console.log(`[WhatsApp] entrada ${(dados as unknown as Entrada).wamid}: ${r}`);
+  // Jobs enfileirados antes da cifra ainda chegam em claro.
+  const cifrado = (dados as { cifrado?: unknown }).cifrado;
+  const entrada = (typeof cifrado === 'string' ? JSON.parse(decifrarSegredo(cifrado)) : dados) as Entrada;
+  const r = await tratarEntrada(entrada);
+  console.log(`[WhatsApp] entrada ${entrada.wamid}: ${r}`);
 });
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import AssinaturaModel from '../models/Assinatura.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { billingHabilitado } from '../lib/stripe.js';
-import { avaliarAcesso, limitesVigentes, mensagemDeBloqueio } from '../utils/assinatura.js';
+import { limitesVigentes, mensagemDeBloqueio } from '../utils/assinatura.js';
 
 /**
  * Exige assinatura em dia para usar a operação da pousada.
@@ -22,25 +22,24 @@ export async function requerAssinaturaAtiva(req: Request, res: Response, next: N
   if (!pousadaId) return next(); // requirePousada já trata a ausência de tenant
 
   try {
-    // A assinatura que VALE: a própria ou a da pagadora (pousada coberta pelo Rede).
-    const efetiva = await AssinaturaModel.efetiva(pousadaId);
+    // Vale a assinatura própria ou a da pagadora (pousada coberta pelo Rede).
+    const veredito = await AssinaturaModel.vereditoDaPousada(pousadaId);
 
     // Pousada sem linha de assinatura não deveria existir (a criação abre uma
     // na mesma transação). Se existir, é dado anterior ao billing — libera e
     // registra, porque bloquear um cliente por falha nossa de migração é pior
     // que o inverso.
-    if (!efetiva) {
+    if (!veredito) {
       console.warn(`[Billing] pousada ${pousadaId} sem linha de assinatura — liberando`);
       return next();
     }
 
-    const veredito = avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row));
     if (veredito.liberado) return next();
 
     return res.status(402).json({
       sucesso: false,
       codigo: 'BILLING_001',
-      mensagem: mensagemDeBloqueio(veredito.motivo),
+      mensagem: mensagemDeBloqueio(veredito.motivo, veredito.detalhes),
       motivo: veredito.motivo,
       precisaAssinar: true,
     });

@@ -30,7 +30,7 @@ function VerifyEmailContent() {
   }, [token]);
 
   return (
-    <Card className="shadow-lg border-slate-200/80">
+    <Card className="shadow-lg border-border">
       <CardHeader>
         <CardTitle className="text-2xl font-bold">
           {status === 'loading' && 'Verificando...'}
@@ -44,13 +44,13 @@ function VerifyEmailContent() {
       </CardHeader>
       <CardContent className="space-y-4">
         {status === 'success' && (
-          <div className={cn('rounded-xl border px-4 py-3 text-sm border-emerald-200 bg-emerald-50 text-emerald-800')}>
+          <div className={cn('rounded-xl border px-4 py-3 text-sm border-success/30 bg-success/10 text-success')}>
             {message}
           </div>
         )}
 
         {status === 'error' && (
-          <div className={cn('rounded-xl border px-4 py-3 text-sm border-rose-200 bg-rose-50 text-rose-700')}>
+          <div className={cn('rounded-xl border px-4 py-3 text-sm border-destructive/30 bg-destructive/10 text-destructive')}>
             {message}
           </div>
         )}
@@ -71,17 +71,17 @@ export default function VerifyEmailPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-500 text-2xl font-semibold text-white shadow-lg shadow-indigo-500/30">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">
               RP
             </div>
           </div>
-          <Badge variant="outline" className="uppercase tracking-[0.14em] text-[10px]">
+          <Badge variant="outline" className="text-xs">
             Verificacao de email
           </Badge>
         </div>
 
         <Suspense fallback={
-          <Card className="shadow-lg border-slate-200/80">
+          <Card className="shadow-lg border-border">
             <CardContent className="py-12 text-center text-muted-foreground">
               Verificando...
             </CardContent>

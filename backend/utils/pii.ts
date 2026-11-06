@@ -34,6 +34,13 @@ export function redigirPII(valor: unknown, profundidade = 0): unknown {
   return saida;
 }
 
+/** E-mail para log: primeira letra e domínio, o bastante para investigar entrega. */
+export function mascararEmail(email: string | null | undefined): string {
+  const [local, dominio] = String(email ?? '').split('@');
+  if (!local || !dominio) return '***';
+  return `${local[0]}***@${dominio}`;
+}
+
 /**
  * CPF mascarado: `***.***.***-NN`. Mantém os 2 últimos dígitos — o bastante
  * para a recepção conferir com o documento, sem expor o número.
@@ -43,6 +50,12 @@ export function mascararCpf(cpf: string | null | undefined): string {
   const digitos = String(cpf).replace(/\D/g, '');
   if (digitos.length < 2) return '***.***.***-**';
   return `***.***.***-${digitos.slice(-2)}`;
+}
+
+/** Chave ou segredo mascarado: só os 4 últimos caracteres, para reconhecer na auditoria. */
+export function mascararSegredo(valor: string | null | undefined): string | null {
+  if (!valor) return null;
+  return valor.length <= 4 ? '****' : `****${valor.slice(-4)}`;
 }
 
 /**

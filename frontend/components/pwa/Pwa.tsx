@@ -68,11 +68,11 @@ export function BotaoInstalar({ className }: { className?: string }) {
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => void instalar()} className={className ?? "rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"}>
+      <button type="button" onClick={() => void instalar()} className={className ?? "hidden whitespace-nowrap rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground sm:block"}>
         Instalar app
       </button>
       {ajuda && (
-        <div role="dialog" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-white p-3 text-xs shadow-lg">
+        <div role="dialog" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-border bg-card p-3 text-xs shadow-lg">
           No iPhone: toque em <strong>Compartilhar</strong> (quadrado com seta) e depois em <strong>Adicionar à Tela de Início</strong>.
         </div>
       )}

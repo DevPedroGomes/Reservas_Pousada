@@ -8,16 +8,19 @@
  * frente, mínimo de noites do tarifário respeitado, e a pré-reserva expira
  * sozinha (job) para robô nenhum segurar quarto para sempre.
  */
+import { createHash } from 'node:crypto';
+import type { Options } from 'express-rate-limit';
 import { pool } from '../db/index.js';
+import { StorePostgres } from '../utils/rateLimitStore.js';
 import AssinaturaModel from './Assinatura.js';
 import HospedeModel, { normalizarTelefone } from './Hospede.js';
 import ReservaModel, { ConflitoDeReserva } from './Reserva.js';
 import { cotar, type RegraTarifa } from './Tarifa.js';
-import { avaliarAcesso } from '../utils/assinatura.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import { hojeLocal } from '../utils/datas.js';
 import { sanitizarNome, sanitizarString, validarCPF, validarData, validarEmail } from '../utils/validation.js';
 import { normalizarDocumento } from '../utils/crypto.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 export interface ConfigMotor {
   ativo: boolean;
@@ -90,8 +93,8 @@ async function carregarPousada(campo: 'slug' | 'id', valor: string | number): Pr
   if (!p) return null;
   const motor = configMotor(p.configuracoes);
   if (billingHabilitado()) {
-    const efetiva = await AssinaturaModel.efetiva(p.id);
-    if (efetiva && !avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row)).liberado) return null;
+    const veredito = await AssinaturaModel.vereditoDaPousada(p.id);
+    if (veredito && !veredito.liberado) return null;
   }
   return {
     id: p.id, slug: p.slug, nome: p.nome, cidade: p.cidade, estado: p.estado, telefone: p.telefone,
@@ -168,12 +171,25 @@ export class PedidoRecusado extends Error {
   }
 }
 
+/** O que fica gravado na reserva: quando, sob qual versão da política e de que forma (migration 035). */
+export interface RegistroDeAceite {
+  em: Date;
+  versao: string;
+  forma: 'marcado_no_site' | 'informado_no_whatsapp';
+}
+
 export interface PedidoPublico {
   quarto: number; entrada: string; saida: string; adultos: number; criancas: number;
   nome: string; telefone: string; email: string | null; documento: string | null; observacoes: string | null;
+  aceite: RegistroDeAceite;
 }
 
-export function lerPedido(corpo: Record<string, unknown>): { pedido: PedidoPublico; erros: string[] } {
+/**
+ * Lê o pedido. Sem `aviso`, é o formulário do site, e a caixa precisa ter vindo
+ * marcada. Com `aviso`, o canal não tem caixa: o registro diz que a pessoa foi
+ * informada, nunca que aceitou.
+ */
+export function lerPedido(corpo: Record<string, unknown>, aviso?: RegistroDeAceite): { pedido: PedidoPublico; erros: string[] } {
   const erros: string[] = [];
   const nome = sanitizarNome(String(corpo.nome ?? ''));
   if (nome.split(' ').filter(Boolean).length < 2) erros.push('Informe nome e sobrenome.');
@@ -196,14 +212,39 @@ export function lerPedido(corpo: Record<string, unknown>): { pedido: PedidoPubli
   const criancas = Number(corpo.criancas ?? 0);
   if (!Number.isInteger(adultos) || adultos < 1 || adultos > 20) erros.push('Número de adultos inválido.');
   if (!Number.isInteger(criancas) || criancas < 0 || criancas > 20) erros.push('Número de crianças inválido.');
-  if (corpo.aceite !== true) erros.push('É preciso concordar com o uso dos dados para a reserva.');
+  if (!aviso && corpo.aceite !== true) erros.push('É preciso concordar com o uso dos dados para a reserva.');
   return {
     pedido: {
       quarto: Number(corpo.quarto), entrada: String(corpo.entrada ?? ''), saida: String(corpo.saida ?? ''), adultos, criancas,
       nome, telefone, email, documento, observacoes: sanitizarString(String(corpo.observacoes ?? ''), 500, true) || null,
+      aceite: aviso ?? { em: new Date(), versao: VERSAO_POLITICA, forma: 'marcado_no_site' },
     },
     erros,
   };
+}
+
+const MAX_PEDIDOS_ABERTOS_POR_CONTATO = 3;
+
+/** Pedidos públicos em aberto por pousada: metade dos quartos, nunca menos de 3. */
+function limitePedidosAbertos(quartos: number): number {
+  return Math.max(3, Math.ceil(quartos / 2));
+}
+
+const MAX_RECIBOS_POR_EMAIL_DIA = 3;
+const recibosPorEmail = new StorePostgres(pool, 'recibo-email');
+recibosPorEmail.init({ windowMs: 24 * 3600_000 } as Options);
+
+/**
+ * Recibo ao hóspede é e-mail para endereço que ninguém confirmou: sem limite,
+ * o pedido público vira bomba de e-mail contra terceiro. Conta por endereço,
+ * somando todas as pousadas e ignorando a +etiqueta. O contador guarda o hash,
+ * não o e-mail.
+ */
+export async function podeEnviarRecibo(email: string): Promise<boolean> {
+  const [local, dominio] = email.trim().toLowerCase().split('@');
+  const chave = createHash('sha256').update(`${local.split('+')[0]}@${dominio}`).digest('hex');
+  const { totalHits } = await recibosPorEmail.increment(chave);
+  return totalHits <= MAX_RECIBOS_POR_EMAIL_DIA;
 }
 
 /** Cria a pré-reserva do pedido público. */
@@ -223,7 +264,26 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
       WHERE r.pousada_id = $1 AND h.telefone = $2 AND r.status = 'pre_reserva' AND r.canal = $3 AND r.deleted_at IS NULL`,
     [p.id, pedido.telefone, canal],
   );
-  if (abertas.n >= 3) throw new PedidoRecusado('Já há pedidos em aberto com este WhatsApp. A pousada vai responder em breve.', 409);
+  if (abertas.n >= MAX_PEDIDOS_ABERTOS_POR_CONTATO) throw new PedidoRecusado('Já há pedidos em aberto com este WhatsApp. A pousada vai responder em breve.', 409);
+
+  if (pedido.email) {
+    const { rows: [doEmail] } = await pool.query(
+      `SELECT count(*)::int AS n FROM reservas r JOIN hospedes h ON h.id = r.hospede_id
+        WHERE r.pousada_id = $1 AND lower(h.email) = lower($2) AND r.status = 'pre_reserva' AND r.canal IN ('site', 'whatsapp') AND r.deleted_at IS NULL`,
+      [p.id, pedido.email],
+    );
+    if (doEmail.n >= MAX_PEDIDOS_ABERTOS_POR_CONTATO) throw new PedidoRecusado('Já há pedidos em aberto com este e-mail. A pousada vai responder em breve.', 409);
+  }
+
+  // Freio por pousada: pedidos em aberto de canal público não fecham o estoque.
+  const { rows: [daPousada] } = await pool.query(
+    `SELECT (SELECT count(*)::int FROM reservas WHERE pousada_id = $1 AND status = 'pre_reserva' AND canal IN ('site', 'whatsapp') AND deleted_at IS NULL) AS abertos,
+            (SELECT count(*)::int FROM quartos WHERE pousada_id = $1 AND ativo) AS quartos`,
+    [p.id],
+  );
+  if (daPousada.abertos >= limitePedidosAbertos(daPousada.quartos)) {
+    throw new PedidoRecusado('Há muitos pedidos aguardando confirmação agora. Fale direto com a pousada.', 409);
+  }
 
   const hospede = await HospedeModel.resolver(p.id, {
     nome: pedido.nome,
@@ -232,7 +292,7 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
     ...(pedido.documento
       ? { tipoDocumento: /^\d{11}$/.test(pedido.documento) ? 'cpf' as const : 'passaporte' as const, documento: pedido.documento }
       : { tipoDocumento: 'cpf' as const }),
-  });
+  }, null, { origem: 'publico' });
   const expiraEm = new Date(Date.now() + p.motor.prazoHoras * 3600_000);
   try {
     const reserva = await ReservaModel.criar({
@@ -248,7 +308,10 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
       adultos: pedido.adultos,
       criancas: pedido.criancas,
       canal,
-      observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes].filter(Boolean).join(' '),
+      aceiteEm: pedido.aceite.em,
+      aceiteVersao: pedido.aceite.versao,
+      aceiteForma: pedido.aceite.forma,
+      observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes, hospede.revisaoMotivo].filter(Boolean).join(' '),
     });
     const totalCentavos = quarto.totalCentavos ?? 0;
     return {

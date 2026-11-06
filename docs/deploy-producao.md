@@ -17,9 +17,11 @@ variável** vai.
 push na main ──> GitHub Actions: testes ──> build das imagens ──> GHCR (tags <sha> e latest)
                                                                   │
 VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) ──> central-db (Postgres)
+                                                                  │
+GitHub Actions: verificar-producao ──> /health/live serve o sha publicado? (até 15 min; senão, run vermelho)
 ```
 
-- Domínios: `https://diaria.pgdev.com.br` (app) e `https://api.diaria.pgdev.com.br` (API).
+- Domínios: `https://diaria.gomio.com.br` (app) e `https://api.diaria.gomio.com.br` (API).
 - As migrations rodam sozinhas quando a API sobe; se alguma falha, a API não
   sobe (de propósito).
 - Mudou o `.env` da VPS → `docker compose up -d` (recria só o que mudou).
@@ -27,18 +29,20 @@ VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) �
   "Build & push image (VPS auto-pulls)" → Run workflow* (ou qualquer push na
   `main`).
 - Rollback para uma versão exata: README, seção *Release and rollback*.
+- Run vermelho em `verificar-producao` = a imagem foi publicada e a VPS não está
+  servindo: vá para a seção [Recuperação](#recuperação-produção-atrasada).
 
 ### O que é obrigatório e o que é opcional
 
 | Serviço | Para quê | Obrigatório? |
 |---|---|---|
 | Segredos da VPS | a API nem sobe sem eles | **sim** |
-| Resend (e-mail) | confirmar cadastro, redefinir senha, convites, avisos | **sim** (sem ele ninguém novo entra) |
+| Resend (e-mail) | confirmar cadastro, redefinir senha, convites, avisos | **sim** (sem `RESEND_API_KEY` a API não sobe em produção) |
 | Dados da empresa | política de privacidade e termos | **sim** (antes de divulgar) |
 | Backup + cópia das chaves | não perder os dados | **sim** |
 | Monitor de uptime + Sentry | saber da queda antes do cliente | **sim** |
 | Google OAuth | "Continuar com Google" | opcional (recomendado) |
-| Stripe | cobrar a assinatura | quando for cobrar |
+| Stripe | cobrar a assinatura | quando for cobrar (`BILLING_ENABLED=true` sem `STRIPE_WEBHOOK_SECRET` não sobe) |
 | GA4 / Meta Pixel | medir anúncios | opcional |
 | Meta (WhatsApp) + Anthropic | WhatsApp da pousada e atendente virtual | opcional |
 | Asaas | Pix automático | nada global: cada pousada liga a dela |
@@ -52,12 +56,12 @@ Gere na sua máquina e cole no `.env`:
 ```bash
 openssl rand -base64 32   # BETTER_AUTH_SECRET
 openssl rand -hex 32      # CPF_ENCRYPTION_KEY (64 caracteres hex)
-openssl rand -base64 24   # POSTGRES_PASSWORD (se ainda não existe)
+openssl rand -hex 24      # POSTGRES_PASSWORD (se ainda não existe)
 ```
 
 | Variável | Observação |
 |---|---|
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | o banco precisa existir na `central-db` |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | o banco precisa existir na `central-db`; a senha entra na `DATABASE_URL`, por isso hex: `/`, `+` e `=` do base64 quebram a URL |
 | `BETTER_AUTH_SECRET` | assina as sessões; trocar desloga todo mundo |
 | `CPF_ENCRYPTION_KEY` | cifra CPF, documentos, tokens de integração e mensagens do WhatsApp |
 | `APP_TIMEZONE` | `America/Sao_Paulo` |
@@ -74,25 +78,25 @@ recupera os dados cifrados; chave junto do backup não protege nada.
 
 ## 2. E-mail — Resend **[VPS]** — obrigatório e urgente
 
-O login exige e-mail confirmado. Sem Resend o link não é enviado e **nenhum
-cadastro novo consegue entrar**. Quem já tinha conta e nunca confirmou o
-e-mail também fica preso (o sistema reenvia o link no login, mas sem Resend
-ele não sai).
+O login exige e-mail confirmado, e sem Resend o link não sai. Por isso, em
+produção, **a API se recusa a subir sem `RESEND_API_KEY`**: é melhor o deploy
+falhar com a mensagem no log do que nenhum cadastro novo conseguir entrar sem
+ninguém perceber.
 
 1. Crie a conta em <https://resend.com>.
-2. **Domains → Add domain** → `pgdev.com.br` (ou o domínio da marca, quando
+2. **Domains → Add domain** → `gomio.com.br` (ou o domínio da marca, quando
    tiver).
 3. O Resend mostra os registros DNS (DKIM em `resend._domainkey`, MX e SPF
    num subdomínio de envio). Crie todos no seu DNS e clique em **Verify**.
 4. Crie também o DMARC no DNS (se ainda não existe):
-   `_dmarc.pgdev.com.br  TXT  "v=DMARC1; p=none; rua=mailto:seu-email@..."`
+   `_dmarc.gomio.com.br  TXT  "v=DMARC1; p=none; rua=mailto:seu-email@..."`
    (depois de algumas semanas sem problema, suba para `p=quarantine`).
 5. **API Keys → Create API key** → permissão *Sending access*, restrita ao
    domínio → copie.
 6. No `.env`:
    ```
    RESEND_API_KEY=re_...
-   EMAIL_FROM=Diária <noreply@pgdev.com.br>
+   EMAIL_FROM=Diária <noreply@gomio.com.br>
    EMAIL_REPLY_TO=contato@seudominio.com.br
    ```
 7. `docker compose up -d backend` e veja no log:
@@ -133,7 +137,7 @@ preenchido (de propósito, para não ir ao ar com dado inventado).
 
 2. *Actions → "Build & push image (VPS auto-pulls)" → Run workflow* (branch
    `main`). Quando terminar, a VPS puxa a imagem nova.
-3. Confira `https://diaria.pgdev.com.br/privacidade` — nenhum "[a definir]".
+3. Confira `https://diaria.gomio.com.br/privacidade` — nenhum "[a definir]".
 4. **Peça a um advogado para revisar** a política e os termos.
 
 ---
@@ -163,10 +167,10 @@ Garanta, no mínimo:
 ## 5. Monitoramento **[VPS]** — obrigatório
 
 **Uptime** (UptimeRobot, Better Stack ou similar, plano grátis serve):
-- Monitor HTTP(S) em `https://api.diaria.pgdev.com.br/health`, a cada 1–5 min,
+- Monitor HTTP(S) em `https://api.diaria.gomio.com.br/health`, a cada 1–5 min,
   esperando status 200 e a palavra `healthy`. Ele responde **503** quando o
   banco cai — é o alerta que importa.
-- Monitor em `https://diaria.pgdev.com.br`.
+- Monitor em `https://diaria.gomio.com.br`.
 - Alerta de vencimento do certificado.
 - Avisos por e-mail + Telegram/WhatsApp.
 
@@ -199,10 +203,10 @@ permanente à conta Google).
    - Público (*Audience*): **Externo**.
    - E-mail de contato do desenvolvedor → concordar → criar.
 3. **Branding** (Marca):
-   - Página inicial: `https://diaria.pgdev.com.br`
-   - Política de privacidade: `https://diaria.pgdev.com.br/privacidade`
-   - Termos de serviço: `https://diaria.pgdev.com.br/termos`
-   - Domínios autorizados: `pgdev.com.br`
+   - Página inicial: `https://diaria.gomio.com.br`
+   - Política de privacidade: `https://diaria.gomio.com.br/privacidade`
+   - Termos de serviço: `https://diaria.gomio.com.br/termos`
+   - Domínios autorizados: `gomio.com.br`
    - Logo: opcional. **Com logo, o Google exige verificação da marca (alguns
      dias)**; sem logo, pode publicar na hora.
 4. **Data access** (Acesso a dados): os escopos usados são `openid`,
@@ -212,9 +216,9 @@ permanente à conta Google).
    e-mails cadastrados como testadores conseguem entrar.
 6. **Clients → Create client** → tipo **Aplicativo da Web** → nome
    "Diária produção":
-   - Origens JavaScript autorizadas: `https://diaria.pgdev.com.br`
+   - Origens JavaScript autorizadas: `https://diaria.gomio.com.br`
    - URIs de redirecionamento autorizados:
-     `https://api.diaria.pgdev.com.br/api/auth/callback/google`
+     `https://api.diaria.gomio.com.br/api/auth/callback/google`
    - Criar → **copie o Client ID e o Client secret na hora** (o Google pode não
      mostrar o secret de novo; baixe o JSON).
 7. No `.env` **[VPS]**:
@@ -222,7 +226,7 @@ permanente à conta Google).
    GOOGLE_CLIENT_ID=....apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
-8. `docker compose up -d backend` → `https://api.diaria.pgdev.com.br/api/config`
+8. `docker compose up -d backend` → `https://api.diaria.gomio.com.br/api/config`
    deve responder `"google":true` → o botão aparece em `/entrar` e `/cadastro`.
 9. Teste: entrar com uma conta Google nova (vai para o onboarding) e com um
    link de convite (vai para o convite).
@@ -255,10 +259,11 @@ modo live (chaves, preços e webhook são diferentes em cada modo).
    Copie o id de cada preço (`price_...`). Plano sem preço configurado não
    aparece na tela de planos.
 4. **Desenvolvedores → Webhooks → Adicionar destino**:
-   - URL: `https://api.diaria.pgdev.com.br/api/webhooks/stripe`
+   - URL: `https://api.diaria.gomio.com.br/api/webhooks/stripe`
    - Eventos: `checkout.session.completed`, `customer.subscription.created`,
      `customer.subscription.updated`, `customer.subscription.deleted`,
-     `invoice.paid`, `invoice.payment_failed`
+     `invoice.paid`, `invoice.payment_failed`, `charge.refunded`,
+     `charge.dispute.created`, `charge.dispute.closed`
    - Copie o **segredo de assinatura** (`whsec_...`) → `STRIPE_WEBHOOK_SECRET`.
 5. **Desenvolvedores → Chaves de API** → chave secreta (`sk_test_...` /
    `sk_live_...`) → `STRIPE_SECRET_KEY`.
@@ -268,7 +273,7 @@ modo live (chaves, preços e webhook são diferentes em cada modo).
    - cancelar assinatura (no fim do período);
    - **trocar de plano**: adicione os três produtos com os seus preços;
    - links de termos e privacidade; link de retorno
-     `https://diaria.pgdev.com.br/assinatura`.
+     `https://diaria.gomio.com.br/assinatura`.
 7. **Configurações → E-mails para clientes**: recibos de pagamento e aviso de
    pagamento com falha. Em **Billing → Recuperação de receita**, deixe as
    novas tentativas automáticas (Smart Retries) ligadas.
@@ -294,7 +299,7 @@ com anúncios no cadastro.
 
 **GA4**
 1. <https://analytics.google.com> → *Administrador → Criar propriedade* →
-   *Fluxo de dados da Web* → `https://diaria.pgdev.com.br`.
+   *Fluxo de dados da Web* → `https://diaria.gomio.com.br`.
 2. **ID da métrica** (`G-XXXXXXX`) → `NEXT_PUBLIC_GA_ID` **[GitHub]** e
    `GA_MEASUREMENT_ID` **[VPS]**.
 3. No fluxo de dados → *Chaves secretas da API do Measurement Protocol* →
@@ -310,7 +315,7 @@ com anúncios no cadastro.
 3. No pixel → *Configurações → API de Conversões → Gerar token de acesso* →
    `META_CAPI_TOKEN` **[VPS]**.
 4. *Configurações do negócio → Segurança da marca → Domínios* → adicione e
-   verifique `pgdev.com.br` (registro TXT no DNS).
+   verifique `gomio.com.br` (registro TXT no DNS).
 
 Depois: **Run workflow** (passo 3) para as `NEXT_PUBLIC_*` entrarem no build,
 e `docker compose up -d backend` para as da VPS.
@@ -328,7 +333,7 @@ Resumo:
    produtos WhatsApp e *Facebook Login for Business* — o cliente vê "Diária"
    no cadastro, e um problema em outro produto não derruba este.
 3. Configuração do **Embedded Signup** → `META_CONFIG_ID`.
-4. **Webhook** do app: `https://api.diaria.pgdev.com.br/api/webhooks/whatsapp`,
+4. **Webhook** do app: `https://api.diaria.gomio.com.br/api/webhooks/whatsapp`,
    token = `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (`openssl rand -hex 24`), campos
    `messages` e `smb_message_echoes`.
 5. `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`,
@@ -341,8 +346,10 @@ Resumo:
 1. <https://console.anthropic.com> → crie um *workspace* "Diária" → *API
    Keys → Create key* → `AGENTE_API_KEY` **[VPS]**.
 2. Em *Limits/Billing*, defina um **limite de gasto mensal**.
-3. `AGENTE_LIMITE_DIARIO=300` (respostas por pousada em 24h; acima disso a
-   conversa vai para a equipe).
+3. Cota diária por plano em `backend/config/planos.ts`; `AGENTE_TETO_GLOBAL_TOKENS_DIA`
+   desliga o atendente na plataforma inteira. Acima de qualquer teto, o hóspede
+   é avisado e a conversa vai para a equipe. Com `BILLING_ENABLED=false` o
+   atendente não roda, salvo `AGENTE_DEMO_SEM_BILLING=true`.
 4. Opcional: `AGENTE_MODELO` (padrão `claude-haiku-4-5-20251001`), ou
    `AGENTE_PROVEDOR=openai` + `AGENTE_BASE_URL` para uma API compatível.
 
@@ -353,7 +360,7 @@ Resumo:
 Cada pousada configura a própria conta em *Configurações → Pix para o sinal*:
 a chave Pix (QR copia e cola, confirmação manual) e, se quiser, a chave de
 API do Asaas (confirmação automática). O webhook é registrado sozinho na conta
-dela, apontando para `https://api.diaria.pgdev.com.br/api/webhooks/pix/asaas/...`.
+dela, apontando para `https://api.diaria.gomio.com.br/api/webhooks/pix/asaas/...`.
 Do seu lado, só garanta que a API está pública em HTTPS (já está).
 
 ---
@@ -366,13 +373,13 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
    docker compose logs -f backend
    ```
    No log, espere ver:
-   - `[migrate] aplicada 025_whatsapp_business.sql` (na primeira subida desta versão);
+   - `[migrate] schema em dia` ou a lista de migrations aplicadas;
    - `[Fila] pg-boss iniciado`;
    - `[Email] Resend configurado com sucesso`.
 2. **GitHub**: Variables do passo 3 (e 8) → *Run workflow* → a VPS puxa o
    frontend novo (ou `docker compose pull frontend && docker compose up -d frontend`).
 3. **Teste de ponta a ponta em produção** (com um e-mail seu):
-   - [ ] `https://api.diaria.pgdev.com.br/health` → `healthy`
+   - [ ] `https://api.diaria.gomio.com.br/health` → `healthy`
    - [ ] cadastro por e-mail → e-mail chega → onboarding → pousada criada
    - [ ] "Continuar com Google" (se ligou o passo 6)
    - [ ] convidar alguém da equipe → o convite chega → a pessoa entra
@@ -388,6 +395,153 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
    `docker compose pull backend frontend && docker compose up -d backend frontend`
    (README → *Release and rollback*). Migrations não voltam: por isso cada
    versão é compatível com a anterior.
+
+---
+
+## Recuperação: produção atrasada
+
+Sintoma: `verificar-producao` vermelho, ou `/health/live` sem o campo `version`,
+ou com um sha que não é o último publicado. Nada se perde enquanto a VPS está
+parada; o risco está em subir tudo de uma vez sem preparo. Siga na ordem. Os
+comandos rodam na VPS, na pasta do `docker-compose.yml`, salvo indicação.
+
+### 1. Diagnosticar por que o auto-pull parou
+
+```bash
+# O timer existe e rodou? Procure pela última e pela próxima execução.
+systemctl list-timers --all | grep -iE 'pull|deploy|reservas|diaria'
+
+# O que aconteceu nas últimas execuções (troque pelo nome visto acima).
+journalctl -u <unidade> --since "14 days ago" --no-pager | tail -50
+
+# Congelamento manual: com este arquivo o deploy não anda.
+ls -la .deploy-freeze
+
+# Login no GHCR vencido: "denied" ou "unauthorized" aqui é a causa.
+docker pull ghcr.io/devpedrogomes/reservas_pousada/backend:latest
+
+# Digest do que está rodando e do que está publicado. Diferentes = atrasado.
+docker inspect reservas-backend --format '{{.Image}}'
+docker image inspect "$(docker inspect reservas-backend --format '{{.Image}}')" --format '{{json .RepoDigests}}'
+docker buildx imagetools inspect ghcr.io/devpedrogomes/reservas_pousada/backend:latest | grep Digest
+```
+
+Se o login venceu: `docker login ghcr.io -u <usuário>` com um token de leitura de
+pacotes. Corrija a causa antes de seguir, ou a próxima versão também vai parar.
+Enquanto a recuperação não termina, deixe o auto-pull sem agir:
+`touch .deploy-freeze`, se é esse o mecanismo em uso, e confira no passo acima
+que o timer respeita o arquivo.
+
+### 2. Backup e marcação da versão atual
+
+```bash
+# Banco, para fora da VPS. É o único caminho de volta: migration não desfaz.
+docker exec central-db pg_dump -U <POSTGRES_USER> -Fc <POSTGRES_DB> > /backups/diaria-antes-recuperacao.dump
+docker exec -i central-db pg_restore --list < /backups/diaria-antes-recuperacao.dump | head -3
+
+# Imagens atuais, com tag local: sem isso um `docker image prune` as apaga.
+for servico in backend frontend; do
+  docker tag "$(docker inspect reservas-$servico --format '{{.Image}}')" \
+    ghcr.io/devpedrogomes/reservas_pousada/$servico:antes-recuperacao
+done
+
+# Configuração.
+cp .env .env.antes-recuperacao
+cp docker-compose.yml docker-compose.yml.antes-recuperacao
+```
+
+Anote a versão atual do schema, para saber o tamanho do salto:
+
+```bash
+docker exec central-db psql -U <POSTGRES_USER> -d <POSTGRES_DB> \
+  -c "SELECT count(*), max(version) FROM schema_migrations"
+```
+
+### 3. Preparar o `.env` antes de trocar a imagem
+
+Um salto grande (na última medição, 48 commits e 25 migrations) traz regras novas
+que derrubam o boot ou mudam o comportamento:
+
+- `RESEND_API_KEY` tem de existir, senão a API não sobe. Com `BILLING_ENABLED=true`,
+  também `STRIPE_WEBHOOK_SECRET`.
+- `CPF_ENCRYPTION_KEY`: 64 caracteres hex, **a mesma de sempre**. Chave nova torna
+  ilegível o que já está cifrado. Sem ela a API também não sobe.
+- Login passa a exigir e-mail confirmado: quem nunca confirmou recebe o link ao
+  entrar. Decida antes se marca as contas antigas como confirmadas (seção 2 deste guia).
+- `IMAGE_TAG=<sha de 12 caracteres>`, copiado do resumo do run no GitHub Actions
+  ("Publicado: ..."). **Use a tag por sha, não `latest`**: `latest` pode mudar no
+  meio da operação, e a recuperação precisa de uma versão só nas duas imagens.
+
+Atualize também o `docker-compose.yml` para o do mesmo commit: ele traz os cabeçalhos
+novos, as variáveis novas e a rotação de log.
+
+### 4. Subir na ordem certa
+
+```bash
+docker compose pull backend frontend
+
+# Backend sozinho primeiro: as migrations rodam no boot, antes de aceitar tráfego.
+docker compose up -d backend
+docker compose logs -f backend
+```
+
+Cada migration roda numa transação. Se uma falhar, ela é desfeita, a API não sobe
+e o log diz qual foi; as anteriores continuam aplicadas. Espere ver a lista de
+pendentes, `[Fila] pg-boss iniciado` e `Servidor rodando na porta 4000`. Só então:
+
+```bash
+curl -fsS https://api.diaria.gomio.com.br/health
+docker compose up -d frontend
+```
+
+Entre um passo e outro o frontend antigo fala com a API nova: faça em minutos, fora
+do horário de check-in. Se a API não subir e o problema não for resolvido na hora,
+volte com `IMAGE_TAG=antes-recuperacao`, restaurando **antes** o dump do passo 2:
+com um salto deste tamanho, a imagem antiga não é garantida contra o schema novo.
+
+### 5. Conferir
+
+```bash
+# A versão é o sha do IMAGE_TAG.
+curl -fsS https://api.diaria.gomio.com.br/health/live
+curl -fsS https://api.diaria.gomio.com.br/health
+
+# Esqueci a senha: o caminho antigo não existe; o novo responde 200 (use um e-mail seu).
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/auth/forget-password
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/auth/request-password-reset \
+  -H 'Content-Type: application/json' -H 'Origin: https://diaria.gomio.com.br' \
+  -d '{"email":"seu@email.com","redirectTo":"https://diaria.gomio.com.br/reset-password"}'
+
+# Escrita com cookie de outra origem: 403.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/pousadas \
+  -H 'Cookie: a=1' -H 'Origin: https://outro.gomio.com.br'
+
+# Cabeçalhos novos do frontend.
+curl -sI https://diaria.gomio.com.br | grep -iE 'content-security-policy|permissions-policy'
+```
+
+Depois, o roteiro da seção 11, item 3. Por fim:
+
+1. Tire `IMAGE_TAG` do `.env` para voltar a seguir `latest`, ou o auto-pull continua
+   preso nesta versão, e remova o `.deploy-freeze`, se criou.
+2. Confirme que o timer roda: `systemctl list-timers --all`.
+3. No GitHub Actions, *Re-run* no `verificar-producao` do último push: tem de ficar verde.
+4. Mantenha o dump e as tags `antes-recuperacao` por alguns dias.
+
+---
+
+## Dependências: o que o `npm audit` ainda mostra
+
+O CI falha com aviso alto ou crítico em dependência de produção (`npm audit --omit=dev
+--audit-level=high`) e publica o relatório inteiro no resumo do job. Sem exceção
+silenciosa: para aceitar um aviso, a mudança precisa aparecer no workflow, num commit.
+
+Abaixo do corte, hoje, restam só 4 avisos moderados no backend, todos do mesmo caso:
+`esbuild` antigo dentro do `drizzle-kit` (GHSA-67mh-4wv8-2f99). O `drizzle-kit` é
+ferramenta de geração de migration, peer opcional do `better-auth`, e o aviso diz
+respeito ao servidor de desenvolvimento do esbuild, que nada sobe em produção. A
+correção sugerida pelo `npm audit fix --force` rebaixaria o `drizzle-kit` para uma
+versão incompatível; fica para quando ele trocar a dependência.
 
 ---
 
@@ -408,10 +562,18 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
 | `NEXT_PUBLIC_GA_ID`, `NEXT_PUBLIC_META_PIXEL_ID` | GitHub | não | 8 |
 | `GA_MEASUREMENT_ID`, `GA_API_SECRET`, `META_PIXEL_ID`, `META_CAPI_TOKEN` | VPS | não | 8 |
 | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | VPS | não | 9 |
-| `AGENTE_API_KEY`, `AGENTE_PROVEDOR`, `AGENTE_MODELO`, `AGENTE_BASE_URL`, `AGENTE_LIMITE_DIARIO` | VPS | não | 9 |
+| `AGENTE_API_KEY`, `AGENTE_PROVEDOR`, `AGENTE_MODELO`, `AGENTE_BASE_URL`, `AGENTE_PRECO_*`, `AGENTE_COTACAO_USD_BRL`, `AGENTE_TETO_GLOBAL_TOKENS_DIA`, `AGENTE_LIMITE_CONTATO_HORA`, `AGENTE_MAX_CHARS_*`, `AGENTE_DEMO_SEM_BILLING` | VPS | não | 9 |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | VPS | não (número da plataforma para lembretes) | — |
+| `WHATSAPP_MODELO_LEMBRETE`, `WHATSAPP_IDIOMA` | VPS | não (padrões `lembrete_chegada`, `pt_BR`) | — |
+| `ANTHROPIC_API_KEY` | VPS | não (alternativa a `AGENTE_API_KEY`) | 9 |
+| `API_PUBLIC_URL` | VPS | não (padrão: `BETTER_AUTH_URL`) | — |
+| `AUDITORIA_RETENCAO_MESES` | VPS | não (padrão e mínimo: 6) | — |
+| `FILA_HABILITADA`, `FILA_POOL_MAX`, `RATE_LIMIT_STORE` | VPS | não (padrões `true`, `3`, `postgres`) | — |
 | `DB_POOL_MAX`, `DB_POOL_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS` | VPS | não | — |
 
 Definidas no próprio `docker-compose.yml` (não mexa no `.env`):
 `DATABASE_URL`, `BETTER_AUTH_URL`, `CORS_ORIGIN`, `APP_URL`,
 `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`.
+
+`APP_VERSION` é build arg: o CI grava o commit na imagem do backend. Não entra no
+`.env` da VPS nem em `environment` do compose, que apagaria o valor da imagem.

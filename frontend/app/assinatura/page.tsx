@@ -12,6 +12,7 @@ import { useAuth } from "../../hooks/useAuth"
 import { formatarPreco, useAssinatura } from "../../hooks/useAssinatura"
 import { formatarData } from "../../lib/formatters"
 import type { SituacaoAssinatura } from "../../lib/types"
+import { SimboloPorta } from "../../components/landing/MarcaDiaria"
 
 /**
  * `useSearchParams` obriga a ter Suspense no App Router — sem ele o
@@ -85,10 +86,10 @@ function ConteudoAssinatura() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border/50 bg-white/80 backdrop-blur-md">
+      <header className="border-b border-border/50 bg-card/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 h-14">
           <Link href="/painel" className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <SimboloPorta className="h-8 w-8" />
             <span className="text-sm font-semibold">Diária</span>
           </Link>
           <Link href="/painel">
@@ -99,29 +100,29 @@ function ConteudoAssinatura() {
 
       <div className="mx-auto max-w-5xl px-6 py-8 space-y-6">
         {confirmando && (
-          <div className="rounded-lg border border-sky-200/80 bg-sky-50/80 px-4 py-3 flex items-center gap-3">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-sky-600 border-t-transparent" />
-            <p className="text-sm text-sky-800">Confirmando seu pagamento com o Stripe...</p>
+          <div className="rounded-lg border border-primary/25 bg-accent px-4 py-3 flex items-center gap-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="text-sm text-accent-foreground">Confirmando seu pagamento com o Stripe...</p>
           </div>
         )}
 
         {params.get("status") === "cancelado" && (
           <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
             <p className="text-sm text-muted-foreground">
-              Pagamento não concluído. Nada foi cobrado — você pode escolher um plano quando quiser.
+              Pagamento não concluído. Nada foi cobrado, você pode escolher um plano quando quiser.
             </p>
           </div>
         )}
 
         {a.erro && (
-          <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3">
-            <p className="text-sm text-rose-800">{a.erro}</p>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3">
+            <p className="text-sm text-destructive">{a.erro}</p>
           </div>
         )}
 
         {a.aviso && (
-          <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-4 py-3">
-            <p className="text-sm text-emerald-800">{a.aviso}</p>
+          <div className="rounded-lg border border-success/30 bg-success/10 px-4 py-3">
+            <p className="text-sm text-success">{a.aviso}</p>
           </div>
         )}
 
@@ -162,7 +163,7 @@ function ConteudoAssinatura() {
                 <CardHeader>
                   <CardTitle className="text-base">Gerenciar assinatura</CardTitle>
                   <CardDescription>
-                    Trocar cartão, ver faturas ou cancelar — no ambiente seguro do Stripe.
+                    Trocar cartão, ver faturas ou cancelar, no ambiente seguro do Stripe.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -179,7 +180,7 @@ function ConteudoAssinatura() {
                   <h2 className="text-lg font-semibold">
                     {temAssinatura ? "Trocar de plano" : "Escolha seu plano"}
                   </h2>
-                  <div className="inline-flex rounded-lg border border-border bg-white p-0.5">
+                  <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
                     {(["mensal", "anual"] as const).map((c) => (
                       <button
                         key={c}
@@ -221,7 +222,7 @@ function ConteudoAssinatura() {
                           <ul className="space-y-1.5">
                             {p.destaques.map((d: string) => (
                               <li key={d} className="flex items-start gap-2 text-sm text-muted-foreground">
-                                <svg className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <svg className="h-4 w-4 mt-0.5 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                 </svg>
                                 {d}
@@ -302,7 +303,7 @@ function CartaoSituacao({ situacao }: { situacao: SituacaoAssinatura | null }) {
         </div>
         <CardDescription>
           {situacao.status === "trial" && situacao.liberado &&
-            `Restam ${dias} ${dias === 1 ? "dia" : "dias"} de teste${situacao.trialTerminaEm ? ` — até ${formatarData(situacao.trialTerminaEm)}` : ""}.`}
+            `Restam ${dias} ${dias === 1 ? "dia" : "dias"} de teste${situacao.trialTerminaEm ? `, até ${formatarData(situacao.trialTerminaEm)}` : ""}.`}
           {situacao.status === "ativa" && situacao.periodoTerminaEm && !situacao.cancelaNoFim &&
             `Próxima renovação em ${formatarData(situacao.periodoTerminaEm)}.`}
           {situacao.status === "ativa" && situacao.periodoTerminaEm && situacao.cancelaNoFim &&
@@ -313,7 +314,7 @@ function CartaoSituacao({ situacao }: { situacao: SituacaoAssinatura | null }) {
             `Cancelada, mas seu acesso continua até ${situacao.periodoTerminaEm ? formatarData(situacao.periodoTerminaEm) : "o fim do período pago"}.`}
           {!situacao.liberado && situacao.status !== "inadimplente" &&
             "O acesso está bloqueado. Escolha um plano abaixo para voltar a usar."}
-          {situacao.status === "cortesia" && "Conta cortesia — sem cobrança e sem limites."}
+          {situacao.status === "cortesia" && "Conta cortesia, sem cobrança e sem limites."}
         </CardDescription>
       </CardHeader>
     </Card>

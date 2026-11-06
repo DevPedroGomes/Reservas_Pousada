@@ -7,14 +7,15 @@ import { billingHabilitado } from '../lib/stripe.js';
 import StaffInviteModel from '../models/StaffInvite.js';
 import { validarPousada, sanitizarPousada, validarEmail } from '../utils/validation.js';
 import { authorize, requireOwner, PAPEIS_ATRIBUIVEIS, ehPapelValido } from '../middleware/auth.js';
-import { lerConfigMotor } from '../models/Motor.js';
-import { lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
+import { emailsDaPousada, lerConfigMotor } from '../models/Motor.js';
+import { chaveAsaasAtual, lerConfigPix, salvarCredencial, situacaoPix } from '../models/Pix.js';
+import { mascararSegredo } from '../utils/pii.js';
 import { whatsappApiConfigurada } from '../lib/whatsapp.js';
 import { pool } from '../db/index.js';
-import { sendStaffInviteEmail } from '../lib/email.js';
+import { enviarChavePixAlterada, sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
-import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
+import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios, requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
@@ -348,24 +349,46 @@ router.get('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) 
   res.json({ sucesso: true, pix: await situacaoPix(parseInt(param(req, 'id'))) });
 });
 
-router.put('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) => {
+// Exige isOwner: a chave decide para onde vai o dinheiro da pousada.
+router.put('/:id/pix', requirePousadaOwner, requireOwner, async (req: Request, res: Response) => {
   try {
     const id = parseInt(param(req, 'id'));
+    const chaveAntes = (await situacaoPix(id)).chave?.chave ?? null;
+    const asaasAntes = await chaveAsaasAtual(id);
     const { config, erros } = lerConfigPix(req.body ?? {});
     const chaveApi = typeof req.body?.asaas_chave === 'string' ? req.body.asaas_chave.trim() : '';
     if (chaveApi && !/^\$aact_[A-Za-z0-9_=+/.-]{20,400}$/.test(chaveApi)) {
       erros.push('Chave de API do Asaas inválida (Asaas > Integrações > Chave de API; começa com $aact_).');
     }
     if (erros.length) return res.status(400).json({ sucesso: false, mensagem: erros[0], erros });
-    await PousadaModel.atualizar(id, { configuracoes: { pix: config } });
+    const pousada = await PousadaModel.atualizar(id, { configuracoes: { pix: config } });
     let aviso: string | undefined;
     if (chaveApi) {
       const r = await salvarCredencial(id, chaveApi, req.user!.email ?? '');
       if (!r.webhookRegistrado) aviso = `Chave salva, mas o aviso de pagamento não pôde ser registrado no Asaas (${r.erro ?? 'sem detalhe'}). Cadastre o webhook manualmente com o endereço e o token abaixo.`;
     }
     if (req.body?.remover_asaas === true) await salvarCredencial(id, null);
-    await AuditoriaModel.log(req.user!.id, 'config_pix', 'pousada', id, { chave: Boolean(config), asaas: Boolean(chaveApi) }, req.ip || null);
-    res.json({ sucesso: true, aviso, pix: await situacaoPix(id) });
+    const situacao = await situacaoPix(id);
+    const chaveDepois = situacao.chave?.chave ?? null;
+    const asaasDepois = await chaveAsaasAtual(id);
+    await AuditoriaModel.log(req.user!.id, 'config_pix', 'pousada', id, {
+      chaveAntes: mascararSegredo(chaveAntes),
+      chaveDepois: mascararSegredo(chaveDepois),
+      asaasAntes: mascararSegredo(asaasAntes),
+      asaasDepois: mascararSegredo(asaasDepois),
+    }, req.ip || null);
+    if (chaveAntes !== chaveDepois || asaasAntes !== asaasDepois) {
+      // O aviso não desfaz a troca já gravada se o e-mail falhar.
+      await enviarChavePixAlterada(await emailsDaPousada(id), {
+        pousada: pousada?.nome ?? '',
+        quem: req.user!.email ?? 'O proprietário',
+        chaveMudou: chaveAntes !== chaveDepois,
+        chaveDepois: mascararSegredo(chaveDepois),
+        asaasMudou: asaasAntes !== asaasDepois,
+        asaasDepois: mascararSegredo(asaasDepois),
+      }).catch((err) => console.error('[Pix] aviso de chave alterada:', err));
+    }
+    res.json({ sucesso: true, aviso, pix: situacao });
   } catch (error) {
     console.error('Erro ao salvar Pix:', error);
     res.status(500).json({ sucesso: false, mensagem: 'Erro ao salvar' });
@@ -378,7 +401,7 @@ router.get('/:id/whatsapp', requirePousadaAccess, async (req: Request, res: Resp
   res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() || rows.length > 0, numeroProprio: rows.length > 0 });
 });
 
-router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {
+router.get('/:id/dashboard', requirePousadaAccess, requerAssinaturaAtiva, async (req: Request, res: Response) => {
   try {
     const id = param(req, 'id');
 

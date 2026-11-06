@@ -29,9 +29,17 @@ export type MensagemLLM =
   | { papel: 'assistente'; texto: string | null; chamadas?: ChamadaFerramenta[] }
   | { papel: 'ferramenta'; id: string; nome: string; resultado: string };
 
+/** Tokens cobrados pelo provedor numa chamada. */
+export interface UsoLLM {
+  entrada: number;
+  saida: number;
+}
+
 export interface RespostaLLM {
   texto: string | null;
   chamadas: ChamadaFerramenta[];
+  /** Ausente quando o provedor não informa (alguns compatíveis com OpenAI). */
+  uso?: UsoLLM;
 }
 
 export interface ModeloLLM {
@@ -42,6 +50,11 @@ type Fetch = typeof fetch;
 
 export function agenteConfigurado(): boolean {
   return Boolean(process.env.AGENTE_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.AGENTE_PROVEDOR === 'openai' && process.env.AGENTE_BASE_URL);
+}
+
+/** O campo `uso` só existe quando o provedor informou os dois números. */
+function usoInformado(entrada: unknown, saida: unknown): { uso?: UsoLLM } {
+  return typeof entrada === 'number' && typeof saida === 'number' ? { uso: { entrada, saida } } : {};
 }
 
 export function anthropic(chave: string, modelo: string, fetchImpl: Fetch = fetch): ModeloLLM {
@@ -78,6 +91,10 @@ export function anthropic(chave: string, modelo: string, fetchImpl: Fetch = fetc
       return {
         texto: blocos.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim() || null,
         chamadas: blocos.filter((b) => b.type === 'tool_use').map((b) => ({ id: b.id, nome: b.name, argumentos: b.input ?? {} })),
+        ...usoInformado(
+          j.usage && Number(j.usage.input_tokens ?? 0) + Number(j.usage.cache_creation_input_tokens ?? 0) + Number(j.usage.cache_read_input_tokens ?? 0),
+          j.usage?.output_tokens,
+        ),
       };
     },
   };
@@ -118,6 +135,7 @@ export function compativelOpenAI(baseUrl: string, chave: string, modelo: string,
           try { argumentos = JSON.parse(c.function?.arguments || '{}'); } catch { /* argumento malformado vira vazio */ }
           return { id: c.id, nome: c.function?.name, argumentos };
         }),
+        ...usoInformado(j.usage?.prompt_tokens, j.usage?.completion_tokens),
       };
     },
   };

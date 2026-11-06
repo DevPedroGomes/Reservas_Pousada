@@ -33,10 +33,11 @@ export default function ListaDeReservas() {
     if (ok) void r.carregarReservas()
   }
 
-  async function mudar(id: number, status: StatusReserva) {
-    const res = await mudarStatus(id, status)
+  async function mudar(id: number, status: StatusReserva, version: number | undefined) {
+    const res = await mudarStatus(id, status, version)
     auth.setMessage({ type: res.sucesso ? "success" : "error", text: res.mensagem })
-    if (res.sucesso) void r.carregarReservas(r.meta.pagina || 1)
+    // Recarrega também na recusa: versão velha só se resolve com a tela atualizada.
+    void r.carregarReservas(r.meta.pagina || 1)
   }
 
   return (
@@ -54,8 +55,8 @@ export default function ListaDeReservas() {
       </div>
 
       {r.error && (
-        <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-800">{r.error}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">{r.error}</p>
           <Button variant="outline" size="sm" onClick={() => { r.clearError(); void r.carregarReservas() }}>Tentar novamente</Button>
         </div>
       )}
@@ -77,7 +78,7 @@ export default function ListaDeReservas() {
         onPageChange={r.carregarReservas}
         onEdit={(id) => router.push(`/reservas/${id}`)}
         onDelete={(id) => setExcluindo(id)}
-        onMudarStatus={auth.user?.role === "auditoria" && !auth.user?.is_owner ? undefined : (id, status) => void mudar(id, status)}
+        onMudarStatus={auth.user?.role === "auditoria" && !auth.user?.is_owner ? undefined : (id, status, version) => void mudar(id, status, version)}
         mudando={mudando}
         loading={r.loading}
         userRole={auth.user?.is_owner ? "admin" : auth.user?.role}

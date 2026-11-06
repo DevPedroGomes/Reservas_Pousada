@@ -25,11 +25,16 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
         `INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status) VALUES (1, $1, 'x', $2, $3, $4, $5)`,
         [`Q${q}`, q, ent, sai, status],
       );
-    await r(1, '2026-09-01', '2026-09-05');            // venceu há muito: finaliza
-    await r(2, '2026-09-28', '2026-09-30');            // saída anteontem (hoje=10-02): finaliza
-    await r(3, '2026-09-29', '2026-10-01');            // saída ontem: tolerância, fica
-    await r(4, '2026-10-01', '2026-10-05');            // em andamento: fica
+    await r(1, '2026-09-01', '2026-09-05', 'hospedada'); // venceu há muito: finaliza
+    await r(2, '2026-09-28', '2026-09-30', 'hospedada'); // saída anteontem (hoje=10-02): finaliza
+    await r(3, '2026-09-29', '2026-10-01', 'hospedada'); // saída ontem: tolerância, fica
+    await r(4, '2026-10-01', '2026-10-05', 'hospedada'); // em andamento: fica
     await r(5, '2026-09-01', '2026-09-03', 'cancelada'); // cancelada não muda
+    await r(6, '2026-09-01', '2026-09-05');              // confirmada vencida, sem check-in: vai para revisão
+    await r(7, '2026-09-29', '2026-10-01');              // confirmada, saída ontem: tolerância
+    await pool.query(`
+      INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, ical_bloqueio)
+      VALUES (1, 'Q8', 'x', 8, '2026-09-01', '2026-09-05', 'confirmada', true)`); // data fechada na OTA: não é estadia
     await pool.query(`
       INSERT INTO reservas (pousada_id, nome, cpf, quarto, data_entrada, data_saida, status, expira_em) VALUES
         (2, 'Vencida', 'x', 1, current_date + 10, current_date + 12, 'pre_reserva', now() - interval '1 minute'),
@@ -43,13 +48,14 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
 
   it('finaliza só o que venceu há mais de um dia e registra auditoria', async () => {
     const n = await finalizar('2026-10-02');
-    assert.equal(n, 2);
-    const { rows } = await pool.query(`SELECT nome, status FROM reservas WHERE pousada_id = 1 ORDER BY quarto`);
+    assert.equal(n, 3, 'Q1, Q2 e o bloqueio Q8');
+    const { rows } = await pool.query(`SELECT nome, status, revisao_em FROM reservas WHERE pousada_id = 1 ORDER BY quarto`);
     assert.deepEqual(rows.map((x) => `${x.nome}:${x.status}`), [
-      'Q1:finalizada', 'Q2:finalizada', 'Q3:confirmada', 'Q4:confirmada', 'Q5:cancelada',
+      'Q1:finalizada', 'Q2:finalizada', 'Q3:hospedada', 'Q4:hospedada', 'Q5:cancelada', 'Q6:confirmada', 'Q7:confirmada', 'Q8:finalizada',
     ]);
+    assert.deepEqual(rows.filter((x) => x.revisao_em).map((x) => x.nome), ['Q6'], 'só a confirmada vencida entra em revisão');
     const { rows: aud } = await pool.query(`SELECT count(*)::int AS n FROM auditoria WHERE action = 'finalizacao_automatica'`);
-    assert.equal(aud[0].n, 2);
+    assert.equal(aud[0].n, 3);
   });
 
   it('rodar de novo não faz nada (idempotente)', async () => {
@@ -62,10 +68,10 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
       INSERT INTO pousadas (id, nome, slug, num_quartos, configuracoes) VALUES
         (3, 'Com Lembrete', 'com-lembrete', 3, '{"whatsapp_lembrete": true}'), (4, 'Sem Lembrete', 'sem-lembrete', 3, '{}');
       INSERT INTO hospedes (id, pousada_id, nome, telefone) VALUES (91, 3, 'Ana Souza', '5548999990001'), (92, 4, 'Beto', '5548999990002'), (93, 3, 'Caio', '5548999990003');
-      INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status) VALUES
-        (3, 'Ana Souza', 91, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada'),
-        (4, 'Beto', 92, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada'),
-        (3, 'Caio', 93, 2, '${amanha}', '${amanha}'::date + 2, 'pre_reserva');`);
+      INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status, expira_em) VALUES
+        (3, 'Ana Souza', 91, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada', NULL),
+        (4, 'Beto', 92, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada', NULL),
+        (3, 'Caio', 93, 2, '${amanha}', '${amanha}'::date + 2, 'pre_reserva', now() + interval '1 day');`);
     const antes = { ...process.env };
     process.env.WHATSAPP_TOKEN = 'tok';
     process.env.WHATSAPP_PHONE_NUMBER_ID = '123';
@@ -80,6 +86,26 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
     } finally {
       process.env = antes;
     }
+  });
+
+  it('limpeza: apaga auditoria acima do prazo e respeita o mínimo do Marco Civil', async () => {
+    const { limpeza, mesesDeAuditoria } = await import('../jobs/limpeza.js');
+    await pool.query(`DELETE FROM auditoria`);
+    await pool.query(`
+      INSERT INTO auditoria (action, entity, created_at) VALUES
+        ('velha', 'reserva', now() - interval '7 months'),
+        ('no_limite', 'reserva', now() - interval '5 months'),
+        ('nova', 'reserva', now())`);
+    const r = await limpeza();
+    assert.equal(r.auditoria, 1);
+    const { rows } = await pool.query(`SELECT action FROM auditoria ORDER BY action`);
+    assert.deepEqual(rows.map((x) => x.action), ['no_limite', 'nova']);
+
+    assert.equal(mesesDeAuditoria({}), 6);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '12' }), 12);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '1' }), 6, 'abaixo do mínimo legal não vale');
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: 'abc' }), 6);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '' }), 6);
   });
 
   it('pré-reserva vencida é cancelada com motivo e o quarto fica livre', async () => {

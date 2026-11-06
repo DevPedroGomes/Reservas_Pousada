@@ -17,6 +17,12 @@ export type CodigoPlano = (typeof CODIGOS_PLANO)[number];
 
 export type Ciclo = 'mensal' | 'anual';
 
+/** Teto diário do atendente virtual por pousada. */
+export interface CotaAgente {
+  respostasDia: number;
+  tokensDia: number;
+}
+
 export interface Plano {
   codigo: CodigoPlano;
   nome: string;
@@ -27,6 +33,7 @@ export interface Plano {
   /** null = ilimitado */
   maxUsuarios: number | null;
   maxPousadas: number;
+  agente: CotaAgente;
   destaques: string[];
 }
 
@@ -39,6 +46,7 @@ export const PLANOS: Record<CodigoPlano, Plano> = {
     maxQuartos: 10,
     maxUsuarios: 3,
     maxPousadas: 1,
+    agente: { respostasDia: 100, tokensDia: 100_000 },
     destaques: ['Até 10 quartos', '3 usuários', 'Reservas e hóspedes', 'Trilha de auditoria'],
   },
   pousada: {
@@ -49,6 +57,7 @@ export const PLANOS: Record<CodigoPlano, Plano> = {
     maxQuartos: 25,
     maxUsuarios: null,
     maxPousadas: 1,
+    agente: { respostasDia: 300, tokensDia: 200_000 },
     destaques: ['Até 25 quartos', 'Usuários ilimitados', 'Exportação CSV', 'Trilha de auditoria'],
   },
   rede: {
@@ -59,9 +68,19 @@ export const PLANOS: Record<CodigoPlano, Plano> = {
     maxQuartos: 100,
     maxUsuarios: null,
     maxPousadas: 3,
+    agente: { respostasDia: 600, tokensDia: 400_000 },
     destaques: ['Até 3 propriedades', 'Até 100 quartos', 'Usuários ilimitados', 'Troca de pousada em um clique'],
   },
 };
+
+/** Trial não tem receita para cobrir o modelo: fica abaixo de qualquer plano. */
+export const COTA_AGENTE_TRIAL: CotaAgente = { respostasDia: 50, tokensDia: 50_000 };
+
+/** Cota em vigor. Cortesia usa a do plano Pousada; sem plano, a do trial. */
+export function cotaDoAgente(e: { status: string; plano: CodigoPlano | null }): CotaAgente {
+  if (e.status === 'cortesia') return PLANOS.pousada.agente;
+  return e.plano ? PLANOS[e.plano].agente : COTA_AGENTE_TRIAL;
+}
 
 /** Dias de teste grátis. Sem cartão — o trial é nosso, não do Stripe. */
 export const DIAS_DE_TRIAL = 14;

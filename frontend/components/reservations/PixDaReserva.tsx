@@ -16,6 +16,8 @@ interface Cobranca {
   copiaECola: string
   qrCode: string
   status: "pendente" | "paga" | "expirada" | "cancelada"
+  /** Pago com a reserva encerrada: a pousada precisa devolver ao hóspede. */
+  estornoPendente?: boolean
 }
 
 const ROTULO: Record<Cobranca["status"], string> = { pendente: "aguardando", paga: "paga", expirada: "expirada", cancelada: "cancelada" }
@@ -90,7 +92,7 @@ export function PixDaReserva({ reservaId, telefone, hospede, pousada, podeCobrar
           <img src={aberta.qrCode} alt="QR Code do Pix" className="h-36 w-36 shrink-0 self-center rounded" />
           <div className="min-w-0 flex-1 space-y-2 text-sm">
             <p>
-              <strong>{reais(aberta.valorCentavos)}</strong> · {aberta.provedor === "asaas" ? "confirma sozinho quando o hóspede pagar" : "confira o recebimento no banco"}
+              <strong>{reais(aberta.valorCentavos)}</strong>, {aberta.provedor === "asaas" ? "confirma sozinho quando o hóspede pagar" : "confira o recebimento no banco"}
             </p>
             <p className="break-all rounded bg-muted/50 p-2 font-mono text-[11px] leading-tight">{aberta.copiaECola}</p>
             <div className="flex flex-wrap gap-2">
@@ -124,7 +126,14 @@ export function PixDaReserva({ reservaId, telefone, hospede, pousada, podeCobrar
       {cobrancas.filter((c) => c !== aberta).length > 0 && (
         <ul className="text-xs text-muted-foreground">
           {cobrancas.filter((c) => c !== aberta).map((c) => (
-            <li key={c.id}>Pix de {reais(c.valorCentavos)} — {ROTULO[c.status]}</li>
+            <li key={c.id}>
+              Pix de {reais(c.valorCentavos)}, {ROTULO[c.status]}
+              {c.estornoPendente && <strong className="text-destructive">, reserva encerrada: estorne ao hóspede</strong>}
+              {/* O código pela chave não dá para anular: o hóspede ainda pode pagar. */}
+              {podeCobrar && c.provedor === "chave" && (c.status === "expirada" || c.status === "cancelada") && (
+                <button type="button" className="ml-2 underline" onClick={() => void recebido(c)}>Recebi mesmo assim</button>
+              )}
+            </li>
           ))}
         </ul>
       )}

@@ -11,13 +11,15 @@ export function useStatusReserva() {
   const mudarStatus = useCallback(async (
     id: number,
     status: StatusReserva,
+    /** Versão que a tela está vendo: alterada em outra sessão, o servidor recusa (409). */
+    version: number | undefined,
     extra: { motivo?: string; prazo_horas?: number } = {},
   ): Promise<{ sucesso: boolean; mensagem: string }> => {
     setMudando(id)
     try {
       const r = await authenticatedFetch(`${API_URL}/reservas/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status, ...extra }),
+        body: JSON.stringify({ status, version, ...extra }),
       })
       const d = await r.json()
       return { sucesso: Boolean(d.sucesso), mensagem: d.mensagem || "Não foi possível mudar o status." }

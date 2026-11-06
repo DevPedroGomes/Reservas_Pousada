@@ -93,7 +93,7 @@ export default function ImportarPlanilha() {
         </p>
       </div>
 
-      {erro && <p className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 text-sm text-rose-800">{erro}</p>}
+      {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{erro}</p>}
 
       <Card>
         <CardHeader>
@@ -108,7 +108,7 @@ export default function ImportarPlanilha() {
             <input type="file" accept=".csv,.txt,text/csv" className="sr-only" onChange={(e) => void escolher(e)} aria-label="Escolher planilha CSV" />
             Escolher arquivo CSV
           </label>
-          {arquivo && <span className="text-sm text-muted-foreground">{arquivo} · {dados.length} linha(s)</span>}
+          {arquivo && <span className="text-sm text-muted-foreground">{arquivo}, {dados.length} linha(s)</span>}
           <button type="button" onClick={baixarModelo} className="text-sm underline text-muted-foreground hover:text-foreground">Baixar modelo</button>
         </CardContent>
       </Card>
@@ -128,9 +128,9 @@ export default function ImportarPlanilha() {
                     id={`map-${c.campo}`}
                     value={mapa[c.campo] ?? ""}
                     onChange={(e) => { setPrevia(null); setMapa((m) => ({ ...m, [c.campo]: e.target.value === "" ? undefined : Number(e.target.value) })) }}
-                    className={cn(c.obrigatorio && mapa[c.campo] === undefined && "border-rose-300")}
+                    className={cn(c.obrigatorio && mapa[c.campo] === undefined && "border-destructive/30")}
                   >
-                    <option value="">— não importar —</option>
+                    <option value="">Não importar</option>
                     {cabecalho.map((h, i) => <option key={i} value={i}>{h || `Coluna ${i + 1}`}{dados[0]?.[i] ? ` (ex.: ${dados[0][i].slice(0, 24)})` : ""}</option>)}
                   </Select>
                 </div>
@@ -139,7 +139,7 @@ export default function ImportarPlanilha() {
             <Button onClick={() => void enviar(true)} disabled={ocupado || faltando.length > 0}>
               {ocupado && !previa ? "Conferindo..." : "Conferir"}
             </Button>
-            {faltando.length > 0 && <p className="text-xs text-rose-700">Indique: {faltando.map((c) => c.rotulo).join(", ")}.</p>}
+            {faltando.length > 0 && <p className="text-xs text-destructive">Indique: {faltando.map((c) => c.rotulo).join(", ")}.</p>}
           </CardContent>
         </Card>
       )}
@@ -149,19 +149,19 @@ export default function ImportarPlanilha() {
           <CardHeader>
             <CardTitle className="text-base">3. Prévia</CardTitle>
             <CardDescription>
-              {prontas} pronta(s) para importar{repetidas ? ` · ${repetidas} já existe(m) e será(ão) ignorada(s)` : ""}{comErro.length ? ` · ${comErro.length} com problema (ficam de fora)` : ""}.
+              {prontas} pronta(s) para importar{repetidas ? `, ${repetidas} já existe(m) e será(ão) ignorada(s)` : ""}{comErro.length ? `, ${comErro.length} com problema (ficam de fora)` : ""}.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {comErro.length > 0 && (
               <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-rose-700">Linhas com problema — corrija na planilha e importe de novo depois</h3>
-                <ul className="max-h-64 overflow-y-auto divide-y divide-border rounded-lg border border-rose-200 text-sm">
+                <h3 className="text-sm font-semibold text-destructive">Linhas com problema: corrija na planilha e importe de novo depois</h3>
+                <ul className="max-h-64 overflow-y-auto divide-y divide-border rounded-lg border border-destructive/30 text-sm">
                   {comErro.map((r) => (
                     <li key={r.linha} className="flex gap-3 px-3 py-1.5">
                       <span className="w-16 shrink-0 text-muted-foreground">Linha {r.linha}</span>
                       <span className="w-40 shrink-0 truncate">{dados[r.linha - 2]?.[mapa.nome ?? 0]}</span>
-                      <span className="text-rose-700">{r.erro}</span>
+                      <span className="text-destructive">{r.erro}</span>
                     </li>
                   ))}
                 </ul>
@@ -174,7 +174,7 @@ export default function ImportarPlanilha() {
                   {previa.filter((r) => r.ok && r.resumo).slice(0, 8).map((r) => (
                     <li key={r.linha} className="flex flex-wrap gap-x-3 px-3 py-1.5">
                       <span className="font-medium">{r.resumo!.nome}</span>
-                      <span className="text-muted-foreground">quarto {r.resumo!.quarto} · {formatarData(r.resumo!.entrada)} a {formatarData(r.resumo!.saida)} · {getStatusLabel(r.resumo!.status)}{r.resumo!.valor !== null ? ` · ${r.resumo!.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}</span>
+                      <span className="text-muted-foreground">quarto {r.resumo!.quarto}, {formatarData(r.resumo!.entrada)} a {formatarData(r.resumo!.saida)}, {getStatusLabel(r.resumo!.status)}{r.resumo!.valor !== null ? `, ${r.resumo!.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : ""}</span>
                     </li>
                   ))}
                 </ul>

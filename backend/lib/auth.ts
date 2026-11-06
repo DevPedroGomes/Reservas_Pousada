@@ -50,6 +50,9 @@ export const auth = betterAuth({
     // ser ligada à existente — e quem tinha a senha continuava dentro. Também
     // bloqueia a fábrica de contas com e-mail inventado.
     requireEmailVerification: true,
+    // Quem redefine a senha pode estar justamente expulsando um invasor: toda
+    // sessão aberta da conta cai junto.
+    revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user, url }) => {
       await sendPasswordResetEmail(user.email, user.name, url);
     },
@@ -86,9 +89,11 @@ export const auth = betterAuth({
   session: {
     expiresIn: 43200, // 12 hours
     updateAge: 60 * 60, // Update session every 1 hour
+    // Desligado: com o cache no cookie, uma sessão revogada (senha trocada,
+    // membro removido) continuava valendo até o cookie vencer. Toda requisição
+    // autenticada já consulta o banco para achar o vínculo com a pousada.
     cookieCache: {
-      enabled: true,
-      maxAge: 60 * 5, // 5 minutes cache
+      enabled: false,
     },
   },
 

@@ -1,4 +1,4 @@
-import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, inArray, SQL } from 'drizzle-orm';
+import { eq, and, or, gt, gte, lt, lte, ne, ilike, sql, count, isNull, isNotNull, inArray, SQL } from 'drizzle-orm';
 import { db, hospedes, reservas, user } from '../db/index.js';
 import type { Reserva, NewReserva } from '../db/schema.js';
 import { decryptCpf, hashCpf, hashDocumento, normalizarDocumento } from '../utils/crypto.js';
@@ -33,8 +33,10 @@ export class ConflitoDeReserva extends Error {
   }
 }
 
+/** O Drizzle embrulha o erro do Postgres: o código vem em `cause`. */
 function ehViolacaoDeExclusao(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === PG_EXCLUSION_VIOLATION;
+  const e = err as { code?: string; cause?: { code?: string } } | null;
+  return e?.code === PG_EXCLUSION_VIOLATION || e?.cause?.code === PG_EXCLUSION_VIOLATION;
 }
 
 interface ListarOptions {
@@ -59,7 +61,7 @@ interface ListarOptions {
  * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
  * é o documento quando ele é CPF, senão vazio.
  */
-export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'lembreteEnviadoEm' | 'precheckinToken'> {
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'icalAusencias' | 'icalBloqueio' | 'canceladaManualmente' | 'lembreteEnviadoEm' | 'precheckinToken' | 'aceiteEm' | 'aceiteVersao' | 'aceiteForma'> {
   /** Quando o hóspede enviou a ficha de pré-check-in (null se não enviou). */
   precheckinEm?: Date | null;
   criadoPorNome?: string | null;
@@ -74,22 +76,27 @@ export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'ic
 /**
  * Carimbos de cada transição: quando entrou, saiu, foi cancelada. Voltar um
  * passo (desfazer check-out, reativar) limpa o carimbo correspondente.
+ * Só as rotas passam por aqui: é decisão manual, e cancelar marca isso
+ * para a sincronização de calendário não desfazer.
  */
 export function camposDaTransicao(status: string, extra: { motivo?: string | null; expiraEm?: Date | null } = {}) {
   const agora = new Date();
+  // Decisão manual: a reserva sai da revisão. Se continuar vencida e sem
+  // check-in, o job a marca de novo.
+  const semRevisao = { revisaoEm: null, revisaoMotivo: null };
   switch (status) {
     case 'pre_reserva':
-      return { expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null };
+      return { ...semRevisao, expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null, canceladaManualmente: false };
     case 'confirmada':
-      return { expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null };
+      return { ...semRevisao, expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null, canceladaManualmente: false };
     case 'hospedada':
-      return { expiraEm: null, checkInEm: sql`COALESCE(${reservas.checkInEm}, now())`, checkOutEm: null };
+      return { ...semRevisao, expiraEm: null, checkInEm: sql`COALESCE(${reservas.checkInEm}, now())`, checkOutEm: null };
     case 'finalizada':
-      return { checkOutEm: agora };
+      return { ...semRevisao, checkOutEm: agora };
     case 'cancelada':
-      return { canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null };
+      return { ...semRevisao, canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null, canceladaManualmente: true };
     default:
-      return {};
+      return semRevisao;
   }
 }
 
@@ -133,6 +140,8 @@ const CAMPOS_RESERVA = {
   checkOutEm: reservas.checkOutEm,
   canceladaEm: reservas.canceladaEm,
   motivoCancelamento: reservas.motivoCancelamento,
+  revisaoEm: reservas.revisaoEm,
+  revisaoMotivo: reservas.revisaoMotivo,
   deletedAt: reservas.deletedAt,
   createdAt: reservas.createdAt,
   updatedAt: reservas.updatedAt,
@@ -334,6 +343,7 @@ export class ReservaModel {
    */
   static async criar(reserva: NewReserva & { hospedeId: number }): Promise<ReservaComCriador> {
     // Duplo clique: mesmo hóspede, quarto e datas nos últimos 30s devolve a existente.
+    // Só a que ainda vale: pedido refeito depois de cancelar é reserva nova.
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
@@ -343,6 +353,7 @@ export class ReservaModel {
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
         eq(reservas.pousadaId, reserva.pousadaId),
+        inArray(reservas.status, [...STATUS_QUE_OCUPAM]),
         isNull(reservas.deletedAt),
         gte(reservas.createdAt, new Date(Date.now() - 30_000)),
       ))
@@ -465,19 +476,17 @@ export class ReservaModel {
   }
 
   /**
-   * Update reservation status (with optimistic locking)
+   * Update reservation status. `version` é obrigatória: sem ela, duas telas
+   * abertas se sobrescreviam (check-in por cima de cancelamento, por exemplo).
    */
   static async atualizarStatus(
     id: number,
     status: string,
     pousadaId: number,
-    version?: number,
+    version: number,
     extra: { motivo?: string | null; expiraEm?: Date | null } = {},
   ): Promise<{ changes: number; id: number; status: string }> {
-    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
-    if (version !== undefined) {
-      conditions.push(eq(reservas.version, version));
-    }
+    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), eq(reservas.version, version)];
 
     let result;
     try {
@@ -505,7 +514,7 @@ export class ReservaModel {
       throw err;
     }
 
-    if (result.rowCount === 0 && version !== undefined) {
+    if (result.rowCount === 0) {
       const exists = await this.buscarPorIdEPousada(id, pousadaId);
       if (exists) {
         const error = new Error('Conflito de versão: esta reserva foi alterada por outro usuário') as Error & { code?: string };
@@ -551,6 +560,8 @@ export class ReservaModel {
       valor: reservas.valor,
       pago: reservas.pago,
       status: reservas.status,
+      // O botão de status da agenda manda a versão que a tela está vendo.
+      version: reservas.version,
       // WhatsApp do hóspede: a agenda tem o botão de mensagem pronta.
       telefone: hospedes.telefone,
       // Para o {saldo} da mensagem bater com a conta.
@@ -562,7 +573,7 @@ export class ReservaModel {
     const lista = () => db.select(campos).from(reservas).leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id));
     const ate = sql`(${dia}::date + ${diasAFrente}::int)`;
 
-    const [chegadas, saidas, hospedados, proximas] = await Promise.all([
+    const [chegadas, saidas, hospedados, proximas, emRevisao] = await Promise.all([
       lista().where(and(...base, eq(reservas.dataEntrada, dia))).orderBy(reservas.quarto),
       lista().where(and(...base, eq(reservas.dataSaida, dia))).orderBy(reservas.quarto),
       lista()
@@ -573,9 +584,16 @@ export class ReservaModel {
         .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))
         .orderBy(reservas.dataEntrada, reservas.quarto)
         .limit(50),
+      // Saída vencida sem check-in: aguarda decisão manual.
+      db.select({ ...campos, revisaoMotivo: reservas.revisaoMotivo })
+        .from(reservas)
+        .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))
+        .where(and(eq(reservas.pousadaId, pousadaId), eq(reservas.status, 'confirmada'), isNull(reservas.deletedAt), isNotNull(reservas.revisaoEm)))
+        .orderBy(reservas.dataSaida, reservas.quarto)
+        .limit(50),
     ]);
 
-    return { dia, chegadas, saidas, hospedados, proximas };
+    return { dia, chegadas, saidas, hospedados, proximas, emRevisao };
   }
 
   /**

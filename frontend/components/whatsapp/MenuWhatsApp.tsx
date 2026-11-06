@@ -32,7 +32,7 @@ export function MenuWhatsApp({ dados, pousada, sugerido, compacto = false }: {
         aria-expanded={aberto}
         title="Mensagem pronta no WhatsApp"
         className={cn(
-          "inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+          "inline-flex items-center gap-1 rounded-md border border-success/30 bg-success/10 text-success hover:bg-success/15",
           compacto ? "h-7 px-2 text-xs" : "h-9 px-3 text-sm",
         )}
       >
@@ -42,7 +42,7 @@ export function MenuWhatsApp({ dados, pousada, sugerido, compacto = false }: {
         {!compacto && "WhatsApp"}
       </button>
       {aberto && (
-        <div role="menu" className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-white shadow-lg">
+        <div role="menu" className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
           {ordem.map((m) => (
             <a
               key={m.modelo}

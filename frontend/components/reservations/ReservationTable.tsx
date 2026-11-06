@@ -18,7 +18,7 @@ interface ReservationTableProps {
   onEdit: (id: number) => void
   onDelete: (id: number) => void
   /** Ação de um clique (confirmar, check-in, check-out). */
-  onMudarStatus?: (id: number, status: StatusReserva) => void
+  onMudarStatus?: (id: number, status: StatusReserva, version: number | undefined) => void
   /** Reserva com mudança de status em andamento. */
   mudando?: number | null
   loading?: boolean
@@ -79,7 +79,7 @@ export function ReservationTable({
                     <div className="font-medium">{reserva.nome}</div>
                     {reserva.telefone && <div className="text-xs text-muted-foreground">{formatarTelefone(reserva.telefone)}</div>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{reserva.documento || <span className="text-amber-700 text-xs">pendente</span>}</TableCell>
+                  <TableCell className="text-muted-foreground">{reserva.documento || <span className="text-warning text-xs">pendente</span>}</TableCell>
                   <TableCell>{reserva.quarto}</TableCell>
                   <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>
@@ -110,7 +110,7 @@ export function ReservationTable({
                             onClick={() => {
                               const saldo = saldoDaReserva(reserva)
                               if (proximo === "finalizada" && saldo > 0 && !window.confirm(`Saldo em aberto de ${reais(saldo)}. Fazer o check-out mesmo assim?`)) return
-                              onMudarStatus(Number(reserva.id), proximo)
+                              onMudarStatus(Number(reserva.id), proximo, reserva.version)
                             }}
                           >
                             {ROTULO_ACAO[proximo]}

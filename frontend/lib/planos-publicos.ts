@@ -11,7 +11,7 @@ export const PLANOS_PUBLICOS = [
     nome: "Essencial",
     mensal: 89,
     resumo: "Para pousadas pequenas que querem sair da planilha.",
-    itens: ["Até 10 quartos", "3 usuários", "Reservas sem overbooking", "Painel do dia", "Trilha de auditoria"],
+    itens: ["Até 10 quartos", "3 usuários", "Bloqueio de reserva em dobro", "Painel do dia", "Trilha de auditoria"],
   },
   {
     codigo: "pousada",

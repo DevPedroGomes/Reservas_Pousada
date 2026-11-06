@@ -12,12 +12,17 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '../db/index.js';
-import { gatewayPara, GatewayRecusou } from '../lib/gatewayPix.js';
+import { gatewayPara, GatewayRecusou, type SituacaoCobranca } from '../lib/gatewayPix.js';
+import { reportarErro } from '../lib/observabilidade.js';
 import { normalizarChavePix, payloadPix, qrCodeDataUrl, type TipoChavePix } from '../lib/pix.js';
 import { cifrarSegredo, decifrarSegredo } from '../utils/crypto.js';
+import { hojeLocal } from '../utils/datas.js';
 import { sanitizarString } from '../utils/validation.js';
 import { recalcularPago } from './ContaReserva.js';
-import { configMotor } from './Motor.js';
+import { configMotor, emailsDaPousada } from './Motor.js';
+
+/** Postgres: exclusion_violation — a constraint anti-overbooking barrou o write. */
+const PG_EXCLUSION_VIOLATION = '23P01';
 
 export class PixIndisponivel extends Error {
   constructor(mensagem: string, readonly status: 400 | 404 | 409 | 502 = 400) {
@@ -60,6 +65,11 @@ async function credencial(pousadaId: number) {
     [pousadaId],
   );
   return c ? { provedor: c.provedor as 'asaas', token: decifrarSegredo(c.token_cifrado), webhookToken: c.webhook_token as string } : null;
+}
+
+/** Chave do Asaas em uso, só para comparar e mascarar: nunca sai da API. */
+export async function chaveAsaasAtual(pousadaId: number): Promise<string | null> {
+  return (await credencial(pousadaId))?.token ?? null;
 }
 
 function baseApi(): string {
@@ -125,17 +135,18 @@ export interface CobrancaApi {
   tokenPublico: string;
   expiraEm: Date | null;
   pagaEm: Date | null;
+  /** Pago com a reserva encerrada: a pousada precisa devolver ao hóspede. */
+  estornoPendente: boolean;
 }
 
 async function paraApi(c: Record<string, any>): Promise<CobrancaApi> {
   return {
     id: c.id, provedor: c.provedor, valorCentavos: c.valor_centavos, copiaECola: c.copia_e_cola, qrCode: await qrCodeDataUrl(c.copia_e_cola),
-    status: c.status, tokenPublico: c.token_publico, expiraEm: c.expira_em, pagaEm: c.paga_em,
+    status: c.status, tokenPublico: c.token_publico, expiraEm: c.expira_em, pagaEm: c.paga_em, estornoPendente: c.estorno_pendente,
   };
 }
 
-/** Valor sugerido: o sinal da pré-reserva, ou o saldo da conta. */
-export async function valorSugerido(reservaId: number, pousadaId: number): Promise<number> {
+async function contaDaReserva(reservaId: number, pousadaId: number) {
   const { rows: [r] } = await pool.query(
     `SELECT r.status, p.configuracoes,
             COALESCE(round(r.valor * 100), 0)::int
@@ -144,6 +155,18 @@ export async function valorSugerido(reservaId: number, pousadaId: number): Promi
        FROM reservas r JOIN pousadas p ON p.id = r.pousada_id WHERE r.id = $1 AND r.pousada_id = $2`,
     [reservaId, pousadaId],
   );
+  return r as { status: string; configuracoes: unknown; total: number; pago: number } | undefined;
+}
+
+/** Quanto ainda falta pagar na reserva (0 se a conta já fechou). */
+export async function saldoDaReserva(reservaId: number, pousadaId: number): Promise<number> {
+  const r = await contaDaReserva(reservaId, pousadaId);
+  return r ? Math.max(r.total - r.pago, 0) : 0;
+}
+
+/** Valor sugerido: o sinal da pré-reserva, ou o saldo da conta. */
+export async function valorSugerido(reservaId: number, pousadaId: number): Promise<number> {
+  const r = await contaDaReserva(reservaId, pousadaId);
   if (!r) return 0;
   const saldo = r.total - r.pago;
   if (r.status === 'pre_reserva' && r.pago === 0) return Math.round((r.total * configMotor(r.configuracoes).sinalPercentual) / 100) || saldo;
@@ -221,20 +244,68 @@ export async function listarCobrancas(reservaId: number, pousadaId: number): Pro
   return Promise.all(rows.map(paraApi));
 }
 
+export interface ResultadoBaixa {
+  jaPaga: boolean;
+  confirmou: boolean;
+  /** A reserva estava encerrada e voltou a valer com este pagamento. */
+  reativou: boolean;
+  /** A reserva está encerrada e não pôde voltar: o dinheiro precisa ser devolvido. */
+  estornar: boolean;
+}
+
+/**
+ * Tenta devolver a vida à reserva encerrada. O EXCLUDE decide: quarto tomado
+ * por outra reserva recusa. Savepoint porque a violação aborta a transação,
+ * e o pagamento ainda precisa ser registrado.
+ */
+async function tentarReativar(cliente: PoolClient, reservaId: number): Promise<boolean> {
+  await cliente.query('SAVEPOINT reativar');
+  try {
+    await cliente.query(
+      `UPDATE reservas SET status = 'confirmada', cancelada_em = NULL, motivo_cancelamento = NULL, expira_em = NULL,
+              cancelada_manualmente = false, version = version + 1, updated_at = now()
+        WHERE id = $1`,
+      [reservaId],
+    );
+    await cliente.query('RELEASE SAVEPOINT reativar');
+    return true;
+  } catch (err) {
+    if ((err as { code?: string }).code !== PG_EXCLUSION_VIOLATION) throw err;
+    await cliente.query('ROLLBACK TO SAVEPOINT reativar');
+    return false;
+  }
+}
+
 /**
  * Baixa a cobrança: lança o pagamento (sinal, se a reserva ainda é
  * pré-reserva), recalcula a conta e confirma a pré-reserva. Idempotente.
+ *
+ * Pix pago com a reserva encerrada: o dinheiro já entrou, então o pagamento é
+ * lançado de qualquer forma. A reserva cancelada volta a valer se o quarto
+ * estiver livre e a estadia não tiver passado; senão fica marcada para estorno.
+ * Reserva excluída não volta nunca.
  */
-async function baixar(cliente: PoolClient, cobrancaId: number, valorCentavos: number, origem: string, userId: string | null) {
+async function baixar(cliente: PoolClient, cobrancaId: number, valorCentavos: number, origem: string, userId: string | null): Promise<ResultadoBaixa> {
   const { rows: [c] } = await cliente.query(`SELECT * FROM cobrancas_pix WHERE id = $1 FOR UPDATE`, [cobrancaId]);
-  if (!c || c.status === 'paga') return { jaPaga: true, confirmou: false };
-  const { rows: [r] } = await cliente.query(`SELECT status FROM reservas WHERE id = $1 FOR UPDATE`, [c.reserva_id]);
+  if (!c || c.status === 'paga') return { jaPaga: true, confirmou: false, reativou: false, estornar: false };
+  const { rows: [r] } = await cliente.query(
+    `SELECT status, deleted_at, data_saida::text AS data_saida FROM reservas WHERE id = $1 FOR UPDATE`,
+    [c.reserva_id],
+  );
+  const encerrada = Boolean(r?.deleted_at) || ['cancelada', 'no_show'].includes(r?.status);
+  const podeVoltar = encerrada && !r.deleted_at && r.data_saida >= hojeLocal();
+  const reativou = podeVoltar ? await tentarReativar(cliente, c.reserva_id) : false;
+  const estornar = encerrada && !reativou;
   const { rows: [pg] } = await cliente.query(
     `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo, recebido_em, observacao, criado_por)
-     VALUES ($1, $2, $3, 'pix', $4, current_date, $5, $6) RETURNING id`,
-    [c.pousada_id, c.reserva_id, valorCentavos, r?.status === 'pre_reserva' ? 'sinal' : 'pagamento', origem, userId],
+     VALUES ($1, $2, $3, 'pix', $4, $5, $6, $7) RETURNING id`,
+    [c.pousada_id, c.reserva_id, valorCentavos, r?.status === 'pre_reserva' ? 'sinal' : 'pagamento', hojeLocal(),
+      estornar ? `${origem} — reserva encerrada: estornar ao hóspede` : origem, userId],
   );
-  await cliente.query(`UPDATE cobrancas_pix SET status = 'paga', paga_em = now(), pagamento_id = $2 WHERE id = $1`, [cobrancaId, pg.id]);
+  await cliente.query(
+    `UPDATE cobrancas_pix SET status = 'paga', paga_em = now(), pagamento_id = $2, estorno_pendente = $3 WHERE id = $1`,
+    [cobrancaId, pg.id, estornar],
+  );
   await recalcularPago(cliente, c.reserva_id);
   let confirmou = false;
   if (r?.status === 'pre_reserva') {
@@ -246,10 +317,75 @@ async function baixar(cliente: PoolClient, cobrancaId: number, valorCentavos: nu
     confirmou = (up.rowCount ?? 0) > 0;
   }
   await cliente.query(
-    `INSERT INTO auditoria (user_id, action, entity, entity_id, details) VALUES ($1, 'pix_recebido', 'reserva', $2, $3)`,
-    [userId, c.reserva_id, JSON.stringify({ cobranca: cobrancaId, valorCentavos, origem, confirmou })],
+    `INSERT INTO auditoria (user_id, action, entity, entity_id, details) VALUES ($1, $2, 'reserva', $3, $4)`,
+    [userId, estornar ? 'pix_estorno_pendente' : 'pix_recebido', c.reserva_id, JSON.stringify({ cobranca: cobrancaId, valorCentavos, origem, confirmou, reativou })],
   );
-  return { jaPaga: false, confirmou };
+  return { jaPaga: false, confirmou, reativou, estornar };
+}
+
+/** Avisa a pousada do Pix tardio. Falha de e-mail não desfaz a baixa já gravada. */
+async function avisarPixTardio(cobrancaId: number, valorCentavos: number, reativou: boolean): Promise<void> {
+  try {
+    const { rows: [c] } = await pool.query(
+      `SELECT c.pousada_id, c.reserva_id, r.nome AS hospede, p.nome AS pousada
+         FROM cobrancas_pix c JOIN reservas r ON r.id = c.reserva_id JOIN pousadas p ON p.id = c.pousada_id WHERE c.id = $1`,
+      [cobrancaId],
+    );
+    // Import tardio: lib/fila carrega este módulo pelos jobs, e lib/email usa a
+    // fila ao ser carregado; no topo do arquivo o ciclo quebra a inicialização.
+    const { enviarPixTardio } = await import('../lib/email.js');
+    await enviarPixTardio(await emailsDaPousada(c.pousada_id), {
+      pousada: c.pousada,
+      reservaId: c.reserva_id,
+      hospede: c.hospede,
+      valor: (valorCentavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+      reativou,
+      link: `${(process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')}/reservas/${c.reserva_id}`,
+    });
+  } catch (err) {
+    console.error('[Pix] aviso de Pix tardio:', err);
+    reportarErro(err, { cobranca: cobrancaId });
+  }
+}
+
+async function baixarEAvisar(cobrancaId: number, valorCentavos: number, origem: string, userId: string | null): Promise<ResultadoBaixa> {
+  const r = await emTransacao((cl) => baixar(cl, cobrancaId, valorCentavos, origem, userId));
+  if (r.reativou || r.estornar) await avisarPixTardio(cobrancaId, valorCentavos, r.reativou);
+  return r;
+}
+
+export interface CobrancaEncerrada {
+  pousada_id: number;
+  provedor: string;
+  provedor_id: string | null;
+}
+
+/**
+ * Anula no gateway o que foi encerrado aqui, para o hóspede não conseguir mais
+ * pagar. Fora da transação e sem propagar erro: se falhar, a cobrança
+ * segue viva no gateway e um pagamento tardio cai na regra de `baixar`.
+ */
+export async function cancelarNoGateway(cobrancas: CobrancaEncerrada[]): Promise<void> {
+  for (const c of cobrancas) {
+    if (c.provedor !== 'asaas' || !c.provedor_id) continue;
+    try {
+      const cred = await credencial(c.pousada_id);
+      if (cred) await gatewayPara(cred.provedor, cred.token).cancelarCobranca(c.provedor_id);
+    } catch (err) {
+      console.error(`[Pix] não foi possível cancelar ${c.provedor_id} no gateway:`, err instanceof Error ? err.message : err);
+      reportarErro(err, { cobranca: c.provedor_id });
+    }
+  }
+}
+
+/** A reserva foi encerrada: as cobranças em aberto deixam de valer, aqui e no gateway. */
+export async function encerrarCobrancas(pousadaId: number, reservaId: number): Promise<void> {
+  const { rows } = await pool.query<CobrancaEncerrada>(
+    `UPDATE cobrancas_pix SET status = 'cancelada' WHERE reserva_id = $1 AND pousada_id = $2 AND status = 'pendente'
+     RETURNING pousada_id, provedor, provedor_id`,
+    [reservaId, pousadaId],
+  );
+  await cancelarNoGateway(rows);
 }
 
 async function emTransacao<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
@@ -275,7 +411,7 @@ export async function marcarRecebida(pousadaId: number, reservaId: number, cobra
   );
   if (!c) throw new PixIndisponivel('Cobrança não encontrada.', 404);
   if (c.status === 'paga') throw new PixIndisponivel('Esta cobrança já foi baixada.', 409);
-  return emTransacao((cl) => baixar(cl, c.id, c.valor_centavos, 'Pix recebido (conferido pela pousada)', userId));
+  return baixarEAvisar(c.id, c.valor_centavos, 'Pix recebido (conferido pela pousada)', userId);
 }
 
 /**
@@ -299,9 +435,19 @@ export async function processarAviso(webhookToken: string, tokenCabecalho: strin
   );
   if (!c) return 'cobrança desconhecida';
   if (c.status === 'paga') return 'já paga';
-  const situacao = await gatewayPara('asaas', decifrarSegredo(cred.token_cifrado)).consultar(idPagamento);
+  let situacao: SituacaoCobranca;
+  try {
+    situacao = await gatewayPara('asaas', decifrarSegredo(cred.token_cifrado)).consultar(idPagamento);
+  } catch (err) {
+    // Cobrança que nós mesmos anulamos pode não existir mais no gateway; repetir
+    // o aviso (500) só travaria a fila sequencial de avisos dele.
+    if (err instanceof GatewayRecusou && c.status !== 'pendente') return 'cobrança já encerrada';
+    throw err;
+  }
   if (situacao.status === 'paga') {
-    const r = await emTransacao((cl) => baixar(cl, c.id, situacao.valorCentavos || c.valor_centavos, `Pix confirmado pelo Asaas (${idPagamento})`, null));
+    const r = await baixarEAvisar(c.id, situacao.valorCentavos || c.valor_centavos, `Pix confirmado pelo Asaas (${idPagamento})`, null);
+    if (r.estornar) return 'paga com a reserva encerrada: marcada para estorno';
+    if (r.reativou) return 'paga e reserva reativada';
     return r.confirmou ? 'paga e reserva confirmada' : 'paga';
   }
   if (situacao.status === 'cancelada' || situacao.status === 'expirada') {
@@ -314,8 +460,8 @@ export async function processarAviso(webhookToken: string, tokenCabecalho: strin
 export async function cobrancaPublica(token: string) {
   if (!/^[0-9a-f]{36}$/.test(token)) return null;
   const { rows: [c] } = await pool.query(
-    `SELECT c.status, c.valor_centavos, r.status AS reserva FROM cobrancas_pix c JOIN reservas r ON r.id = c.reserva_id WHERE c.token_publico = $1`,
+    `SELECT c.status, c.valor_centavos, c.estorno_pendente, r.status AS reserva FROM cobrancas_pix c JOIN reservas r ON r.id = c.reserva_id WHERE c.token_publico = $1`,
     [token],
   );
-  return c ? { status: c.status as string, valorCentavos: c.valor_centavos as number, reserva: c.reserva as string } : null;
+  return c ? { status: c.status as string, valorCentavos: c.valor_centavos as number, reserva: c.reserva as string, estorno: c.estorno_pendente as boolean } : null;
 }

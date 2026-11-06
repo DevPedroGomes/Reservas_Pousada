@@ -9,12 +9,12 @@ import type { ItemAgenda } from "../../lib/types"
 import { MenuWhatsApp } from "../whatsapp/MenuWhatsApp"
 import type { Modelo, PousadaMensagem } from "../../lib/mensagens"
 
-type MudarStatus = (id: number, status: StatusReserva) => void
+type MudarStatus = (id: number, status: StatusReserva, version: number | undefined) => void
 
 /** Aviso ao lado do nome quando o status pede atenção da recepção. */
 function avisoDeStatus(r: ItemAgenda, hoje: string): { texto: string; cor: string } | null {
-  if (r.status === "pre_reserva") return { texto: "pré-reserva", cor: "text-amber-700 bg-amber-50" }
-  if (r.status === "confirmada" && r.data_entrada <= hoje) return { texto: "aguardando check-in", cor: "text-sky-700 bg-sky-50" }
+  if (r.status === "pre_reserva") return { texto: "pré-reserva", cor: "text-warning bg-warning/10" }
+  if (r.status === "confirmada" && r.data_entrada <= hoje) return { texto: "aguardando check-in", cor: "text-accent-foreground bg-accent" }
   return null
 }
 
@@ -46,20 +46,20 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
           const aviso = avisoDeStatus(r, hoje)
           return (
             <div key={`${titulo}-${r.id}`} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
-              <Link href={`/reservas/${r.id}`} className="flex min-w-0 flex-1 basis-40 items-center gap-2">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">
+              <Link href={`/reservas/${r.id}`} className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:basis-40">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-accent px-1.5 text-xs font-medium text-accent-foreground num">
                   {r.quarto}
                 </span>
-                <span className="truncate">{r.nome}</span>
+                <span className="min-w-0 truncate">{r.nome}</span>
                 {aviso && <span className={`rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap ${aviso.cor}`}>{aviso.texto}</span>}
                 {r.precheckin_em && r.status !== "hospedada" && (
-                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-emerald-700" title="Pré-check-in feito">ficha ✓</span>
+                  <span className="rounded bg-success/10 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-success" title="Pré-check-in feito">ficha ✓</span>
                 )}
               </Link>
               <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
                 {mostrarData === "entrada" && formatarData(r.data_entrada)}
                 {mostrarData === "saida" && `até ${formatarData(r.data_saida)}`}
-                {!r.pago && <span className="text-amber-600">a pagar</span>}
+                {!r.pago && <span className="text-warning">a pagar</span>}
                 {pousada && r.telefone && (
                   <MenuWhatsApp
                     compacto
@@ -76,7 +76,7 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
                     disabled={mudando === r.id}
                     onClick={() => {
                       if (proximo === "finalizada" && !r.pago && !window.confirm(`A conta de ${r.nome} ainda não está quitada. Fazer o check-out mesmo assim?`)) return
-                      onMudarStatus(r.id, proximo)
+                      onMudarStatus(r.id, proximo, r.version)
                     }}
                   >
                     {ROTULO_ACAO[proximo]}
@@ -91,11 +91,12 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
   )
 }
 
-export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarStatus, mudando, pousada, nomesDosQuartos }: {
+export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, em_revisao, onMudarStatus, mudando, pousada, nomesDosQuartos }: {
   chegadas: ItemAgenda[]
   saidas: ItemAgenda[]
   hospedados: ItemAgenda[]
   proximas: ItemAgenda[]
+  em_revisao: ItemAgenda[]
   /** Sem esta função (perfil só leitura), a agenda não mostra botões. */
   onMudarStatus?: MudarStatus
   mudando?: number | null
@@ -105,6 +106,17 @@ export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarSta
   const acoes = { onMudarStatus, mudando, pousada, nomesDosQuartos }
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      {em_revisao.length > 0 && (
+        <div className="md:col-span-2">
+          <Lista
+            titulo="Para revisar: saída vencida sem check-in"
+            itens={em_revisao}
+            vazio=""
+            mostrarData="saida"
+            nomesDosQuartos={nomesDosQuartos}
+          />
+        </div>
+      )}
       <Lista titulo="Chegadas hoje" itens={chegadas} vazio="Nenhuma chegada prevista hoje." mensagem="chegada" {...acoes} />
       <Lista titulo="Saídas hoje" itens={saidas} vazio="Nenhuma saída prevista hoje." mensagem="agradecimento" {...acoes} />
       <Lista titulo="Hospedados agora" itens={hospedados} vazio="Nenhum hóspede no momento." mostrarData="saida" mensagem="chegada" {...acoes} />

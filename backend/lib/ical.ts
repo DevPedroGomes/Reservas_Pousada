@@ -12,7 +12,7 @@
  */
 import https from 'node:https';
 import { lookup as dnsLookup } from 'node:dns';
-import { isIP, type LookupFunction } from 'node:net';
+import { BlockList, isIP, type LookupFunction } from 'node:net';
 
 export interface EventoIcal {
   uid: string;
@@ -118,6 +118,16 @@ export function lerIcal(conteudo: string, limite = 2000): EventoIcal[] {
   return eventos;
 }
 
+/** O calendário veio inteiro? Feed cortado não diz nada sobre o que sumiu dele. */
+export function feedCompleto(conteudo: string): boolean {
+  return conteudo.includes('BEGIN:VCALENDAR') && /END:VCALENDAR\s*$/.test(conteudo);
+}
+
+export const MENSAGEM_FEED_INCOMPLETO = 'O calendário veio incompleto; nenhuma reserva foi alterada.';
+
+/** Tempo total de uma busca, redirecionamentos incluídos. */
+export const PRAZO_BUSCA_MS = 30_000;
+
 // ---------------------------------------------------------------------------
 // Busca protegida
 
@@ -128,16 +138,33 @@ export class IcalRecusado extends Error {
   }
 }
 
+/** O que nunca é alvo. A BlockList trata IPv4 mapeado em IPv6 pelas regras de IPv4. */
+const FAIXAS_INTERNAS = new BlockList();
+for (const [rede, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
+  ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24],
+  ['224.0.0.0', 4], ['240.0.0.0', 4],
+] as const) FAIXAS_INTERNAS.addSubnet(rede, bits, 'ipv4');
+for (const [rede, bits] of [
+  ['::', 96], // loopback, não especificado e IPv4 compatível (::7f00:1)
+  ['64:ff9b::', 96], ['64:ff9b:1::', 48], // NAT64
+  ['2001::', 32], ['2001:db8::', 32], ['2002::', 16], // Teredo, documentação, 6to4
+  ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8],
+] as const) FAIXAS_INTERNAS.addSubnet(rede, bits, 'ipv6');
+
 /** Endereço que não pode ser alvo: loopback, rede privada, link-local, etc. */
 export function enderecoInterno(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split('.').map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-  }
-  const v6 = ip.toLowerCase();
-  if (v6.startsWith('::ffff:')) return enderecoInterno(v6.slice(7));
-  return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80');
+  const familia = isIP(ip);
+  if (!familia) return true;
+  return FAIXAS_INTERNAS.check(ip, familia === 4 ? 'ipv4' : 'ipv6');
+}
+
+/**
+ * O que pode voltar na resposta da API e no aviso do calendário. Recusa nossa tem texto
+ * pensado para isso; erro de conexão traz IP e porta do que o servidor alcança.
+ */
+export function mensagemDeFalha(err: unknown): string {
+  return err instanceof IcalRecusado ? err.message : 'Não foi possível conectar ao calendário.';
 }
 
 /** DNS que recusa endereço interno — usado na conexão, não antes dela. */
@@ -154,7 +181,11 @@ export const lookupSeguro: LookupFunction = (hostname, opcoes, callback) => {
   });
 };
 
-/** Valida a URL antes de salvar: https e host que não seja IP interno. */
+/**
+ * Valida a URL antes de salvar: https e host que seja um nome. IP literal é
+ * recusado por inteiro: a conexão com ele não passa pelo DNS, então a checagem
+ * de `lookupSeguro` não valeria, e calendário de OTA nunca é servido por IP.
+ */
 export function validarUrlIcal(texto: string): string | null {
   let url: URL;
   try {
@@ -164,16 +195,25 @@ export function validarUrlIcal(texto: string): string | null {
   }
   if (url.protocol !== 'https:') return 'Use o link https do calendário (Booking e Airbnb fornecem assim).';
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || (isIP(host) && enderecoInterno(host))) {
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || isIP(host)) {
     return 'Endereço não permitido para calendário.';
   }
   if (texto.length > 2000) return 'Endereço longo demais.';
   return null;
 }
 
-export async function buscarIcal(endereco: string, saltos = 3): Promise<string> {
+/**
+ * `timeout` do socket só mede silêncio: um servidor que pinga um byte por vez
+ * nunca dispara. O limite da busca inteira é o `sinal`, que atravessa os
+ * redirecionamentos.
+ */
+export async function buscarIcal(endereco: string, opcoes: { saltos?: number; sinal?: AbortSignal } = {}): Promise<string> {
+  const saltos = opcoes.saltos ?? 3;
+  const sinal = opcoes.sinal ?? AbortSignal.timeout(PRAZO_BUSCA_MS);
   const erro = validarUrlIcal(endereco);
   if (erro) throw new IcalRecusado(erro);
+  const demorou = () => new IcalRecusado('O calendário demorou demais para responder.');
+  if (sinal.aborted) throw demorou();
   return new Promise((resolve, reject) => {
     const req = https.get(endereco, {
       lookup: lookupSeguro,
@@ -185,7 +225,7 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
         res.resume();
         if (saltos <= 0) return reject(new IcalRecusado('Redirecionamentos demais.'));
         const proximo = new URL(res.headers.location, endereco).toString();
-        return buscarIcal(proximo, saltos - 1).then(resolve, reject);
+        return buscarIcal(proximo, { saltos: saltos - 1, sinal }).then(resolve, reject);
       }
       if (status !== 200) {
         res.resume();
@@ -196,7 +236,7 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
       res.on('data', (c: Buffer) => {
         tamanho += c.length;
         if (tamanho > 2 * 1024 * 1024) {
-          req.destroy(new IcalRecusado('Calendário grande demais (máx. 2 MB).'));
+          falhar(new IcalRecusado('Calendário grande demais (máx. 2 MB).'));
           return;
         }
         partes.push(c);
@@ -204,11 +244,21 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
       res.on('end', () => {
         const texto = Buffer.concat(partes).toString('utf8');
         if (!texto.includes('BEGIN:VCALENDAR')) return reject(new IcalRecusado('O link não devolveu um calendário iCal.'));
+        if (!feedCompleto(texto)) return reject(new IcalRecusado(MENSAGEM_FEED_INCOMPLETO));
         resolve(texto);
       });
       res.on('error', reject);
     });
-    req.on('timeout', () => req.destroy(new IcalRecusado('O calendário demorou demais para responder.')));
+    // Rejeita antes de destruir: com a resposta em curso, o erro que chegaria
+    // pela conexão seria um "aborted" genérico no lugar deste motivo.
+    function falhar(motivo: IcalRecusado) {
+      reject(motivo);
+      req.destroy();
+    }
+    const aoVencer = () => falhar(demorou());
+    sinal.addEventListener('abort', aoVencer, { once: true });
+    req.on('close', () => sinal.removeEventListener('abort', aoVencer));
+    req.on('timeout', aoVencer);
     req.on('error', reject);
   });
 }

@@ -75,6 +75,16 @@ describe('margem — os casos que enganam', () => {
   });
 });
 
+describe('margem — estorno', () => {
+  it('estorno sai da receita, não vira custo', () => {
+    const m = calcularMargem([receita(14900), taxa(600), { categoria: 'estorno_assinatura', valorCentavos: 14900, estimado: false }]);
+    assert.equal(m.receitaCentavos, 0);
+    assert.equal(m.custoCentavos, 600);
+    assert.equal(m.margemCentavos, -600);
+    assert.equal(m.margemPercentual, null);
+  });
+});
+
 describe('rateio de infraestrutura', () => {
   it('divide entre os pagantes', () => {
     assert.equal(ratearInfra(10000, 4), 2500);

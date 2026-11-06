@@ -2,10 +2,11 @@ import { Router, Request, Response, NextFunction } from 'express';
 import AuditoriaModel from '../models/Auditoria.js';
 import QuartoModel from '../models/Quarto.js';
 import {
-  buscarImportacao, criarImportacao, listarCalendarios, novoLinkDoQuarto, removerImportacao, sincronizarImportacao,
+  atingiuLimiteDeCalendarios, buscarImportacao, criarImportacao, listarCalendarios, MAX_CALENDARIOS_POR_POUSADA, novoLinkDoQuarto, removerImportacao, sincronizarImportacao,
 } from '../models/Ical.js';
-import { validarUrlIcal } from '../lib/ical.js';
+import { mensagemDeFalha, validarUrlIcal } from '../lib/ical.js';
 import { authorize } from '../middleware/auth.js';
+import { requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sanitizarString, CANAIS_RESERVA } from '../utils/validation.js';
 import { param } from '../utils/http.js';
@@ -34,7 +35,8 @@ router.get('/', authorize(['admin']), async (req: Request, res: Response, next: 
   }
 });
 
-router.post('/importacoes', authorize(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+// Adicionar já roda a primeira sincronização, por isso também exige assinatura.
+router.post('/importacoes', authorize(['admin']), requerAssinaturaAtiva, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const erros: string[] = [];
     const quarto = Number(req.body.quarto);
@@ -48,6 +50,9 @@ router.post('/importacoes', authorize(['admin']), async (req: Request, res: Resp
     const quartos = await QuartoModel.listar(req.user!.pousadaId!);
     if (!quartos.some((q) => q.numero === quarto)) erros.push('Quarto não encontrado nesta pousada');
     if (erros.length) return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Dados inválidos', erros });
+    if (await atingiuLimiteDeCalendarios(req.user!.pousadaId!)) {
+      return res.status(409).json({ sucesso: false, codigo: 'ICS_008', mensagem: `Esta pousada chegou ao limite de ${MAX_CALENDARIOS_POR_POUSADA} calendários. Remova um para ligar outro.` });
+    }
 
     let imp;
     try {
@@ -61,21 +66,21 @@ router.post('/importacoes', authorize(['admin']), async (req: Request, res: Resp
     }
     AuditoriaModel.log(req.user!.id, 'criar', 'ical_importacao', imp.id, { depois: { quarto, nome, canal } }, req.ip || null).catch(() => {});
     // Primeira sincronização na hora: a pessoa vê se o link funciona.
-    const resumo = await sincronizarImportacao(imp).catch((err: Error) => ({ erro: err.message }));
+    const resumo = await sincronizarImportacao(imp).catch((err: unknown) => ({ erro: mensagemDeFalha(err) }));
     res.status(201).json({ sucesso: true, id: imp.id, resumo });
   } catch (err) {
     next(new AppError('Erro ao adicionar calendário', 500, 'ICS_003'));
   }
 });
 
-router.post('/importacoes/:id/sincronizar', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/importacoes/:id/sincronizar', authorize(['admin', 'recepcao']), requerAssinaturaAtiva, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const imp = await buscarImportacao(req.user!.pousadaId!, Number(param(req, 'id')));
     if (!imp) return res.status(404).json({ sucesso: false, codigo: 'ICS_404', mensagem: 'Calendário não encontrado' });
     try {
       res.json({ sucesso: true, resumo: await sincronizarImportacao(imp) });
     } catch (err) {
-      res.status(502).json({ sucesso: false, codigo: 'ICS_004', mensagem: `Não foi possível ler o calendário: ${(err as Error).message}` });
+      res.status(502).json({ sucesso: false, codigo: 'ICS_004', mensagem: `Não foi possível ler o calendário: ${mensagemDeFalha(err)}` });
     }
   } catch (err) {
     next(new AppError('Erro ao sincronizar', 500, 'ICS_005'));
