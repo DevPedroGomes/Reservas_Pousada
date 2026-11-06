@@ -20,6 +20,9 @@
  * - Recebido: o que entrou no caixa no período (pagamentos pela data), por forma.
  * - A receber: saldo atual das reservas em aberto (não depende do período). O
  *   total soma tudo; a lista traz as primeiras LIMITE_LISTA_A_RECEBER.
+ *
+ * As consultas rodam uma de cada vez: em paralelo, um relatório só tomaria quase
+ * todo o pool (10 conexões) e deixaria a operação da pousada esperando.
  */
 import { pool } from '../db/index.js';
 
@@ -51,64 +54,62 @@ export async function relatorio(pousadaId: number, inicio: string, fim: string) 
       FROM reservas r
      WHERE r.pousada_id = $1 AND r.deleted_at IS NULL AND r.revisao_em IS NULL AND r.status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')`;
 
-  const [quartos, quartosNoPeriodo, totais, porCanal, porDia, recebido, consumos, cancelamentos, aReceberTotal, aReceber] = await Promise.all([
-    pool.query(`SELECT count(*)::int AS n FROM quartos WHERE pousada_id = $1 AND ativo`, [pousadaId]),
-    pool.query(
-      `${noites} SELECT count(*)::int AS n FROM (
-         SELECT numero AS quarto FROM quartos WHERE pousada_id = $1 AND ativo
-         UNION
-         SELECT quarto FROM noites WHERE NOT bloqueio
-       ) q`,
-      params,
-    ),
-    pool.query(
-      `${noites} SELECT count(*) FILTER (WHERE NOT bloqueio)::int AS noites,
-                        count(*) FILTER (WHERE com_valor)::int AS com_valor,
-                        count(*) FILTER (WHERE NOT com_valor AND NOT bloqueio)::int AS sem_valor,
-                        count(*) FILTER (WHERE bloqueio)::int AS bloqueadas,
-                        count(DISTINCT id) FILTER (WHERE NOT bloqueio)::int AS reservas,
-                        COALESCE(sum(diaria), 0)::float AS receita
-                   FROM noites`,
-      params,
-    ),
-    pool.query(
-      `${noites} SELECT canal, count(DISTINCT id)::int AS reservas, count(*)::int AS noites, COALESCE(sum(diaria), 0)::float AS receita
-         FROM noites WHERE NOT bloqueio GROUP BY canal ORDER BY receita DESC`,
-      params,
-    ),
-    pool.query(
-      `${noites} SELECT d.dia::text AS dia, count(DISTINCT n.quarto)::int AS ocupados
-         FROM dias d LEFT JOIN noites n ON n.dia = d.dia AND NOT n.bloqueio GROUP BY d.dia ORDER BY d.dia`,
-      params,
-    ),
-    pool.query(
-      `SELECT p.forma, COALESCE(sum(p.valor_centavos), 0)::int AS centavos, count(*)::int AS lancamentos
-         FROM pagamentos p JOIN reservas r ON r.id = p.reserva_id
-        WHERE p.pousada_id = $1 AND r.deleted_at IS NULL AND p.recebido_em BETWEEN $2::date AND $3::date
-        GROUP BY p.forma ORDER BY centavos DESC`,
-      params,
-    ),
-    pool.query(
-      `SELECT COALESCE(sum(c.quantidade * c.valor_unitario_centavos), 0)::int AS centavos
-         FROM consumos c JOIN reservas r ON r.id = c.reserva_id
-        WHERE c.pousada_id = $1 AND r.deleted_at IS NULL AND c.lancado_em BETWEEN $2::date AND $3::date`,
-      params,
-    ),
-    pool.query(
-      `SELECT count(*) FILTER (WHERE status = 'cancelada')::int AS canceladas,
-              count(*) FILTER (WHERE status = 'no_show')::int AS no_show,
-              count(*)::int AS total
-         FROM reservas
-        WHERE pousada_id = $1 AND deleted_at IS NULL AND data_entrada BETWEEN $2::date AND $3::date`,
-      params,
-    ),
-    pool.query(
-      `SELECT COALESCE(sum(saldo_centavos), 0)::float AS centavos, count(*)::int AS reservas
-         FROM (${saldos}) t WHERE saldo_centavos > 0`,
-      [pousadaId],
-    ),
-    pool.query(`SELECT * FROM (${saldos}) t WHERE saldo_centavos > 0 ORDER BY data_entrada LIMIT ${LIMITE_LISTA_A_RECEBER}`, [pousadaId]),
-  ]);
+  const quartos = await pool.query(`SELECT count(*)::int AS n FROM quartos WHERE pousada_id = $1 AND ativo`, [pousadaId]);
+  const quartosNoPeriodo = await pool.query(
+    `${noites} SELECT count(*)::int AS n FROM (
+       SELECT numero AS quarto FROM quartos WHERE pousada_id = $1 AND ativo
+       UNION
+       SELECT quarto FROM noites WHERE NOT bloqueio
+     ) q`,
+    params,
+  );
+  const totais = await pool.query(
+    `${noites} SELECT count(*) FILTER (WHERE NOT bloqueio)::int AS noites,
+                      count(*) FILTER (WHERE com_valor)::int AS com_valor,
+                      count(*) FILTER (WHERE NOT com_valor AND NOT bloqueio)::int AS sem_valor,
+                      count(*) FILTER (WHERE bloqueio)::int AS bloqueadas,
+                      count(DISTINCT id) FILTER (WHERE NOT bloqueio)::int AS reservas,
+                      COALESCE(sum(diaria), 0)::float AS receita
+                 FROM noites`,
+    params,
+  );
+  const porCanal = await pool.query(
+    `${noites} SELECT canal, count(DISTINCT id)::int AS reservas, count(*)::int AS noites, COALESCE(sum(diaria), 0)::float AS receita
+       FROM noites WHERE NOT bloqueio GROUP BY canal ORDER BY receita DESC`,
+    params,
+  );
+  const porDia = await pool.query(
+    `${noites} SELECT d.dia::text AS dia, count(DISTINCT n.quarto)::int AS ocupados
+       FROM dias d LEFT JOIN noites n ON n.dia = d.dia AND NOT n.bloqueio GROUP BY d.dia ORDER BY d.dia`,
+    params,
+  );
+  const recebido = await pool.query(
+    `SELECT p.forma, COALESCE(sum(p.valor_centavos), 0)::int AS centavos, count(*)::int AS lancamentos
+       FROM pagamentos p JOIN reservas r ON r.id = p.reserva_id
+      WHERE p.pousada_id = $1 AND r.deleted_at IS NULL AND p.recebido_em BETWEEN $2::date AND $3::date
+      GROUP BY p.forma ORDER BY centavos DESC`,
+    params,
+  );
+  const consumos = await pool.query(
+    `SELECT COALESCE(sum(c.quantidade * c.valor_unitario_centavos), 0)::int AS centavos
+       FROM consumos c JOIN reservas r ON r.id = c.reserva_id
+      WHERE c.pousada_id = $1 AND r.deleted_at IS NULL AND c.lancado_em BETWEEN $2::date AND $3::date`,
+    params,
+  );
+  const cancelamentos = await pool.query(
+    `SELECT count(*) FILTER (WHERE status = 'cancelada')::int AS canceladas,
+            count(*) FILTER (WHERE status = 'no_show')::int AS no_show,
+            count(*)::int AS total
+       FROM reservas
+      WHERE pousada_id = $1 AND deleted_at IS NULL AND data_entrada BETWEEN $2::date AND $3::date`,
+    params,
+  );
+  const aReceberTotal = await pool.query(
+    `SELECT COALESCE(sum(saldo_centavos), 0)::float AS centavos, count(*)::int AS reservas
+       FROM (${saldos}) t WHERE saldo_centavos > 0`,
+    [pousadaId],
+  );
+  const aReceber = await pool.query(`SELECT * FROM (${saldos}) t WHERE saldo_centavos > 0 ORDER BY data_entrada LIMIT ${LIMITE_LISTA_A_RECEBER}`, [pousadaId]);
 
   const dias = porDia.rows.length;
   const quartosAtivos = quartos.rows[0].n as number;

@@ -1,7 +1,7 @@
 /**
  * Relatórios contra Postgres real, com números conferidos à mão.
  */
-import { after, before, describe, it } from 'node:test';
+import { after, before, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { prepararBanco, temBanco } from './helpers/banco.js';
 
@@ -148,6 +148,26 @@ describe('relatórios — ocupação, ADR, RevPAR, canais e caixa', { skip: !tem
     it('RevPAR não é diluído pela noite de valor desconhecido', () => {
       assert.equal(otas.revparCentavos, Math.round(100000 / 13));
     });
+  });
+
+  it('as consultas rodam uma por vez, sem ocupar o pool', async () => {
+    const original = pool.query.bind(pool) as (...a: unknown[]) => Promise<unknown>;
+    let agora = 0;
+    let pico = 0;
+    const espiao = mock.method(pool, 'query', (async (...a: unknown[]) => {
+      pico = Math.max(pico, ++agora);
+      try {
+        return await original(...a);
+      } finally {
+        agora--;
+      }
+    }) as never);
+    try {
+      await (await import('../models/Relatorio.js')).relatorio(1, '2026-11-01', '2026-11-10');
+    } finally {
+      espiao.mock.restore();
+    }
+    assert.equal(pico, 1);
   });
 
   describe('a receber com muitas reservas', () => {
