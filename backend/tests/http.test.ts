@@ -1006,7 +1006,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
     before(async () => {
       envAntes = { ...process.env };
-      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste' });
+      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste', AGENTE_DEMO_SEM_BILLING: 'true' });
       const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
       usarClienteMetaDeTeste({
         async trocarCodigo(code) { if (code !== 'codigo-ok') throw new Error('código expirado'); return 'token-da-pousada'; },
@@ -1358,11 +1358,121 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal((await donoB.req('GET', '/api/billing/situacao')).json.assinatura.liberado, false);
     });
 
+    it('relatórios, dashboard e sincronização iCal também ficam atrás do guard', async () => {
+      // pousadaB está com o trial vencido desde o teste anterior.
+      const relatorio = await donoB.req('GET', '/api/relatorios');
+      assert.equal(relatorio.status, 402);
+      assert.equal(relatorio.json.precisaAssinar, true);
+      assert.equal((await donoB.req('GET', `/api/pousadas/${pousadaB}/dashboard`)).status, 402);
+      const { rows: [imp] } = await pool.query(
+        `INSERT INTO ical_importacoes (pousada_id, quarto_numero, nome, canal, url) VALUES ($1, 1, 'Airbnb', 'airbnb', 'https://airbnb.exemplo/a.ics') RETURNING id`,
+        [pousadaB],
+      );
+      assert.equal((await donoB.req('POST', `/api/ical/importacoes/${imp.id}/sincronizar`)).status, 402);
+      assert.equal((await donoB.req('POST', '/api/ical/importacoes', { quarto: 1, nome: 'Booking', canal: 'booking', url: 'https://booking.exemplo/b.ics' })).status, 402);
+    });
+
+    it('quem está bloqueado continua conseguindo configurar e regularizar', async () => {
+      assert.equal((await donoB.req('GET', '/api/ical')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/quartos')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/conta/exportar')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/billing/situacao')).status, 200);
+      const { rows: [imp] } = await pool.query(`SELECT id FROM ical_importacoes WHERE pousada_id = $1 LIMIT 1`, [pousadaB]);
+      assert.equal((await donoB.req('DELETE', `/api/ical/importacoes/${imp.id}`)).status, 200);
+    });
+
+    it('o feed iCal de exportação segue no ar para pousada bloqueada', async () => {
+      const { rows: [q] } = await pool.query(`SELECT ical_token FROM quartos WHERE pousada_id = $1 AND ical_token IS NOT NULL LIMIT 1`, [pousadaB]);
+      const r = await new Cliente(base, '203.0.113.200').req('GET', `/ical/${q.ical_token}.ics`);
+      assert.equal(r.status, 200);
+      assert.match(String(r.json), /BEGIN:VCALENDAR/);
+    });
+
     it('segunda pousada em trial é recusada (402)', async () => {
       const r = await donoA.req('POST', '/api/pousadas', {
         nome: 'Segunda da A', num_quartos: 5, endereco: 'Rua B, 200', telefone: '48999990000', email: 'b@b.com',
       });
       assert.equal(r.status, 402);
+    });
+
+    describe('checkout não cria assinatura duplicada', () => {
+      let dono: Cliente;
+      let pousada: number;
+      let vivas: { id: string; status: string; customer: string; metadata: object; cancel_at_period_end: boolean; items: { data: unknown[] } }[];
+      let abertas: { id: string; url: string; metadata: Record<string, string> }[];
+      let expiradas: string[];
+      let criadas: Record<string, any>[];
+      let falhaAoExpirar: boolean;
+
+      before(async () => {
+        process.env.STRIPE_PRICE_POUSADA_MENSAL = 'price_pm';
+        process.env.STRIPE_PRICE_REDE_MENSAL = 'price_rm';
+        (await import('../lib/stripe.js')).usarStripeDeTeste({
+          customers: { create: async () => ({ id: 'cus_dup' }) },
+          subscriptions: { list: async () => ({ data: vivas }) },
+          checkout: { sessions: {
+            list: async () => ({ data: abertas }),
+            expire: async (id: string) => {
+              if (falhaAoExpirar) throw new Error('Stripe fora do ar');
+              expiradas.push(id);
+              abertas = abertas.filter((s) => s.id !== id);
+            },
+            create: async (params: Record<string, any>) => {
+              criadas.push(params);
+              const s = { id: `cs_${criadas.length}`, url: `https://checkout/${criadas.length}`, metadata: params.metadata };
+              abertas.push(s);
+              return s;
+            },
+          } },
+        } as never);
+        dono = await novoUsuario('dono.checkout@teste.com', 'Dono Checkout');
+        dono.pousada = pousada = await criarPousada(dono, 'Pousada Checkout');
+      });
+      after(async () => { (await import('../lib/stripe.js')).usarStripeDeTeste(null); });
+      const reiniciar = () => { vivas = []; abertas = []; expiradas = []; criadas = []; falhaAoExpirar = false; };
+
+      it('expira as sessões abertas antes de criar outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: { chave: 'outra' } }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 200, JSON.stringify(r.json));
+        assert.deepEqual(expiradas, ['cs_velha']);
+        assert.equal(criadas.length, 1);
+        assert.equal(r.json.url, 'https://checkout/1');
+      });
+
+      it('duplo clique reaproveita a mesma sessão em vez de expirá-la', async () => {
+        reiniciar();
+        const r1 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        const r2 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r2.json.url, r1.json.url);
+        assert.equal(criadas.length, 1);
+        assert.deepEqual(expiradas, []);
+      });
+
+      it('falha ao expirar a sessão antiga não abre outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        falhaAoExpirar = true;
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'rede', ciclo: 'mensal' });
+        assert.equal(r.status, 502);
+        assert.equal(criadas.length, 0);
+      });
+
+      it('assinatura viva no Stripe que o banco ainda não conhece impede o checkout e é aplicada', async () => {
+        reiniciar();
+        vivas = [{
+          id: 'sub_webhook_atrasado', status: 'active', customer: 'cus_dup', metadata: {}, cancel_at_period_end: false,
+          items: { data: [{ current_period_end: 1893456000, price: { id: 'price_rm' } }] },
+        }];
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 409);
+        assert.equal(r.json.codigo, 'BILLING_JA_ASSINA');
+        assert.equal(criadas.length, 0);
+        const { rows: [a] } = await pool.query(`SELECT status, plano, stripe_subscription_id FROM assinaturas WHERE pousada_id = $1`, [pousada]);
+        assert.deepEqual([a.status, a.plano, a.stripe_subscription_id], ['ativa', 'rede', 'sub_webhook_atrasado']);
+      });
     });
 
     it('só o dono abre checkout', async () => {

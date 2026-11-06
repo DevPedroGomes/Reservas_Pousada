@@ -153,6 +153,13 @@ export function hashDocumento(tipo: TipoDocumento, valor: string): string {
     .digest('hex');
 }
 
+/** HMAC do e-mail normalizado: reconhece o mesmo e-mail sem guardá-lo. */
+export function hashEmail(email: string): string {
+  return createHmac('sha256', getEncryptionKey())
+    .update(`email-hash:v1:${email.trim().toLowerCase()}`)
+    .digest('hex');
+}
+
 // ---------------------------------------------------------------------------
 // Segredos de integração (token de gateway): mesma cifra, texto livre.
 

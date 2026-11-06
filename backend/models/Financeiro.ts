@@ -77,6 +77,43 @@ export class FinanceiroModel {
     return r.length > 0;
   }
 
+  /**
+   * Lançamento cujo valor é um acumulado que só cresce (custo de IA do mês, total
+   * estornado de uma cobrança). Repetir ou chegar fora de ordem não soma de novo
+   * nem reduz o que já foi registrado. Exige `referenciaExterna`.
+   */
+  static async acumular(params: {
+    pousadaId: number;
+    competencia: string;
+    categoria: Categoria;
+    valorCentavos: number;
+    referenciaExterna: string;
+    moeda?: string;
+    estimado?: boolean;
+    descricao?: string;
+  }, executor: Executor = db): Promise<void> {
+    await executor
+      .insert(financeiroLancamentos)
+      .values({
+        pousadaId: params.pousadaId,
+        competencia: params.competencia,
+        categoria: params.categoria,
+        valorCentavos: Math.max(0, Math.round(params.valorCentavos)),
+        moeda: params.moeda ?? 'brl',
+        estimado: params.estimado ?? false,
+        descricao: params.descricao ?? null,
+        referenciaExterna: params.referenciaExterna,
+      })
+      .onConflictDoUpdate({
+        target: [financeiroLancamentos.categoria, financeiroLancamentos.referenciaExterna],
+        targetWhere: sql`referencia_externa IS NOT NULL`,
+        set: {
+          valorCentavos: sql`GREATEST(${financeiroLancamentos.valorCentavos}, excluded.valor_centavos)`,
+          estimado: sql`${financeiroLancamentos.estimado} OR excluded.estimado`,
+        },
+      });
+  }
+
   /** Competência atual, no fuso da operação. */
   static competenciaAtual(): string {
     return competenciaDe(new Date(), TIMEZONE);
@@ -107,7 +144,7 @@ export class FinanceiroModel {
       FROM pousadas p
       LEFT JOIN assinaturas a ON a.pousada_id = p.id
       LEFT JOIN financeiro_lancamentos f
-        ON f.pousada_id = p.id AND f.competencia = ANY(${meses})
+        ON f.pousada_id = p.id AND f.competencia IN ${meses}
       GROUP BY p.id, p.nome, a.plano, a.status, f.competencia, f.categoria, f.estimado
       ORDER BY p.nome
     `);

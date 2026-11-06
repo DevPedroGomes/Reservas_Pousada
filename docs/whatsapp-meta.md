@@ -142,7 +142,11 @@ pousada, para que os eventos daquela WABA venham para o nosso app.
 | `AGENTE_API_KEY` | chave do provedor do modelo — **segredo**; sem ela o atendente fica desligado |
 | `AGENTE_MODELO` | padrão `claude-haiku-4-5-20251001` / `gpt-4o-mini` |
 | `AGENTE_BASE_URL` | só para `openai`: ex. `https://api.groq.com/openai/v1` |
-| `AGENTE_LIMITE_DIARIO` | teto de respostas do atendente por pousada em 24h (padrão 300) |
+| `AGENTE_DEMO_SEM_BILLING` | `true` deixa o atendente rodar com `BILLING_ENABLED=false`; só para demonstração |
+| `AGENTE_PRECO_ENTRADA_USD_MTOK`, `AGENTE_PRECO_SAIDA_USD_MTOK`, `AGENTE_COTACAO_USD_BRL` | preço do modelo em uso; sem os três, o custo de IA é estimativa |
+| `AGENTE_TETO_GLOBAL_TOKENS_DIA` | tokens por dia na plataforma; acima disso o atendente desliga com alerta (padrão 5.000.000) |
+| `AGENTE_LIMITE_CONTATO_HORA` | mensagens de um contato por hora (padrão 30) |
+| `AGENTE_MAX_CHARS_MENSAGEM`, `AGENTE_MAX_CHARS_HISTORICO` | o que vai ao modelo (padrões 2.000 e 6.000) |
 
 Estão no `docker-compose.yml` lendo do `.env` do servidor. Sem `META_*`, o card
 aparece como "não liberado"; sem `AGENTE_*`, a pousada conecta o número e usa o
@@ -160,9 +164,9 @@ O CSP do frontend (`docker-compose.yml`, labels do Traefik) já libera
   pousada (modelos, como o lembrete de chegada) são cobradas por mensagem,
   pela tabela da Meta para o Brasil.
 - **Modelo de linguagem → Diária**: cada resposta do atendente é uma chamada
-  ao provedor configurado em `AGENTE_*`, paga por nós. O teto
-  `AGENTE_LIMITE_DIARIO` deixa o custo previsível; acima dele a conversa vai
-  para a equipe. Um modelo pequeno basta: o modelo só conversa e escolhe
+  ao provedor configurado em `AGENTE_*`, paga por nós. A cota diária de cada
+  plano (`backend/config/planos.ts`) deixa o custo previsível; acima dela o
+  hóspede é avisado e a conversa vai para a equipe. Um modelo pequeno basta: o modelo só conversa e escolhe
   ferramentas — vaga, preço e reserva vêm do banco, nunca da cabeça dele.
 - Prefira provedores que **não treinam com os dados da API** (Anthropic e
   OpenAI, por padrão, não treinam). Evite planos gratuitos que treinam com o

@@ -133,7 +133,7 @@ export class PousadaModel {
       if (cobertaPor) {
         await AssinaturaModel.criarCoberta(pousada.id, cobertaPor, tx);
       } else {
-        await AssinaturaModel.criarTrial(pousada.id, tx);
+        await AssinaturaModel.criarTrial(pousada.id, tx, await AssinaturaModel.inicioDoTrial(userId, tx));
       }
 
       return pousada;

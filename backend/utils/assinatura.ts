@@ -28,6 +28,11 @@ export interface EstadoAssinatura {
   plano: CodigoPlano | null;
   trialTerminaEm: Date | null;
   periodoTerminaEm: Date | null;
+  /** Primeira falha de cobrança ainda não regularizada. */
+  inadimplenteDesde: Date | null;
+  cancelaNoFim: boolean;
+  /** Contestação de pagamento aberta ou perdida. */
+  emDisputa: boolean;
 }
 
 export type MotivoLiberado = 'cortesia' | 'ativa' | 'trial' | 'tolerancia';
@@ -35,11 +40,13 @@ export type MotivoBloqueio =
   | 'trial_expirado'
   | 'tolerancia_esgotada'
   | 'suspensa'
-  | 'cancelada';
+  | 'cancelada'
+  | 'acima_do_limite'
+  | 'disputa';
 
 export type Veredito =
   | { liberado: true; motivo: MotivoLiberado; diasRestantes?: number }
-  | { liberado: false; motivo: MotivoBloqueio };
+  | { liberado: false; motivo: MotivoBloqueio; detalhes?: string[] };
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -52,9 +59,13 @@ function diasAte(alvo: Date, agora: Date): number {
  *
  * `inadimplente` continua liberado durante a tolerância: cartão expirado é o
  * motivo mais comum de falha de cobrança e não significa que o cliente quis
- * sair. Cortar no mesmo dia transforma um problema de cadastro em churn.
+ * sair. Cortar no mesmo dia transforma um problema de cadastro em churn. A conta
+ * sai da data da falha, nunca do fim do período: o Stripe avança o período ao
+ * gerar a fatura, mesmo que a cobrança falhe.
  */
 export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Veredito {
+  if (e.emDisputa && e.status !== 'cortesia') return { liberado: false, motivo: 'disputa' };
+
   switch (e.status) {
     case 'cortesia':
       return { liberado: true, motivo: 'cortesia' };
@@ -73,8 +84,8 @@ export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Ve
     }
 
     case 'inadimplente': {
-      if (!e.periodoTerminaEm) return { liberado: false, motivo: 'tolerancia_esgotada' };
-      const limite = new Date(e.periodoTerminaEm.getTime() + DIAS_DE_TOLERANCIA * MS_POR_DIA);
+      if (!e.inadimplenteDesde) return { liberado: false, motivo: 'tolerancia_esgotada' };
+      const limite = new Date(e.inadimplenteDesde.getTime() + DIAS_DE_TOLERANCIA * MS_POR_DIA);
       if (limite.getTime() <= agora.getTime()) {
         return { liberado: false, motivo: 'tolerancia_esgotada' };
       }
@@ -85,8 +96,10 @@ export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Ve
       return { liberado: false, motivo: 'suspensa' };
 
     case 'cancelada':
-      // Cancelamento agendado ainda tem período pago pela frente.
-      if (e.periodoTerminaEm && e.periodoTerminaEm.getTime() > agora.getTime()) {
+      // Só o cancelamento agendado mantém o período pago. O imediato (no painel
+      // do Stripe, ou depois de esgotar as retentativas de cobrança) corta na
+      // hora, mesmo com `periodoTerminaEm` no futuro.
+      if (e.cancelaNoFim && e.periodoTerminaEm && e.periodoTerminaEm.getTime() > agora.getTime()) {
         return { liberado: true, motivo: 'ativa', diasRestantes: diasAte(e.periodoTerminaEm, agora) };
       }
       return { liberado: false, motivo: 'cancelada' };
@@ -118,9 +131,29 @@ export function limitesVigentes(e: Pick<EstadoAssinatura, 'status' | 'plano'>): 
   };
 }
 
+/**
+ * Avaliação completa: o pagamento (avaliarAcesso) e o uso diante do plano.
+ *
+ * A troca de plano no Portal do Stripe não passa pela nossa recusa de downgrade,
+ * então uma conta pode amanhecer acima do limite. Nada é apagado: a operação
+ * para até o dono reduzir o uso ou subir de plano, e configuração e cobrança
+ * continuam abertas para isso. Vale só para plano pago; os limites do trial já
+ * são aplicados na criação.
+ */
+export function avaliarAcessoComUso(e: EstadoAssinatura, uso: UsoAtual, agora: Date = new Date()): Veredito {
+  const base = avaliarAcesso(e, agora);
+  if (!base.liberado || e.status === 'cortesia' || !e.plano) return base;
+  const detalhes = motivosParaNaoCaber(uso, limitesVigentes(e));
+  return detalhes.length > 0 ? { liberado: false, motivo: 'acima_do_limite', detalhes } : base;
+}
+
 /** Mensagem para o usuário final. Nunca expõe estado interno de cobrança. */
-export function mensagemDeBloqueio(motivo: MotivoBloqueio): string {
+export function mensagemDeBloqueio(motivo: MotivoBloqueio, detalhes: string[] = []): string {
   switch (motivo) {
+    case 'disputa':
+      return 'Há uma contestação de pagamento nesta assinatura. Fale com o suporte para regularizar o acesso.';
+    case 'acima_do_limite':
+      return `Sua conta está acima do limite do plano${detalhes.length ? `: ${detalhes.join('; ')}` : ''}. Reduza o uso nas configurações ou faça upgrade para voltar a operar. Nenhum dado foi apagado.`;
     case 'trial_expirado':
       return 'Seu período de teste terminou. Escolha um plano para continuar usando.';
     case 'tolerancia_esgotada':

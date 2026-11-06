@@ -13,7 +13,6 @@ import AssinaturaModel from './Assinatura.js';
 import HospedeModel, { normalizarTelefone } from './Hospede.js';
 import ReservaModel, { ConflitoDeReserva } from './Reserva.js';
 import { cotar, type RegraTarifa } from './Tarifa.js';
-import { avaliarAcesso } from '../utils/assinatura.js';
 import { billingHabilitado } from '../lib/stripe.js';
 import { hojeLocal } from '../utils/datas.js';
 import { sanitizarNome, sanitizarString, validarCPF, validarData, validarEmail } from '../utils/validation.js';
@@ -90,8 +89,8 @@ async function carregarPousada(campo: 'slug' | 'id', valor: string | number): Pr
   if (!p) return null;
   const motor = configMotor(p.configuracoes);
   if (billingHabilitado()) {
-    const efetiva = await AssinaturaModel.efetiva(p.id);
-    if (efetiva && !avaliarAcesso(AssinaturaModel.paraEstado(efetiva.row)).liberado) return null;
+    const veredito = await AssinaturaModel.vereditoDaPousada(p.id);
+    if (veredito && !veredito.liberado) return null;
   }
   return {
     id: p.id, slug: p.slug, nome: p.nome, cidade: p.cidade, estado: p.estado, telefone: p.telefone,

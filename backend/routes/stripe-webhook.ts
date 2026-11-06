@@ -10,6 +10,7 @@ import FinanceiroModel from '../models/Financeiro.js';
 import { competenciaDe } from '../utils/margem.js';
 import { TIMEZONE } from '../utils/datas.js';
 import { registrarConversaoDePagamento } from '../lib/conversoes.js';
+import { reportarErro } from '../lib/observabilidade.js';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ export function traduzirStatus(s: Stripe.Subscription.Status): StatusAssinatura 
   }
 }
 
-/** Descobre plano e ciclo pelo id do Price, quando o metadata não veio. */
+/** Plano e ciclo pelo id do Price: o que o Stripe de fato cobra. */
 function pelaPrice(priceId: string | undefined): { plano: CodigoPlano | null; ciclo: Ciclo | null } {
   if (!priceId) return { plano: null, ciclo: null };
   for (const plano of CODIGOS_PLANO) {
@@ -159,11 +160,13 @@ async function taxaRealDaFatura(fatura: Stripe.Invoice): Promise<TaxaDaFatura> {
 export interface LeituraStripe {
   assinatura(id: string): Promise<Stripe.Subscription>;
   taxaDaFatura(fatura: Stripe.Invoice): Promise<TaxaDaFatura>;
+  cobranca(id: string): Promise<Stripe.Charge>;
 }
 
 const leituraReal: LeituraStripe = {
   assinatura: (id) => stripe().subscriptions.retrieve(id),
   taxaDaFatura: taxaRealDaFatura,
+  cobranca: (id) => stripe().charges.retrieve(id),
 };
 
 type Efeito = (tx: Executor) => Promise<void>;
@@ -199,12 +202,17 @@ async function aplicarAssinatura(sub: Stripe.Subscription, tx: Executor): Promis
     return;
   }
 
+  // O Price é o que está sendo cobrado. O metadata só é escrito pelo nosso
+  // checkout, então fica velho quando o dono troca de plano no Portal do Stripe.
+  // Ele e o valor já gravado só valem para um Price fora da configuração.
   const meta = sub.metadata ?? {};
   const derivado = pelaPrice(sub.items?.data?.[0]?.price?.id);
-  const plano = (CODIGOS_PLANO as readonly string[]).includes(meta.plano)
-    ? (meta.plano as CodigoPlano)
-    : derivado.plano;
-  const ciclo = meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : derivado.ciclo;
+  const plano = derivado.plano
+    ?? ((CODIGOS_PLANO as readonly string[]).includes(meta.plano) ? (meta.plano as CodigoPlano) : null)
+    ?? (local.plano as CodigoPlano | null);
+  const ciclo = derivado.ciclo
+    ?? (meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : null)
+    ?? (local.ciclo as Ciclo | null);
 
   await AssinaturaModel.aplicarDoStripe({
     stripeCustomerId: customerId,
@@ -260,6 +268,7 @@ async function registrarFaturaPaga(fatura: Stripe.Invoice, taxa: TaxaDaFatura, t
     descricao: `Fatura ${fatura.number ?? fatura.id}`,
     referenciaExterna: fatura.id,
   }, tx);
+  await AssinaturaModel.regularizarDisputaPerdida(customerId, tx);
 
   if (taxa.centavos > 0) {
     await FinanceiroModel.registrar({
@@ -273,6 +282,90 @@ async function registrarFaturaPaga(fatura: Stripe.Invoice, taxa: TaxaDaFatura, t
       referenciaExterna: fatura.id,
     }, tx);
   }
+}
+
+/** Competência em que um estorno pesa: o mês em que o dinheiro voltou. */
+function competenciaDoEvento(evento: Stripe.Event): string {
+  return competenciaDe(evento.created ? new Date(evento.created * 1000) : new Date(), TIMEZONE);
+}
+
+/** Efeito que reaplica o estado atual da assinatura do customer, se houver uma. */
+async function reavaliarAcesso(customerId: string, leitura: LeituraStripe): Promise<Efeito[]> {
+  const local = await AssinaturaModel.buscarPorCustomer(customerId);
+  if (!local?.stripeSubscriptionId) return [];
+  const sub = await leitura.assinatura(local.stripeSubscriptionId);
+  return [(tx) => aplicarAssinatura(sub, tx)];
+}
+
+/**
+ * Reembolso: `amount_refunded` é o total acumulado da cobrança, por isso o
+ * lançamento é por cobrança e acompanha o acumulado. O Stripe não cancela a
+ * assinatura ao reembolsar; o acesso segue o estado que ele informar.
+ */
+async function efeitosDoReembolso(evento: Stripe.Event, leitura: LeituraStripe): Promise<Efeito[]> {
+  const cobranca = evento.data.object as Stripe.Charge;
+  const customerId = idDe(cobranca.customer as string | { id: string } | null);
+  if (!customerId) return [];
+  const estorno: Efeito = async (tx) => {
+    const local = await AssinaturaModel.buscarPorCustomer(customerId, tx);
+    if (!local) {
+      console.error(`[Stripe] reembolso ${cobranca.id} de customer ${customerId} sem pousada correspondente`);
+      return;
+    }
+    await FinanceiroModel.acumular({
+      pousadaId: local.pousadaId,
+      competencia: competenciaDoEvento(evento),
+      categoria: 'estorno_assinatura',
+      valorCentavos: cobranca.amount_refunded ?? 0,
+      moeda: cobranca.currency ?? 'brl',
+      descricao: 'Reembolso de cobrança',
+      referenciaExterna: cobranca.id,
+    }, tx);
+  };
+  return [estorno, ...(await reavaliarAcesso(customerId, leitura))];
+}
+
+/**
+ * Contestação: o banco retira o dinheiro ao abrir (por isso o estorno entra na
+ * hora) e o acesso fica bloqueado enquanto não houver desfecho. Ganha, o valor
+ * volta como receita e os dois lançamentos ficam como rastro. Perdida, segue
+ * bloqueada até uma nova fatura ser paga.
+ *
+ * Os estados `warning_*` são consulta prévia do banco, sem movimento de dinheiro.
+ */
+async function efeitosDaContestacao(evento: Stripe.Event, leitura: LeituraStripe): Promise<Efeito[]> {
+  const disputa = evento.data.object as Stripe.Dispute;
+  if (disputa.status.startsWith('warning_')) return [];
+  const chargeId = idDe(disputa.charge as string | { id: string });
+  if (!chargeId) return [];
+  const customerId = idDe((await leitura.cobranca(chargeId)).customer as string | { id: string } | null);
+  if (!customerId) return [];
+
+  const efeito: Efeito = async (tx) => {
+    const local = await AssinaturaModel.buscarPorCustomer(customerId, tx);
+    if (!local) {
+      console.error(`[Stripe] contestação ${disputa.id} de customer ${customerId} sem pousada correspondente`);
+      return;
+    }
+    const lancamento = {
+      pousadaId: local.pousadaId,
+      competencia: competenciaDoEvento(evento),
+      valorCentavos: disputa.amount,
+      moeda: disputa.currency ?? 'brl',
+      referenciaExterna: disputa.id,
+    };
+    await FinanceiroModel.registrar({ ...lancamento, categoria: 'estorno_assinatura', descricao: 'Contestação de pagamento' }, tx);
+    if (evento.type === 'charge.dispute.created') {
+      await AssinaturaModel.definirDisputa(customerId, 'aberta', tx);
+      reportarErro(new Error(`Contestação de pagamento ${disputa.id} aberta`), { pousadaId: local.pousadaId });
+    } else if (disputa.status === 'won') {
+      await FinanceiroModel.registrar({ ...lancamento, categoria: 'receita_assinatura', descricao: 'Contestação ganha: valor devolvido' }, tx);
+      await AssinaturaModel.definirDisputa(customerId, null, tx);
+    } else {
+      await AssinaturaModel.definirDisputa(customerId, 'perdida', tx);
+    }
+  };
+  return [efeito, ...(await reavaliarAcesso(customerId, leitura))];
 }
 
 /**
@@ -316,6 +409,13 @@ async function prepararEfeitos(evento: Stripe.Event, leitura: LeituraStripe): Pr
       }
       return efeitos;
     }
+
+    case 'charge.refunded':
+      return efeitosDoReembolso(evento, leitura);
+
+    case 'charge.dispute.created':
+    case 'charge.dispute.closed':
+      return efeitosDaContestacao(evento, leitura);
 
     default:
       // Evento que não nos interessa. Ainda é registrado (e respondido com 2xx),

@@ -1,14 +1,17 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { db, assinaturas, stripeEvents, userPousadas, type Executor } from '../db/index.js';
+import { db, assinaturas, quartos, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
+import { billingHabilitado } from '../lib/stripe.js';
+import { hashEmail } from '../utils/crypto.js';
 import {
-  avaliarAcesso,
+  avaliarAcessoComUso,
   limitesVigentes,
   temAssinaturaViva,
   type EstadoAssinatura,
   type Limites,
   type PousadaPossuida,
   type StatusAssinatura,
+  type UsoAtual,
   type Veredito,
 } from '../utils/assinatura.js';
 
@@ -22,12 +25,28 @@ export class AssinaturaModel {
    * uma pousada sem linha de assinatura é um tenant que o enforcement não sabe
    * avaliar, e o `ON CONFLICT DO NOTHING` cobre o caso de já existir.
    */
-  static async criarTrial(pousadaId: number, executor: Pick<typeof db, 'insert'> = db) {
-    const termina = new Date(Date.now() + DIAS_DE_TRIAL * MS_POR_DIA);
+  static async criarTrial(pousadaId: number, executor: Pick<typeof db, 'insert'> = db, inicio: Date = new Date()) {
+    const termina = new Date(inicio.getTime() + DIAS_DE_TRIAL * MS_POR_DIA);
     await executor
       .insert(assinaturas)
       .values({ pousadaId, status: 'trial', trialTerminaEm: termina })
       .onConflictDoNothing();
+  }
+
+  /**
+   * Quando começou o trial deste dono. Na primeira vez é agora, e fica gravado. O
+   * prazo conta sempre dessa data: quem exclui a pousada e cria outra continua no
+   * mesmo trial, e se ele já venceu a nova pousada nasce precisando assinar.
+   */
+  static async inicioDoTrial(userId: string, executor: Executor = db): Promise<Date> {
+    const { rows: [u] } = await executor.execute(sql`SELECT email, trial_usado_em FROM "user" WHERE id = ${userId}`);
+    const { rows: [email] } = await executor.execute(
+      sql`SELECT usado_em FROM trial_emails_usados WHERE email_hash = ${hashEmail(String(u.email))}`,
+    );
+    const anteriores = [u.trial_usado_em, email?.usado_em].filter((d): d is string | Date => Boolean(d)).map((d) => new Date(d));
+    const inicio = anteriores.length ? new Date(Math.min(...anteriores.map((d) => d.getTime()))) : new Date();
+    await executor.execute(sql`UPDATE "user" SET trial_usado_em = ${inicio.toISOString()}::timestamptz WHERE id = ${userId}`);
+    return inicio;
   }
 
   /**
@@ -77,6 +96,9 @@ export class AssinaturaModel {
         plano: assinaturas.plano,
         trialTerminaEm: assinaturas.trialTerminaEm,
         periodoTerminaEm: assinaturas.periodoTerminaEm,
+        inadimplenteDesde: assinaturas.inadimplenteDesde,
+        cancelaNoFim: assinaturas.cancelaNoFim,
+        disputaStatus: assinaturas.disputaStatus,
         cobertaPor: assinaturas.cobertaPorPousadaId,
       })
       .from(userPousadas)
@@ -114,12 +136,18 @@ export class AssinaturaModel {
     plano: string | null;
     trialTerminaEm: Date | null;
     periodoTerminaEm: Date | null;
+    inadimplenteDesde: Date | null;
+    cancelaNoFim: boolean;
+    disputaStatus: string | null;
   }): EstadoAssinatura {
     return {
       status: row.status as StatusAssinatura,
       plano: (row.plano as CodigoPlano | null) ?? null,
       trialTerminaEm: row.trialTerminaEm,
       periodoTerminaEm: row.periodoTerminaEm,
+      inadimplenteDesde: row.inadimplenteDesde,
+      cancelaNoFim: row.cancelaNoFim,
+      emDisputa: row.disputaStatus !== null,
     };
   }
 
@@ -138,10 +166,63 @@ export class AssinaturaModel {
     return Boolean(row);
   }
 
+  /** O que a pousada consome hoje dos limites do plano que a cobre. */
+  static async usoDaPousada(pousadaId: number, pagadoraId: number): Promise<UsoAtual> {
+    const [[{ n: quartosAtivos }], [{ n: usuarios }], pousadas] = await Promise.all([
+      db.select({ n: sql<number>`count(*)::int` }).from(quartos).where(and(eq(quartos.pousadaId, pousadaId), eq(quartos.ativo, true))),
+      db.select({ n: sql<number>`count(*)::int` }).from(userPousadas).where(eq(userPousadas.pousadaId, pousadaId)),
+      this.pousadasCobertas(pagadoraId),
+    ]);
+    return { quartos: Number(quartosAtivos) || 0, usuarios: Number(usuarios) || 0, pousadas };
+  }
+
+  /**
+   * A pousada pode operar agora? Pagamento e uso diante do plano. É a decisão de
+   * todos os pontos que entregam produto. null = pousada sem linha de assinatura.
+   */
+  static async vereditoDaPousada(pousadaId: number): Promise<Veredito | null> {
+    const efetiva = await this.efetiva(pousadaId);
+    if (!efetiva) return null;
+    return avaliarAcessoComUso(this.paraEstado(efetiva.row), await this.usoDaPousada(pousadaId, efetiva.pagadoraId));
+  }
+
+  /**
+   * Pousadas que não podem operar agora, para os jobs que gastam com elas. Mesma
+   * regra de `vereditoDaPousada`, em lote. Devolve a lista em vez de filtrar depois
+   * do LIMIT do job: quem está bloqueado nunca sincroniza, ficaria sempre no topo
+   * da fila e tomaria a vez de quem paga.
+   */
+  static async pousadasBloqueadas(agora: Date = new Date()): Promise<number[]> {
+    if (!billingHabilitado()) return [];
+
+    const [linhas, porQuartos, porUsuarios] = await Promise.all([
+      db.select().from(assinaturas),
+      db.select({ id: quartos.pousadaId, n: sql<number>`count(*)::int` }).from(quartos).where(eq(quartos.ativo, true)).groupBy(quartos.pousadaId),
+      db.select({ id: userPousadas.pousadaId, n: sql<number>`count(*)::int` }).from(userPousadas).groupBy(userPousadas.pousadaId),
+    ]);
+    const nQuartos = new Map(porQuartos.map((r) => [r.id, Number(r.n)]));
+    const nUsuarios = new Map(porUsuarios.map((r) => [r.id, Number(r.n)]));
+    const porPousada = new Map(linhas.map((l) => [l.pousadaId, l]));
+
+    const bloqueadas: number[] = [];
+    for (const linha of linhas) {
+      const pagadora = linha.cobertaPorPousadaId ? porPousada.get(linha.cobertaPorPousadaId) : undefined;
+      const efetiva = pagadora && !pagadora.cobertaPorPousadaId ? pagadora : linha;
+      const veredito = avaliarAcessoComUso(this.paraEstado(efetiva), {
+        quartos: nQuartos.get(linha.pousadaId) ?? 0,
+        usuarios: nUsuarios.get(linha.pousadaId) ?? 0,
+        pousadas: 1 + linhas.filter((l) => l.cobertaPorPousadaId === efetiva.pousadaId).length,
+      }, agora);
+      if (!veredito.liberado) bloqueadas.push(linha.pousadaId);
+    }
+    return bloqueadas;
+  }
+
   static async situacao(pousadaId: number): Promise<{
     estado: EstadoAssinatura;
     veredito: Veredito;
     limites: Limites;
+    quartos: number;
     usuarios: number;
     pousadasDoDono: number;
     ciclo: string | null;
@@ -155,17 +236,15 @@ export class AssinaturaModel {
     const { row, pagadoraId } = efetiva;
 
     const estado = this.paraEstado(row);
-    const [{ n: usuarios }] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(userPousadas)
-      .where(eq(userPousadas.pousadaId, pousadaId));
+    const uso = await this.usoDaPousada(pousadaId, pagadoraId);
 
     return {
       estado,
-      veredito: avaliarAcesso(estado),
+      veredito: avaliarAcessoComUso(estado, uso),
       limites: limitesVigentes(estado),
-      usuarios: Number(usuarios) || 0,
-      pousadasDoDono: await this.pousadasCobertas(pagadoraId),
+      quartos: uso.quartos,
+      usuarios: uso.usuarios,
+      pousadasDoDono: uso.pousadas,
       cobertaPor: pagadoraId !== pousadaId ? pagadoraId : null,
       ciclo: row.ciclo,
       assinaturaViva: temAssinaturaViva(row),
@@ -209,10 +288,30 @@ export class AssinaturaModel {
         ciclo: params.ciclo,
         periodoTerminaEm: params.periodoTerminaEm,
         cancelaNoFim: params.cancelaNoFim,
+        // Guarda a PRIMEIRA falha: as retentativas do Stripe não renovam a carência.
+        inadimplenteDesde: params.status === 'inadimplente'
+          ? sql`COALESCE(${assinaturas.inadimplenteDesde}, now())`
+          : null,
         updatedAt: new Date(),
       })
       .where(eq(assinaturas.stripeCustomerId, params.stripeCustomerId));
     return (r.rowCount ?? 0) > 0;
+  }
+
+  /** Abre, encerra ou marca como perdida a contestação de pagamento do customer. */
+  static async definirDisputa(stripeCustomerId: string, disputaStatus: 'aberta' | 'perdida' | null, executor: Executor = db) {
+    await executor
+      .update(assinaturas)
+      .set({ disputaStatus, updatedAt: new Date() })
+      .where(eq(assinaturas.stripeCustomerId, stripeCustomerId));
+  }
+
+  /** Nova fatura paga regulariza uma contestação perdida, nunca uma ainda em aberto. */
+  static async regularizarDisputaPerdida(stripeCustomerId: string, executor: Executor = db) {
+    await executor
+      .update(assinaturas)
+      .set({ disputaStatus: null, updatedAt: new Date() })
+      .where(and(eq(assinaturas.stripeCustomerId, stripeCustomerId), eq(assinaturas.disputaStatus, 'perdida')));
   }
 
   /**

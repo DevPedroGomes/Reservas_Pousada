@@ -8,10 +8,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authorize } from '../middleware/auth.js';
 import { metaConfigurada } from '../lib/metaWhatsapp.js';
-import { agenteConfigurado } from '../lib/llm.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import {
-  conectar, definirAgente, desconectar, devolverAoAgente, listarConversas, mensagensDaConversa,
+  agenteDisponivel, conectar, definirAgente, desconectar, devolverAoAgente, listarConversas, mensagensDaConversa,
   responderPelaEquipe, situacao, WhatsappRecusado,
 } from '../models/WhatsappBusiness.js';
 import { param } from '../utils/http.js';
@@ -33,7 +32,7 @@ router.get('/config', (_req: Request, res: Response) => {
     appId: process.env.META_APP_ID ?? null,
     configId: process.env.META_CONFIG_ID ?? null,
     versao: process.env.META_GRAPH_VERSAO || 'v21.0',
-    agenteDisponivel: agenteConfigurado(),
+    agenteDisponivel: agenteDisponivel(),
   });
 });
 

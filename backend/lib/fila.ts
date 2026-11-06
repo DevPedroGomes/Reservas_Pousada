@@ -28,9 +28,12 @@ export const FILAS = {
   sincronizarIcal: 'sincronizar-ical',
   lembretesWhatsapp: 'lembretes-whatsapp',
   whatsappEntrada: 'whatsapp-entrada',
+  reconciliarStripe: 'reconciliar-stripe',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
+
+const SEGUNDOS_NA_DLQ = 7 * 24 * 60 * 60;
 
 let boss: PgBoss | null = null;
 let intervaloLocal: NodeJS.Timeout | null = null;
@@ -52,14 +55,51 @@ export function registrarTrabalhador(fila: string, fn: Trabalhador): void {
   trabalhadores.set(fila, fn);
 }
 
+/** Import dinâmico: ver a nota em jobs/reconciliacaoStripe.ts. */
+async function reconciliarStripe() {
+  const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+  return reconciliarAssinaturas();
+}
+
 async function executarAgendado(nome: string, fn: () => Promise<unknown>) {
   try {
     const resultado = await fn();
     console.log(`[Fila] ${nome} concluído:`, JSON.stringify(resultado));
   } catch (err) {
     console.error(`[Fila] ${nome} falhou:`, err);
-    reportarErro(err, { job: nome });
     throw err;
+  }
+}
+
+/** Sem pg-boss não há retentativa: toda falha já é a última. */
+function executarLocal(nome: string, fn: () => Promise<unknown>) {
+  void executarAgendado(nome, fn).catch((err) => reportarErro(err, { job: nome }));
+}
+
+const nomeDaDlq = (fila: string) => `${fila}-dlq`;
+
+type JobDaFila = { id: string; data: Record<string, unknown>; retryCount: number; retryLimit: number };
+
+/**
+ * Roda os jobs de um lote. A falha sempre volta ao pg-boss, que decide entre
+ * tentar de novo e mandar para a fila de mortos. Só a última tentativa alerta:
+ * falha transitória que a retentativa resolve não é incidente.
+ */
+export async function processarLote(
+  fila: string,
+  fn: Trabalhador,
+  jobs: JobDaFila[],
+  alertar: (erro: unknown, contexto: Record<string, unknown>) => void = reportarErro,
+): Promise<void> {
+  for (const job of jobs) {
+    try {
+      await fn(job.data);
+    } catch (err) {
+      if (job.retryCount >= job.retryLimit) {
+        alertar(err, { fila, jobId: job.id, tentativas: job.retryCount + 1, dlq: nomeDaDlq(fila) });
+      }
+      throw err;
+    }
   }
 }
 
@@ -67,10 +107,11 @@ export async function iniciarFila(): Promise<void> {
   if (!filaHabilitada()) {
     console.warn('[Fila] desabilitada (FILA_HABILITADA=false) — usando agendamento local');
     intervaloLocal = setInterval(() => {
-      void executarAgendado('limpeza', limpeza).catch(() => {});
-      void executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()).catch(() => {});
-      void executarAgendado('expirar-pre-reservas', expirarPreReservas).catch(() => {});
-      void executarAgendado('sincronizar-ical', sincronizarCalendarios).catch(() => {});
+      executarLocal('limpeza', limpeza);
+      executarLocal('finalizar-estadias', () => finalizarEstadiasVencidas());
+      executarLocal('expirar-pre-reservas', expirarPreReservas);
+      executarLocal('sincronizar-ical', sincronizarCalendarios);
+      executarLocal('reconciliar-stripe', reconciliarStripe);
     }, 6 * 60 * 60 * 1000);
     intervaloLocal.unref();
     return;
@@ -88,48 +129,60 @@ export async function iniciarFila(): Promise<void> {
   });
   await boss.start();
 
+  const fila = boss;
   for (const nome of Object.values(FILAS)) {
-    // E-mail carrega link com token (convite, redefinição de senha): o job
-    // concluído é apagado em 1 dia em vez de ficar guardado por semanas.
-    await boss.createQueue(nome, nome === FILAS.email ? { deleteAfterSeconds: 24 * 60 * 60 } : undefined);
+    const dlq = nomeDaDlq(nome);
+    // O job morto carrega o dado do original (e-mail com link, mensagem de
+    // hóspede): sai sozinho depois de uma semana em vez de ficar guardado.
+    await fila.createQueue(dlq, { retentionSeconds: SEGUNDOS_NA_DLQ, deleteAfterSeconds: SEGUNDOS_NA_DLQ });
+    const opcoes = {
+      deadLetter: dlq,
+      retentionSeconds: SEGUNDOS_NA_DLQ,
+      // E-mail carrega link com token (convite, redefinição de senha): o job
+      // concluído é apagado em 1 dia em vez de ficar guardado por semanas.
+      ...(nome === FILAS.email ? { deleteAfterSeconds: 24 * 60 * 60 } : {}),
+    };
+    await fila.createQueue(nome, opcoes);
+    // createQueue não mexe em fila que já existe, e as de produção nasceram sem DLQ.
+    await fila.updateQueue(nome, opcoes);
   }
+
+  const trabalhar = (nome: string, fn: Trabalhador) =>
+    fila.work<Record<string, unknown>, void, { includeMetadata: true }>(nome, { includeMetadata: true }, (jobs) => processarLote(nome, fn, jobs));
 
   // Agendados: um disparo por cron no cluster inteiro, no fuso da operação.
   await boss.schedule(FILAS.limpeza, '17 * * * *', null, { tz: TIMEZONE });
   await boss.schedule(FILAS.finalizarEstadias, '30 3 * * *', null, { tz: TIMEZONE });
   await boss.schedule(FILAS.expirarPreReservas, '*/10 * * * *', null, { tz: TIMEZONE });
-  await boss.work(FILAS.expirarPreReservas, async () => executarAgendado('expirar-pre-reservas', expirarPreReservas));
+  await trabalhar(FILAS.expirarPreReservas, () => executarAgendado('expirar-pre-reservas', expirarPreReservas));
   // Calendários de Booking/Airbnb: a cada 30 min (a OTA atualiza o .ics com atraso parecido).
   await boss.schedule(FILAS.sincronizarIcal, '*/30 * * * *', null, { tz: TIMEZONE });
-  await boss.work(FILAS.sincronizarIcal, async () => executarAgendado('sincronizar-ical', sincronizarCalendarios));
+  await trabalhar(FILAS.sincronizarIcal, () => executarAgendado('sincronizar-ical', sincronizarCalendarios));
   // Lembrete de chegada (véspera, 10h) — só envia com a API oficial do WhatsApp configurada.
   await boss.schedule(FILAS.lembretesWhatsapp, '0 10 * * *', null, { tz: TIMEZONE });
-  await boss.work(FILAS.lembretesWhatsapp, async () => executarAgendado('lembretes-whatsapp', () => lembretesDeChegada()));
+  await trabalhar(FILAS.lembretesWhatsapp, () => executarAgendado('lembretes-whatsapp', () => lembretesDeChegada()));
+  // Pega o que o webhook do Stripe perdeu. Fora do horário de pico, uma vez por dia.
+  await boss.schedule(FILAS.reconciliarStripe, '15 5 * * *', null, { tz: TIMEZONE });
+  await trabalhar(FILAS.reconciliarStripe, () => executarAgendado('reconciliar-stripe', reconciliarStripe));
   await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
-  await boss.work(FILAS.anonimizarHospedes, async () =>
-    executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),
-  );
-  await boss.work(FILAS.limpeza, async () => executarAgendado('limpeza', limpeza));
-  await boss.work(FILAS.finalizarEstadias, async () =>
-    executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()),
-  );
+  await trabalhar(FILAS.anonimizarHospedes, () => executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos));
+  await trabalhar(FILAS.limpeza, () => executarAgendado('limpeza', limpeza));
+  await trabalhar(FILAS.finalizarEstadias, () => executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()));
 
-  for (const [fila, fn] of trabalhadores) {
-    await boss.work<Record<string, unknown>>(fila, async (jobs) => {
-      for (const job of jobs) await fn(job.data);
-    });
+  for (const [nome, fn] of trabalhadores) {
+    await trabalhar(nome, fn);
   }
 
-  console.log(`[Fila] pg-boss iniciado (${trabalhadores.size + 4} filas)`);
+  console.log(`[Fila] pg-boss iniciado (${Object.keys(FILAS).length} filas, cada uma com DLQ)`);
 }
 
 /**
  * Enfileira um job com retentativa. Sem fila ativa, executa na hora — melhor
  * que perder o trabalho.
  */
-export async function enfileirar(fila: string, dados: Record<string, unknown>): Promise<void> {
+export async function enfileirar(fila: string, dados: Record<string, unknown>, opcoes: { retryLimit?: number } = {}): Promise<void> {
   if (boss) {
-    await boss.send(fila, dados, { retryLimit: 5, retryDelay: 30, retryBackoff: true });
+    await boss.send(fila, dados, { retryLimit: opcoes.retryLimit ?? 5, retryDelay: 30, retryBackoff: true });
     return;
   }
   const fn = trabalhadores.get(fila);

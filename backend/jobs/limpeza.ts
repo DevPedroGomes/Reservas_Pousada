@@ -17,5 +17,6 @@ export async function limpeza(): Promise<{ sessoes: number; rateLimits: number; 
        AND NOT EXISTS (SELECT 1 FROM whatsapp_mensagens m WHERE m.conversa_id = c.id)`,
     [DIAS_WHATSAPP],
   );
+  await pool.query(`DELETE FROM agente_alertas WHERE criado_em < now() - interval '30 days'`);
   return { sessoes, rateLimits, mensagensWhatsapp };
 }
