@@ -8,7 +8,9 @@
  * não confirma pagamento, não cancela, não altera reserva.
  */
 import { pool } from '../db/index.js';
-import { modeloDoAgente, type Ferramenta, type MensagemLLM } from '../lib/llm.js';
+import { modeloDoAgente, type Ferramenta, type MensagemLLM, type RespostaLLM } from '../lib/llm.js';
+import { reportarErro } from '../lib/observabilidade.js';
+import { estimarUso, registrarUsoLLM } from './AgenteUso.js';
 import { disponibilidade, lerPedido, PedidoRecusado, pousadaPorId, quartosPublicos, solicitarReserva, validarEstadia, type PousadaPublica } from './Motor.js';
 import { gerarCobranca, situacaoPix } from './Pix.js';
 import { TIMEZONE, hojeLocal } from '../utils/datas.js';
@@ -180,6 +182,19 @@ function instrucoes(p: PousadaPublica, contato: string | null): string {
 const MAX_RODADAS = 4;
 
 /**
+ * Grava o consumo da chamada que acabou de ser paga. Falha aqui não tira a
+ * resposta do hóspede, mas precisa aparecer: é o número que sustenta os tetos.
+ */
+async function contabilizar(pousadaId: number, sistema: string, mensagens: MensagemLLM[], r: RespostaLLM): Promise<void> {
+  try {
+    await registrarUsoLLM(pousadaId, r.uso ?? estimarUso(sistema, mensagens, FERRAMENTAS, r));
+  } catch (err) {
+    console.error('[Agente] falha ao registrar consumo:', err);
+    reportarErro(err, { origem: 'agente_uso', pousadaId });
+  }
+}
+
+/**
  * Responde à última mensagem do hóspede. Devolve o texto a enviar e, se for
  * o caso, o motivo para passar a conversa à equipe.
  */
@@ -193,6 +208,7 @@ export async function responder(ctx: ContextoAgente, historico: MensagemLLM[]): 
 
   for (let rodada = 0; rodada < MAX_RODADAS; rodada++) {
     const r = await modelo.responder(sistema, mensagens, FERRAMENTAS);
+    await contabilizar(ctx.pousadaId, sistema, mensagens, r);
     if (!r.chamadas.length) return { texto: r.texto || 'Desculpe, não entendi. Pode repetir?', transferir };
     mensagens.push({ papel: 'assistente', texto: r.texto, chamadas: r.chamadas });
     for (const c of r.chamadas) {

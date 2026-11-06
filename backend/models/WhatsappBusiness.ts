@@ -10,7 +10,11 @@ import { agenteConfigurado, type MensagemLLM } from '../lib/llm.js';
 import { enfileirar, FILAS, registrarTrabalhador } from '../lib/fila.js';
 import { enviarAtendimentoSolicitado } from '../lib/email.js';
 import { cifrarSegredo, decifrarSegredo } from '../utils/crypto.js';
+import { reportarErro } from '../lib/observabilidade.js';
+import { limitesAgente } from '../config/agente.js';
+import { hojeLocal } from '../utils/datas.js';
 import { responder } from './Agente.js';
+import { primeiroAlerta, tokensHojeDaPlataforma, tokensHojeDaPousada } from './AgenteUso.js';
 import { emailsDaPousada } from './Motor.js';
 
 /** Equipe respondeu: o agente fica calado por este tempo. */
@@ -219,6 +223,49 @@ const PARAR = /^(parar|pare|sair|stop|cancelar mensagens|não quero mais mensage
 const VOLTAR = /^(voltar|start|quero receber)$/i;
 const HUMANO = /\b(atendente|humano|pessoa|recep[cç][aã]o|falar com algu[eé]m)\b/i;
 
+const AVISO_TETO = 'No momento o atendente virtual não consegue continuar por aqui. Já avisei a equipe da pousada e alguém vai responder você em breve.';
+
+interface Barreira { codigo: string; motivo: string }
+
+/**
+ * Algum teto de custo impede chamar o modelo agora? Só lê: quem decide o que
+ * dizer ao hóspede e à equipe é o chamador.
+ */
+async function barreiraDeCusto(pousadaId: number, conversaId: number): Promise<Barreira | null> {
+  const limites = limitesAgente();
+
+  const { rows: [contato] } = await pool.query(
+    `SELECT count(*)::int AS n FROM whatsapp_mensagens WHERE conversa_id = $1 AND direcao = 'entrada' AND created_at > now() - interval '1 hour'`,
+    [conversaId],
+  );
+  if (contato.n > limites.mensagensContatoHora) {
+    return { codigo: 'limite do contato', motivo: 'muitas mensagens deste contato na última hora' };
+  }
+
+  const tokensPlataforma = await tokensHojeDaPlataforma();
+  if (tokensPlataforma >= limites.tetoGlobalTokensDia) {
+    if (await primeiroAlerta(`teto-global:${hojeLocal()}`)) {
+      const erro = new Error(`Teto global do atendente virtual atingido: ${tokensPlataforma} tokens hoje (teto ${limites.tetoGlobalTokensDia}). O atendente fica desligado até a virada do dia.`);
+      console.error(erro.message);
+      reportarErro(erro, { origem: 'agente_teto_global' });
+    }
+    return { codigo: 'teto global', motivo: 'atendente virtual indisponível no momento' };
+  }
+
+  if ((await tokensHojeDaPousada(pousadaId)) >= limites.tetoTokensDiaPousada) {
+    return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
+  }
+  const { rows: [uso] } = await pool.query(
+    `SELECT count(*)::int AS n FROM whatsapp_mensagens m JOIN whatsapp_conversas cv ON cv.id = m.conversa_id
+      WHERE cv.pousada_id = $1 AND m.direcao = 'agente' AND m.created_at > now() - interval '1 day'`,
+    [pousadaId],
+  );
+  if (uso.n >= LIMITE_DIARIO()) {
+    return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
+  }
+  return null;
+}
+
 /** Trata uma mensagem recebida (job da fila). */
 export async function tratarEntrada(e: Entrada): Promise<string> {
   const conta = await contaPorNumero(e.phoneNumberId);
@@ -262,15 +309,12 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     return 'pediu humano';
   }
 
-  // Teto diário de respostas do agente por pousada (custo previsível).
-  const { rows: [uso] } = await pool.query(
-    `SELECT count(*)::int AS n FROM whatsapp_mensagens m JOIN whatsapp_conversas cv ON cv.id = m.conversa_id
-      WHERE cv.pousada_id = $1 AND m.direcao = 'agente' AND m.created_at > now() - interval '1 day'`,
-    [conta.pousada_id],
-  );
-  if (uso.n >= LIMITE_DIARIO()) {
-    await passarParaEquipe(conta, c, 'limite diário do atendente virtual');
-    return 'limite diário';
+  const barreira = await barreiraDeCusto(conta.pousada_id, c.id);
+  if (barreira) {
+    // O aviso é cortesia: Meta fora do ar não pode impedir de chamar a equipe.
+    await enviar(conta, c.id, e.contato, AVISO_TETO, 'sistema').catch((err) => console.error('[WhatsApp] aviso de teto:', err));
+    await passarParaEquipe(conta, c, barreira.motivo);
+    return barreira.codigo;
   }
 
   if (await superada(c.id, entradaId)) return 'superada';
@@ -295,9 +339,10 @@ async function historicoParaAgente(conversaId: number): Promise<MensagemLLM[]> {
     `SELECT direcao, texto_cifrado FROM (SELECT * FROM whatsapp_mensagens WHERE conversa_id = $1 ORDER BY id DESC LIMIT 12) t ORDER BY id`,
     [conversaId],
   );
+  const { maxCharsMensagem, maxCharsHistorico } = limitesAgente();
   const msgs: MensagemLLM[] = [];
   for (const r of rows) {
-    const texto = r.texto_cifrado ? decifrarSegredo(r.texto_cifrado) : '';
+    const texto = r.texto_cifrado ? decifrarSegredo(r.texto_cifrado).slice(0, maxCharsMensagem) : '';
     if (!texto || r.direcao === 'sistema') continue;
     const nova: MensagemLLM = r.direcao === 'entrada' ? { papel: 'usuario', texto } : { papel: 'assistente', texto };
     // Mensagens seguidas do mesmo lado viram uma (os provedores alternam papéis).
@@ -305,9 +350,24 @@ async function historicoParaAgente(conversaId: number): Promise<MensagemLLM[]> {
     if (ultima && ultima.papel === nova.papel && 'texto' in ultima && ultima.texto) ultima.texto += `\n${texto}`;
     else msgs.push(nova);
   }
+  const recentes = dentroDoTeto(msgs, maxCharsHistorico);
   // O modelo precisa começar e terminar com o hóspede.
-  while (msgs.length && msgs[0].papel !== 'usuario') msgs.shift();
-  return msgs;
+  while (recentes.length && recentes[0].papel !== 'usuario') recentes.shift();
+  return recentes;
+}
+
+/** Fica com as mensagens mais novas que cabem no teto; a que estoura entra só pelo final. */
+function dentroDoTeto(msgs: MensagemLLM[], teto: number): MensagemLLM[] {
+  const cabem: MensagemLLM[] = [];
+  let restante = teto;
+  for (let i = msgs.length - 1; i >= 0 && restante > 0; i--) {
+    const m = msgs[i];
+    if (m.papel === 'ferramenta') continue;
+    const texto = m.texto ?? '';
+    cabem.unshift({ ...m, texto: texto.length > restante ? texto.slice(-restante) : texto });
+    restante -= texto.length;
+  }
+  return cabem;
 }
 
 registrarTrabalhador(FILAS.whatsappEntrada, async (dados) => {

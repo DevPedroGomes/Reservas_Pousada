@@ -29,9 +29,17 @@ export type MensagemLLM =
   | { papel: 'assistente'; texto: string | null; chamadas?: ChamadaFerramenta[] }
   | { papel: 'ferramenta'; id: string; nome: string; resultado: string };
 
+/** Tokens cobrados pelo provedor numa chamada. */
+export interface UsoLLM {
+  entrada: number;
+  saida: number;
+}
+
 export interface RespostaLLM {
   texto: string | null;
   chamadas: ChamadaFerramenta[];
+  /** Ausente quando o provedor não informa (alguns compatíveis com OpenAI). */
+  uso?: UsoLLM;
 }
 
 export interface ModeloLLM {
