@@ -1006,7 +1006,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
     before(async () => {
       envAntes = { ...process.env };
-      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste' });
+      Object.assign(process.env, { META_APP_ID: '123', META_APP_SECRET: SEGREDO, META_CONFIG_ID: '456', WHATSAPP_WEBHOOK_VERIFY_TOKEN: 'verifica-123', AGENTE_API_KEY: 'chave-teste', AGENTE_DEMO_SEM_BILLING: 'true' });
       const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
       usarClienteMetaDeTeste({
         async trocarCodigo(code) { if (code !== 'codigo-ok') throw new Error('código expirado'); return 'token-da-pousada'; },

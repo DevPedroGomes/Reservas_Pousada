@@ -1,5 +1,6 @@
 /**
- * Limites do atendente virtual que não dependem do plano.
+ * Limites do atendente virtual que não dependem do plano (a cota de cada plano
+ * fica em config/planos.ts) e preço do modelo.
  *
  * Valor inválido ou zerado no ambiente cai no padrão: um erro de digitação não
  * pode desligar a proteção de custo em silêncio.
@@ -55,8 +56,6 @@ export interface LimitesAgente {
   mensagensContatoHora: number;
   /** Tokens por dia, somando todas as pousadas. Acima disso o atendente desliga. */
   tetoGlobalTokensDia: number;
-  /** Tokens por dia de uma pousada. */
-  tetoTokensDiaPousada: number;
 }
 
 export function limitesAgente(): LimitesAgente {
@@ -65,6 +64,5 @@ export function limitesAgente(): LimitesAgente {
     maxCharsHistorico: positivoDoAmbiente('AGENTE_MAX_CHARS_HISTORICO', 6_000),
     mensagensContatoHora: positivoDoAmbiente('AGENTE_LIMITE_CONTATO_HORA', 30),
     tetoGlobalTokensDia: positivoDoAmbiente('AGENTE_TETO_GLOBAL_TOKENS_DIA', 5_000_000),
-    tetoTokensDiaPousada: positivoDoAmbiente('AGENTE_TETO_TOKENS_DIA_POUSADA', 200_000),
   };
 }

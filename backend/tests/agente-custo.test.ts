@@ -8,6 +8,7 @@ import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:t
 import assert from 'node:assert/strict';
 import { prepararBanco, temBanco } from './helpers/banco.js';
 import type { MensagemLLM, RespostaLLM } from '../lib/llm.js';
+import { COTA_AGENTE_TRIAL, PLANOS, cotaDoAgente } from '../config/planos.js';
 
 const NUMERO = '700100200';
 
@@ -43,6 +44,7 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
     envAntes = { ...process.env };
     process.env.AGENTE_API_KEY = 'chave-teste';
     process.env.META_APP_ID = '1';
+    process.env.AGENTE_DEMO_SEM_BILLING = 'true';
 
     const { cifrarSegredo } = await import('../utils/crypto.js');
     await pool.query(`INSERT INTO pousadas (id, nome, slug, num_quartos, email) VALUES (1, 'Pousada Sol', 'sol', 5, 'sol@teste.com')`);
@@ -89,7 +91,7 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
   });
 
   afterEach(() => {
-    for (const k of ['AGENTE_LIMITE_CONTATO_HORA', 'AGENTE_TETO_GLOBAL_TOKENS_DIA', 'AGENTE_TETO_TOKENS_DIA_POUSADA', 'AGENTE_MAX_CHARS_MENSAGEM', 'AGENTE_MAX_CHARS_HISTORICO']) {
+    for (const k of ['AGENTE_LIMITE_CONTATO_HORA', 'AGENTE_TETO_GLOBAL_TOKENS_DIA', 'AGENTE_MAX_CHARS_MENSAGEM', 'AGENTE_MAX_CHARS_HISTORICO']) {
       delete process.env[k];
     }
     mock.restoreAll();
@@ -139,8 +141,7 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
     });
 
     it('teto diário em tokens por pousada', async () => {
-      process.env.AGENTE_TETO_TOKENS_DIA_POUSADA = '1000';
-      resposta = () => ({ texto: 'Olá!', chamadas: [], uso: { entrada: 900, saida: 200 } });
+      resposta = () => ({ texto: 'Olá!', chamadas: [], uso: { entrada: COTA_AGENTE_TRIAL.tokensDia, saida: 200 } });
       const contato = '5548900000004';
       assert.equal(await entrada(contato, 'um'), 'respondeu');
       assert.equal(await entrada(contato, 'dois'), 'limite diário');
@@ -174,6 +175,70 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
       process.env.AGENTE_TETO_GLOBAL_TOKENS_DIA = 'muito';
       const { limitesAgente } = await import('../config/agente.js');
       assert.ok(limitesAgente().tetoGlobalTokensDia > 0);
+    });
+  });
+
+  describe('cota por plano', () => {
+    const antes = { BILLING_ENABLED: process.env.BILLING_ENABLED, STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY };
+    beforeEach(() => {
+      process.env.BILLING_ENABLED = 'true';
+      process.env.STRIPE_SECRET_KEY = 'sk_test_nao_usada';
+    });
+    afterEach(async () => {
+      if (antes.BILLING_ENABLED === undefined) delete process.env.BILLING_ENABLED; else process.env.BILLING_ENABLED = antes.BILLING_ENABLED;
+      if (antes.STRIPE_SECRET_KEY === undefined) delete process.env.STRIPE_SECRET_KEY; else process.env.STRIPE_SECRET_KEY = antes.STRIPE_SECRET_KEY;
+      await pool.query(`UPDATE assinaturas SET status = 'trial', plano = NULL, trial_termina_em = now() + interval '10 days' WHERE pousada_id = 1`);
+    });
+
+    it('cada plano tem a sua cota, e o trial fica abaixo de todos', () => {
+      assert.ok(PLANOS.essencial.agente.tokensDia < PLANOS.pousada.agente.tokensDia);
+      assert.ok(PLANOS.pousada.agente.tokensDia < PLANOS.rede.agente.tokensDia);
+      assert.ok(COTA_AGENTE_TRIAL.tokensDia <= PLANOS.essencial.agente.tokensDia);
+      assert.deepEqual(cotaDoAgente({ status: 'trial', plano: null }), COTA_AGENTE_TRIAL);
+      assert.deepEqual(cotaDoAgente({ status: 'ativa', plano: 'rede' }), PLANOS.rede.agente);
+      assert.deepEqual(cotaDoAgente({ status: 'cortesia', plano: null }), PLANOS.pousada.agente);
+    });
+
+    it('a cota vigente sai do plano da pousada: o mesmo consumo passa num plano e barra no outro', async () => {
+      const contato = '5548900000040';
+      await pool.query(
+        `INSERT INTO agente_uso_diario (pousada_id, dia, tokens_entrada) VALUES (1, $1, $2)`,
+        [(await import('../utils/datas.js')).hojeLocal(), PLANOS.essencial.agente.tokensDia],
+      );
+      await pool.query(`UPDATE assinaturas SET status = 'ativa', plano = 'essencial' WHERE pousada_id = 1`);
+      assert.equal(await entrada(contato, 'oi'), 'limite diário');
+      await pool.query(`UPDATE whatsapp_conversas SET modo = 'agente', humano_ate = NULL WHERE contato = $1`, [contato]);
+      await pool.query(`UPDATE assinaturas SET plano = 'rede' WHERE pousada_id = 1`);
+      assert.equal(await entrada(contato, 'oi de novo'), 'respondeu');
+    });
+
+    it('assinatura bloqueada não chama o modelo: o hóspede é avisado e a equipe, chamada', async () => {
+      const contato = '5548900000041';
+      await pool.query(`UPDATE assinaturas SET trial_termina_em = now() - interval '1 day' WHERE pousada_id = 1`);
+      assert.equal(await entrada(contato, 'oi'), 'assinatura bloqueada');
+      assert.equal(chamadasAoModelo.length, 0);
+      assert.match(paraContato(contato).at(-1)!, /equipe/i);
+      assert.ok((await emailsDaFila()).length > 0);
+    });
+  });
+
+  describe('atendente com a cobrança desligada', () => {
+    afterEach(() => { process.env.AGENTE_DEMO_SEM_BILLING = 'true'; });
+
+    it('não liga e não chama o modelo, salvo a variável explícita de demonstração', async () => {
+      delete process.env.AGENTE_DEMO_SEM_BILLING;
+      await assert.rejects(Whats.definirAgente(1, true), (e: Error & { status?: number }) => e.status === 409 && /cobrança/.test(e.message));
+      assert.equal(Whats.agenteDisponivel(), false);
+
+      const contato = '5548900000050';
+      assert.equal(await entrada(contato, 'oi'), 'agente desligado');
+      assert.equal(chamadasAoModelo.length, 0);
+
+      await Whats.definirAgente(1, false);
+      process.env.AGENTE_DEMO_SEM_BILLING = 'true';
+      assert.equal(Whats.agenteDisponivel(), true);
+      await Whats.definirAgente(1, true);
+      assert.equal(await entrada(contato, 'oi de novo'), 'respondeu');
     });
   });
 

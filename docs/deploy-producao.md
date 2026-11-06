@@ -341,8 +341,10 @@ Resumo:
 1. <https://console.anthropic.com> → crie um *workspace* "Diária" → *API
    Keys → Create key* → `AGENTE_API_KEY` **[VPS]**.
 2. Em *Limits/Billing*, defina um **limite de gasto mensal**.
-3. `AGENTE_LIMITE_DIARIO=300` (respostas por pousada em 24h; acima disso a
-   conversa vai para a equipe).
+3. Cota diária por plano em `backend/config/planos.ts`; `AGENTE_TETO_GLOBAL_TOKENS_DIA`
+   desliga o atendente na plataforma inteira. Acima de qualquer teto, o hóspede
+   é avisado e a conversa vai para a equipe. Com `BILLING_ENABLED=false` o
+   atendente não roda, salvo `AGENTE_DEMO_SEM_BILLING=true`.
 4. Opcional: `AGENTE_MODELO` (padrão `claude-haiku-4-5-20251001`), ou
    `AGENTE_PROVEDOR=openai` + `AGENTE_BASE_URL` para uma API compatível.
 
@@ -408,7 +410,7 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
 | `NEXT_PUBLIC_GA_ID`, `NEXT_PUBLIC_META_PIXEL_ID` | GitHub | não | 8 |
 | `GA_MEASUREMENT_ID`, `GA_API_SECRET`, `META_PIXEL_ID`, `META_CAPI_TOKEN` | VPS | não | 8 |
 | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | VPS | não | 9 |
-| `AGENTE_API_KEY`, `AGENTE_PROVEDOR`, `AGENTE_MODELO`, `AGENTE_BASE_URL`, `AGENTE_LIMITE_DIARIO` | VPS | não | 9 |
+| `AGENTE_API_KEY`, `AGENTE_PROVEDOR`, `AGENTE_MODELO`, `AGENTE_BASE_URL`, `AGENTE_PRECO_*`, `AGENTE_COTACAO_USD_BRL`, `AGENTE_TETO_GLOBAL_TOKENS_DIA`, `AGENTE_LIMITE_CONTATO_HORA`, `AGENTE_MAX_CHARS_*`, `AGENTE_DEMO_SEM_BILLING` | VPS | não | 9 |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | VPS | não (número da plataforma para lembretes) | — |
 | `DB_POOL_MAX`, `DB_POOL_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS` | VPS | não | — |
 

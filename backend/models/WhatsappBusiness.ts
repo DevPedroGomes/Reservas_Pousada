@@ -12,14 +12,16 @@ import { enviarAtendimentoSolicitado } from '../lib/email.js';
 import { cifrarSegredo, decifrarSegredo } from '../utils/crypto.js';
 import { reportarErro } from '../lib/observabilidade.js';
 import { limitesAgente } from '../config/agente.js';
+import { cotaDoAgente } from '../config/planos.js';
+import { billingHabilitado } from '../lib/stripe.js';
 import { hojeLocal } from '../utils/datas.js';
+import AssinaturaModel from './Assinatura.js';
 import { responder } from './Agente.js';
 import { primeiroAlerta, tokensHojeDaPlataforma, tokensHojeDaPousada } from './AgenteUso.js';
 import { emailsDaPousada } from './Motor.js';
 
 /** Equipe respondeu: o agente fica calado por este tempo. */
 const HORAS_HUMANO = 12;
-const LIMITE_DIARIO = () => Number(process.env.AGENTE_LIMITE_DIARIO) || 300;
 
 export class WhatsappRecusado extends Error {
   constructor(mensagem: string, readonly status: 400 | 404 | 409 | 502 = 400) {
@@ -101,8 +103,22 @@ export async function desconectar(pousadaId: number): Promise<void> {
   await pool.query(`DELETE FROM whatsapp_contas WHERE pousada_id = $1`, [pousadaId]);
 }
 
+/**
+ * O atendente custa dinheiro a cada resposta, e sem cobrança nenhuma pousada paga
+ * por isso nem tem plano que limite o uso. Só roda sem billing com a variável
+ * explícita de demonstração.
+ */
+function cobrancaPermiteAgente(): boolean {
+  return billingHabilitado() || process.env.AGENTE_DEMO_SEM_BILLING === 'true';
+}
+
+export function agenteDisponivel(): boolean {
+  return agenteConfigurado() && cobrancaPermiteAgente();
+}
+
 export async function definirAgente(pousadaId: number, ativo: boolean): Promise<void> {
   if (ativo && !agenteConfigurado()) throw new WhatsappRecusado('O atendente virtual ainda não está disponível nesta instalação.', 409);
+  if (ativo && !cobrancaPermiteAgente()) throw new WhatsappRecusado('O atendente virtual depende da cobrança ativa, que está desligada nesta instalação.', 409);
   const r = await pool.query(`UPDATE whatsapp_contas SET agente_ativo = $2, atualizado_em = now() WHERE pousada_id = $1`, [pousadaId, ativo]);
   if (!r.rowCount) throw new WhatsappRecusado('Conecte o WhatsApp primeiro.', 404);
 }
@@ -234,6 +250,17 @@ interface Barreira { codigo: string; motivo: string }
 async function barreiraDeCusto(pousadaId: number, conversaId: number): Promise<Barreira | null> {
   const limites = limitesAgente();
 
+  // Com a cobrança desligada (demonstração), vale a menor cota.
+  let cota = cotaDoAgente({ status: 'trial', plano: null });
+  if (billingHabilitado()) {
+    const veredito = await AssinaturaModel.vereditoDaPousada(pousadaId);
+    if (veredito && !veredito.liberado) {
+      return { codigo: 'assinatura bloqueada', motivo: 'a assinatura da pousada precisa de atenção, e o atendente virtual fica parado até regularizar' };
+    }
+    const efetiva = await AssinaturaModel.efetiva(pousadaId);
+    if (efetiva) cota = cotaDoAgente(AssinaturaModel.paraEstado(efetiva.row));
+  }
+
   const { rows: [contato] } = await pool.query(
     `SELECT count(*)::int AS n FROM whatsapp_mensagens WHERE conversa_id = $1 AND direcao = 'entrada' AND created_at > now() - interval '1 hour'`,
     [conversaId],
@@ -252,7 +279,7 @@ async function barreiraDeCusto(pousadaId: number, conversaId: number): Promise<B
     return { codigo: 'teto global', motivo: 'atendente virtual indisponível no momento' };
   }
 
-  if ((await tokensHojeDaPousada(pousadaId)) >= limites.tetoTokensDiaPousada) {
+  if ((await tokensHojeDaPousada(pousadaId)) >= cota.tokensDia) {
     return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
   }
   const { rows: [uso] } = await pool.query(
@@ -260,7 +287,7 @@ async function barreiraDeCusto(pousadaId: number, conversaId: number): Promise<B
       WHERE cv.pousada_id = $1 AND m.direcao = 'agente' AND m.created_at > now() - interval '1 day'`,
     [pousadaId],
   );
-  if (uso.n >= LIMITE_DIARIO()) {
+  if (uso.n >= cota.respostasDia) {
     return { codigo: 'limite diário', motivo: 'limite diário do atendente virtual' };
   }
   return null;
@@ -287,7 +314,7 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     await enviar(conta, c.id, e.contato, 'Pronto, você voltou a receber nossas mensagens.', 'sistema');
     return 'voltou';
   }
-  if (!conta.agente_ativo || !agenteConfigurado()) return 'agente desligado';
+  if (!conta.agente_ativo || !agenteDisponivel()) return 'agente desligado';
   if (c.modo === 'humano' && c.humano_ate && new Date(c.humano_ate) > new Date()) return 'equipe na conversa';
 
   if (!c.aviso_enviado) {
