@@ -138,6 +138,8 @@ export const reservas = pgTable('reservas', {
   // Reserva que veio do calendário de uma OTA (migration 021).
   icalImportacaoId: integer('ical_importacao_id'),
   icalUid: text('ical_uid'),
+  // Sincronizações seguidas em que o evento faltou no feed (migration 030).
+  icalAusencias: integer('ical_ausencias').notNull().default(0),
   // Lembrete de chegada pelo WhatsApp (migration 023).
   lembreteEnviadoEm: timestamp('lembrete_enviado_em', { withTimezone: true }),
   // Link secreto do pré-check-in (migration 024).

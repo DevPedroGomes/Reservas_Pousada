@@ -642,7 +642,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
 
       // Na OTA: "a" mudou de data, "b" foi cancelada.
       const r2 = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
-      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas], [0, 1, 1]);
+      assert.deepEqual([r2.criadas, r2.atualizadas, r2.canceladas, r2.ausentes], [0, 1, 0, 1]);
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      const r2c = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.equal(r2c.canceladas, 1, 'só na terceira leitura seguida sem o evento');
       const { rows: depois } = await pool.query(
         `SELECT ical_uid, status, data_entrada::text AS ini, motivo_cancelamento FROM reservas WHERE ical_importacao_id = $1 ORDER BY ical_uid`, [imp.id]);
       assert.equal(depois[0].ini, d(151));

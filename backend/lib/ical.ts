@@ -118,6 +118,13 @@ export function lerIcal(conteudo: string, limite = 2000): EventoIcal[] {
   return eventos;
 }
 
+/** O calendário veio inteiro? Feed cortado não diz nada sobre o que sumiu dele. */
+export function feedCompleto(conteudo: string): boolean {
+  return conteudo.includes('BEGIN:VCALENDAR') && /END:VCALENDAR\s*$/.test(conteudo);
+}
+
+export const MENSAGEM_FEED_INCOMPLETO = 'O calendário veio incompleto; nenhuma reserva foi alterada.';
+
 // ---------------------------------------------------------------------------
 // Busca protegida
 
@@ -204,6 +211,7 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
       res.on('end', () => {
         const texto = Buffer.concat(partes).toString('utf8');
         if (!texto.includes('BEGIN:VCALENDAR')) return reject(new IcalRecusado('O link não devolveu um calendário iCal.'));
+        if (!feedCompleto(texto)) return reject(new IcalRecusado(MENSAGEM_FEED_INCOMPLETO));
         resolve(texto);
       });
       res.on('error', reject);

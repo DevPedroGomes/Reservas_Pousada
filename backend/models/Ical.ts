@@ -4,7 +4,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { pool } from '../db/index.js';
-import { buscarIcal, gerarIcal, lerIcal, type EventoIcal } from '../lib/ical.js';
+import { buscarIcal, feedCompleto, gerarIcal, IcalRecusado, lerIcal, MENSAGEM_FEED_INCOMPLETO, type EventoIcal } from '../lib/ical.js';
 import { hojeLocal } from '../utils/datas.js';
 
 const PG_EXCLUSION_VIOLATION = '23P01';
@@ -23,7 +23,10 @@ export interface ResumoSincronizacao {
   criadas: number;
   atualizadas: number;
   canceladas: number;
+  /** Reservas cujo evento faltou nesta leitura, ainda sem cancelar. */
+  ausentes: number;
   conflitos: string[];
+  aviso: string | null;
 }
 
 /** Calendário exportado de um quarto pelo token do link (null se não existe). */
@@ -110,9 +113,17 @@ function ehConflito(err: unknown): boolean {
 const br = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
 /**
+ * Sincronizações seguidas sem o evento até cancelar a reserva. Antes bastava
+ * uma: um feed ruim cancelava tudo e a data ia para venda de novo.
+ */
+export const SINCRONIZACOES_ATE_CANCELAR = 3;
+
+/**
  * Sincroniza um calendário: evento novo vira reserva confirmada; datas
- * mudadas na OTA mudam aqui; evento que sumiu (cancelado lá) cancela aqui
- * — só o que ainda não passou, porque OTA tira do feed estadia antiga.
+ * mudadas na OTA mudam aqui; evento que some (cancelado lá) cancela aqui
+ * depois de SINCRONIZACOES_ATE_CANCELAR leituras seguidas — só o que ainda
+ * não passou, porque OTA tira do feed estadia antiga. Feed cortado é falha e
+ * feed sem eventos não prova nada: nenhum dos dois cancela, e fica o aviso.
  * Choque com reserva do próprio sistema não é gravado: vira aviso de
  * overbooking para a recepção resolver.
  */
@@ -120,13 +131,24 @@ export async function sincronizarImportacao(
   imp: Importacao,
   buscar: (url: string) => Promise<string> = buscarIcal,
 ): Promise<ResumoSincronizacao> {
-  const resumo: ResumoSincronizacao = { eventos: 0, criadas: 0, atualizadas: 0, canceladas: 0, conflitos: [] };
+  const resumo: ResumoSincronizacao = { eventos: 0, criadas: 0, atualizadas: 0, canceladas: 0, ausentes: 0, conflitos: [], aviso: null };
   try {
     const hoje = hojeLocal();
-    const eventos = lerIcal(await buscar(imp.url)).filter((e) => e.fim >= hoje);
+    const conteudo = await buscar(imp.url);
+    if (!feedCompleto(conteudo)) throw new IcalRecusado(MENSAGEM_FEED_INCOMPLETO);
+    const lidos = lerIcal(conteudo);
+    if (lidos.length === 0) {
+      resumo.aviso = 'O calendário veio sem nenhum evento; nenhuma reserva foi cancelada. Confira o link se as reservas continuam na OTA.';
+      await pool.query(
+        `UPDATE ical_importacoes SET ultima_sincronizacao = now(), ultimo_erro = $2, eventos = 0 WHERE id = $1`,
+        [imp.id, resumo.aviso],
+      );
+      return resumo;
+    }
+    const eventos = lidos.filter((e) => e.fim >= hoje);
     resumo.eventos = eventos.length;
     const { rows: existentes } = await pool.query(
-      `SELECT id, ical_uid, data_entrada::text AS inicio, data_saida::text AS fim, status
+      `SELECT id, ical_uid, data_entrada::text AS inicio, data_saida::text AS fim, status, ical_ausencias
          FROM reservas WHERE ical_importacao_id = $1 AND deleted_at IS NULL`,
       [imp.id],
     );
@@ -152,11 +174,13 @@ export async function sincronizarImportacao(
                     status = CASE WHEN status = 'cancelada' THEN 'confirmada' ELSE status END,
                     cancelada_em = CASE WHEN status = 'cancelada' THEN NULL ELSE cancelada_em END,
                     motivo_cancelamento = CASE WHEN status = 'cancelada' THEN NULL ELSE motivo_cancelamento END,
-                    version = version + 1, updated_at = now()
+                    ical_ausencias = 0, version = version + 1, updated_at = now()
               WHERE id = $1 AND status IN ('cancelada', 'pre_reserva', 'confirmada', 'hospedada')`,
             [atual.id, e.inicio, e.fim],
           );
           resumo.atualizadas++;
+        } else if (atual.ical_ausencias > 0) {
+          await pool.query(`UPDATE reservas SET ical_ausencias = 0 WHERE id = $1`, [atual.id]);
         }
       } catch (err) {
         if (!ehConflito(err)) throw err;
@@ -166,20 +190,28 @@ export async function sincronizarImportacao(
 
     for (const r of existentes) {
       if (vistos.has(r.ical_uid) || !['pre_reserva', 'confirmada'].includes(r.status) || r.fim < hoje) continue;
+      const ausencias = r.ical_ausencias + 1;
+      if (ausencias < SINCRONIZACOES_ATE_CANCELAR) {
+        await pool.query(`UPDATE reservas SET ical_ausencias = $2 WHERE id = $1`, [r.id, ausencias]);
+        resumo.ausentes++;
+        continue;
+      }
       await pool.query(
-        `UPDATE reservas SET status = 'cancelada', cancelada_em = now(), motivo_cancelamento = $2, version = version + 1, updated_at = now()
+        `UPDATE reservas SET status = 'cancelada', cancelada_em = now(), motivo_cancelamento = $2, ical_ausencias = 0,
+                version = version + 1, updated_at = now()
           WHERE id = $1`,
         [r.id, `Cancelada no calendário ${imp.nome}`],
       );
       resumo.canceladas++;
     }
 
-    const aviso = resumo.conflitos.length
-      ? `Possível overbooking: ${resumo.conflitos.join(', ')} já ocupado(s) por reserva do sistema.`
-      : null;
+    const avisos: string[] = [];
+    if (resumo.conflitos.length) avisos.push(`Possível overbooking: ${resumo.conflitos.join(', ')} já ocupado(s) por reserva do sistema.`);
+    if (resumo.ausentes) avisos.push(`${resumo.ausentes} reserva(s) sumiram do calendário; se continuarem fora por ${SINCRONIZACOES_ATE_CANCELAR} sincronizações seguidas, serão canceladas.`);
+    resumo.aviso = avisos.join(' ') || null;
     await pool.query(
       `UPDATE ical_importacoes SET ultima_sincronizacao = now(), ultimo_erro = $2, eventos = $3 WHERE id = $1`,
-      [imp.id, aviso, resumo.eventos],
+      [imp.id, resumo.aviso, resumo.eventos],
     );
     return resumo;
   } catch (err) {

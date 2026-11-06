@@ -116,4 +116,72 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       assert.equal((await gerar(await novaReserva(), 'abc')).status, 400);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // iCal
+  const ev = (uid: string, ini: string, fim: string, resumo = 'Reserved') =>
+    `BEGIN:VEVENT\r\nUID:${uid}\r\nDTSTART;VALUE=DATE:${ini.replace(/-/g, '')}\r\nDTEND;VALUE=DATE:${fim.replace(/-/g, '')}\r\nSUMMARY:${resumo}\r\nEND:VEVENT`;
+  const feed = (...eventos: string[]) => async () => ['BEGIN:VCALENDAR', ...eventos, 'END:VCALENDAR'].join('\r\n');
+  let calendarioSeq = 0;
+  async function novoCalendario(canal = 'airbnb') {
+    const Ical = await import('../models/Ical.js');
+    const imp = await Ical.criarImportacao(pousada, {
+      quarto: novoQuarto(), nome: 'Airbnb', canal, url: `https://www.airbnb.com/calendar/ical/${++calendarioSeq}.ics`,
+    });
+    return { Ical, imp };
+  }
+  const statusDoUid = async (impId: number, uid: string) =>
+    (await pool.query(`SELECT status FROM reservas WHERE ical_importacao_id = $1 AND ical_uid = $2`, [impId, uid])).rows[0]?.status;
+  const avisoDoCalendario = async (impId: number) =>
+    (await pool.query(`SELECT ultimo_erro FROM ical_importacoes WHERE id = $1`, [impId])).rows[0].ultimo_erro as string | null;
+
+  describe('iCal: feed vazio e evento ausente', () => {
+    it('feed sem eventos não cancela nada e grava aviso', async () => {
+      const { Ical, imp } = await novoCalendario();
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153))));
+      for (let i = 0; i < 4; i++) {
+        const r = await Ical.sincronizarImportacao(imp, feed());
+        assert.equal(r.canceladas, 0);
+      }
+      assert.equal(await statusDoUid(imp.id, 'a'), 'confirmada');
+      assert.match((await avisoDoCalendario(imp.id))!, /sem nenhum evento/);
+    });
+
+    it('feed cortado (sem END:VCALENDAR) falha, não cancela e grava aviso', async () => {
+      const { Ical, imp } = await novoCalendario();
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153)), ev('b', d(155), d(157))));
+      const cortado = async () => `BEGIN:VCALENDAR\r\n${ev('a', d(150), d(153))}\r\n`;
+      await assert.rejects(Ical.sincronizarImportacao(imp, cortado));
+      assert.equal(await statusDoUid(imp.id, 'b'), 'confirmada');
+      assert.match((await avisoDoCalendario(imp.id))!, /incompleto/);
+    });
+
+    it('evento ausente só cancela na terceira sincronização seguida', async () => {
+      const { Ical, imp } = await novoCalendario();
+      const comOutro = feed(ev('fica', d(160), d(161)));
+      await Ical.sincronizarImportacao(imp, feed(ev('fica', d(160), d(161)), ev('some', d(150), d(153))));
+      assert.equal((await Ical.sincronizarImportacao(imp, comOutro)).canceladas, 0);
+      assert.equal(await statusDoUid(imp.id, 'some'), 'confirmada');
+      assert.match((await avisoDoCalendario(imp.id))!, /sumiu|sumiram/);
+      assert.equal((await Ical.sincronizarImportacao(imp, comOutro)).canceladas, 0);
+      assert.equal(await statusDoUid(imp.id, 'some'), 'confirmada');
+      assert.equal((await Ical.sincronizarImportacao(imp, comOutro)).canceladas, 1);
+      assert.equal(await statusDoUid(imp.id, 'some'), 'cancelada');
+    });
+
+    it('voltar ao feed zera a contagem; feed vazio não conta como ausência', async () => {
+      const { Ical, imp } = await novoCalendario();
+      const com = feed(ev('fica', d(160), d(161)), ev('volta', d(150), d(153)));
+      const sem = feed(ev('fica', d(160), d(161)));
+      await Ical.sincronizarImportacao(imp, com);
+      await Ical.sincronizarImportacao(imp, sem);
+      await Ical.sincronizarImportacao(imp, sem);
+      await Ical.sincronizarImportacao(imp, com);
+      await Ical.sincronizarImportacao(imp, sem);
+      await Ical.sincronizarImportacao(imp, feed());
+      await Ical.sincronizarImportacao(imp, sem);
+      assert.equal(await statusDoUid(imp.id, 'volta'), 'confirmada');
+      assert.equal((await Ical.sincronizarImportacao(imp, sem)).canceladas, 1);
+    });
+  });
 });
