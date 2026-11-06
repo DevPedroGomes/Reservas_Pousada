@@ -10,6 +10,7 @@
  * `simular`: valida tudo e aponta conflitos (com o que já existe e entre as
  * próprias linhas) sem gravar — é a prévia que a tela mostra.
  */
+import type { PoolClient } from 'pg';
 import { pool } from '../db/index.js';
 import HospedeModel, { type DadosHospede } from './Hospede.js';
 import QuartoModel from './Quarto.js';
@@ -20,6 +21,24 @@ import { ehStatusReserva } from '../utils/status.js';
 import { hojeLocal } from '../utils/datas.js';
 
 export const MAX_LINHAS = 2000;
+
+/** Prazo da pré-reserva importada: o mesmo padrão de quem cria pela recepção. */
+const PRAZO_PRE_RESERVA_HORAS = 48;
+
+async function emTransacao<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const cliente = await pool.connect();
+  try {
+    await cliente.query('BEGIN');
+    const r = await fn(cliente);
+    await cliente.query('COMMIT');
+    return r;
+  } catch (err) {
+    await cliente.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    cliente.release();
+  }
+}
 
 export type LinhaBruta = Record<string, unknown>;
 
@@ -212,26 +231,32 @@ export async function importarPlanilha(
 
     try {
       const hospede = n.hospede ? await HospedeModel.resolver(pousadaId, n.hospede) : null;
-      const { rows: [criada] } = await pool.query(
-        `INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status, valor, pago,
-                               adultos, criancas, canal, observacoes, criado_por,
-                               check_in_em, check_out_em, cancelada_em)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                 CASE WHEN $7 IN ('hospedada', 'finalizada') THEN $5::date + time '14:00' END,
-                 CASE WHEN $7 = 'finalizada' THEN $6::date + time '11:00' END,
-                 CASE WHEN $7 = 'cancelada' THEN now() END)
-         RETURNING id`,
-        [pousadaId, hospede?.nome ?? n.nome, hospede?.id ?? null, n.quarto, n.entrada, n.saida, n.status, n.valor,
-          n.pago, n.adultos, n.criancas, n.canal, n.observacoes, userId],
-      );
-      // "Pago" da planilha vira pagamento, para a conta e os relatórios baterem.
-      if (n.pago && n.valor && n.valor > 0) {
-        await pool.query(
-          `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo, recebido_em, observacao, criado_por)
-           VALUES ($1, $2, $3, 'outro', 'pagamento', $4, 'Importado da planilha', $5)`,
-          [pousadaId, criada.id, Math.round(n.valor * 100), n.entrada, userId],
+      // Reserva e pagamento juntos: sem isso, pagamento recusado deixava a reserva
+      // gravada, a linha acusava erro e reimportar dizia "já existe".
+      const criada = await emTransacao(async (cliente) => {
+        const { rows: [reserva] } = await cliente.query(
+          `INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status, valor, pago,
+                                 adultos, criancas, canal, observacoes, criado_por,
+                                 check_in_em, check_out_em, cancelada_em, expira_em)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                   CASE WHEN $7 IN ('hospedada', 'finalizada') THEN $5::date + time '14:00' END,
+                   CASE WHEN $7 = 'finalizada' THEN $6::date + time '11:00' END,
+                   CASE WHEN $7 = 'cancelada' THEN now() END,
+                   CASE WHEN $7 = 'pre_reserva' THEN now() + make_interval(hours => ${PRAZO_PRE_RESERVA_HORAS}) END)
+           RETURNING id`,
+          [pousadaId, hospede?.nome ?? n.nome, hospede?.id ?? null, n.quarto, n.entrada, n.saida, n.status, n.valor,
+            n.pago, n.adultos, n.criancas, n.canal, n.observacoes, userId],
         );
-      }
+        // "Pago" da planilha vira pagamento, para a conta e os relatórios baterem.
+        if (n.pago && n.valor && n.valor > 0) {
+          await cliente.query(
+            `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo, recebido_em, observacao, criado_por)
+             VALUES ($1, $2, $3, 'outro', 'pagamento', $4, 'Importado da planilha', $5)`,
+            [pousadaId, reserva.id, Math.round(n.valor * 100), n.entrada, userId],
+          );
+        }
+        return reserva as { id: number };
+      });
       if (ocupa) ocupadoNaPlanilha.set(n.quarto, [...(ocupadoNaPlanilha.get(n.quarto) ?? []), { entrada: n.entrada, saida: n.saida, linha }]);
       criadas++;
       resultados.push({ linha, ok: true, resumo, reservaId: criada.id });

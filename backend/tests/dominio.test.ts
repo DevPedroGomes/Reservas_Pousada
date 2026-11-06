@@ -151,6 +151,52 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('importação de planilha', () => {
+    const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+    const importar = (linhas: unknown[]) => dono.req('POST', '/api/reservas/importar', { linhas, simular: false });
+
+    it('pré-reserva importada ganha prazo e expira como as outras', async () => {
+      const r = await importar([{ nome: 'Pre Importada', telefone: '48951110000', quarto: String(novoQuarto()), data_entrada: br(d(80)), data_saida: br(d(82)), status: 'pre_reserva' }]);
+      assert.equal(r.json.criadas, 1, JSON.stringify(r.json));
+      const id = r.json.resultados[0].reservaId;
+      const { rows: [antes] } = await pool.query(`SELECT expira_em FROM reservas WHERE id = $1`, [id]);
+      assert.ok(antes.expira_em, 'sem prazo, nunca expira e segura o quarto para sempre');
+      await pool.query(`UPDATE reservas SET expira_em = now() - interval '1 minute' WHERE id = $1`, [id]);
+      await (await import('../jobs/estadias.js')).expirarPreReservas();
+      assert.equal((await pool.query(`SELECT status FROM reservas WHERE id = $1`, [id])).rows[0].status, 'cancelada');
+    });
+
+    it('o banco recusa pré-reserva sem prazo', async () => {
+      await assert.rejects(
+        pool.query(`INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status) VALUES ($1, 'Sem Prazo', $2, $3, $4, 'pre_reserva')`, [pousada, novoQuarto(), d(80), d(82)]),
+        (e: { code?: string }) => e.code === '23514',
+      );
+    });
+
+    it('a migration dá prazo às pré-reservas antigas e pode rodar de novo', async () => {
+      const { readFileSync } = await import('node:fs');
+      const sql = readFileSync(new URL('../migrations/033_pre_reserva_com_prazo.sql', import.meta.url), 'utf8');
+      await pool.query(`ALTER TABLE reservas DROP CONSTRAINT reservas_pre_reserva_com_prazo`);
+      const { rows: [antiga] } = await pool.query(
+        `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status) VALUES ($1, 'Antiga', $2, $3, $4, 'pre_reserva') RETURNING id`,
+        [pousada, novoQuarto(), d(80), d(82)],
+      );
+      await pool.query(sql);
+      await pool.query(sql);
+      const { rows: [r] } = await pool.query(`SELECT expira_em > now() AS futuro FROM reservas WHERE id = $1`, [antiga.id]);
+      assert.equal(r.futuro, true);
+    });
+
+    it('reserva e pagamento da linha entram juntos ou não entram', async () => {
+      // Valor que cabe em reservas.valor, mas estoura pagamentos.valor_centavos.
+      const r = await importar([{ nome: 'Pagamento Estoura', telefone: '48951110001', quarto: String(novoQuarto()), data_entrada: br(d(84)), data_saida: br(d(86)), valor: '30000000,00', pago: 'sim' }]);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.equal(r.json.comErro, 1);
+      assert.equal(r.json.criadas, 0);
+      assert.equal((await pool.query(`SELECT 1 FROM reservas WHERE nome = 'Pagamento Estoura'`)).rowCount, 0);
+    });
+  });
+
   describe('iCal: feed vazio e evento ausente', () => {
     it('feed sem eventos não cancela nada e grava aviso', async () => {
       const { Ical, imp } = await novoCalendario();

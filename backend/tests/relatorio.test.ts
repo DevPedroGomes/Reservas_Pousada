@@ -21,13 +21,13 @@ describe('relatórios — ocupação, ADR, RevPAR, canais e caixa', { skip: !tem
       INSERT INTO pousadas (id, nome, slug, num_quartos) VALUES (1, 'P', 'p', 4), (2, 'Outra', 'outra', 2);
       INSERT INTO quartos (pousada_id, numero, nome) VALUES (1, 1, 'Q1'), (1, 2, 'Q2'), (1, 3, 'Q3'), (1, 4, 'Q4'), (2, 1, 'X1'), (2, 2, 'X2')
         ON CONFLICT (pousada_id, numero) DO NOTHING;
-      INSERT INTO reservas (id, pousada_id, nome, quarto, data_entrada, data_saida, status, valor, canal) VALUES
-        (1, 1, 'R1', 1, '2026-11-01', '2026-11-04', 'confirmada', 600, 'direto'),
-        (2, 1, 'R2', 2, '2026-10-30', '2026-11-02', 'finalizada', 300, 'booking'),
-        (3, 1, 'R3', 3, '2026-11-09', '2026-11-12', 'confirmada', 900, 'airbnb'),
-        (4, 1, 'R4', 4, '2026-11-05', '2026-11-07', 'cancelada', 400, 'direto'),
-        (5, 1, 'R5', 4, '2026-11-05', '2026-11-06', 'pre_reserva', NULL, 'whatsapp'),
-        (6, 2, 'Outra pousada', 1, '2026-11-01', '2026-11-10', 'confirmada', 5000, 'direto');
+      INSERT INTO reservas (id, pousada_id, nome, quarto, data_entrada, data_saida, status, valor, canal, expira_em) VALUES
+        (1, 1, 'R1', 1, '2026-11-01', '2026-11-04', 'confirmada', 600, 'direto', NULL),
+        (2, 1, 'R2', 2, '2026-10-30', '2026-11-02', 'finalizada', 300, 'booking', NULL),
+        (3, 1, 'R3', 3, '2026-11-09', '2026-11-12', 'confirmada', 900, 'airbnb', NULL),
+        (4, 1, 'R4', 4, '2026-11-05', '2026-11-07', 'cancelada', 400, 'direto', NULL),
+        (5, 1, 'R5', 4, '2026-11-05', '2026-11-06', 'pre_reserva', NULL, 'whatsapp', now() + interval '1 day'),
+        (6, 2, 'Outra pousada', 1, '2026-11-01', '2026-11-10', 'confirmada', 5000, 'direto', NULL);
       INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo, recebido_em) VALUES
         (1, 1, 20000, 'pix', 'sinal', '2026-11-01'),
         (1, 3, 90000, 'cartao_credito', 'pagamento', '2026-11-09'),

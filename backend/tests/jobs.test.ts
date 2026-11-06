@@ -62,10 +62,10 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
       INSERT INTO pousadas (id, nome, slug, num_quartos, configuracoes) VALUES
         (3, 'Com Lembrete', 'com-lembrete', 3, '{"whatsapp_lembrete": true}'), (4, 'Sem Lembrete', 'sem-lembrete', 3, '{}');
       INSERT INTO hospedes (id, pousada_id, nome, telefone) VALUES (91, 3, 'Ana Souza', '5548999990001'), (92, 4, 'Beto', '5548999990002'), (93, 3, 'Caio', '5548999990003');
-      INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status) VALUES
-        (3, 'Ana Souza', 91, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada'),
-        (4, 'Beto', 92, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada'),
-        (3, 'Caio', 93, 2, '${amanha}', '${amanha}'::date + 2, 'pre_reserva');`);
+      INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status, expira_em) VALUES
+        (3, 'Ana Souza', 91, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada', NULL),
+        (4, 'Beto', 92, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada', NULL),
+        (3, 'Caio', 93, 2, '${amanha}', '${amanha}'::date + 2, 'pre_reserva', now() + interval '1 day');`);
     const antes = { ...process.env };
     process.env.WHATSAPP_TOKEN = 'tok';
     process.env.WHATSAPP_PHONE_NUMBER_ID = '123';
