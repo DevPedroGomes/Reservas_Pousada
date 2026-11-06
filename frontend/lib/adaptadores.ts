@@ -124,6 +124,7 @@ function itemAgenda(r: Bruto): ItemAgenda {
     pago_centavos: base.pago_centavos,
     consumos_centavos: base.consumos_centavos,
     precheckin_em: base.precheckin_em,
+    version: base.version,
   }
 }
 

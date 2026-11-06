@@ -765,7 +765,10 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
     const recusa = recusaDeTransicao(reservaAntes, status, documentoValido(reservaAntes.documento));
     if (recusa) return res.status(409).json({ sucesso: false, codigo: 'RES_010', mensagem: recusa });
 
-    const version = req.body.version !== undefined ? parseInt(req.body.version) : undefined;
+    const version = Number(req.body.version);
+    if (req.body.version === undefined || req.body.version === null || !Number.isInteger(version)) {
+      return res.status(400).json({ sucesso: false, codigo: 'VAL_010', mensagem: 'Informe a versão da reserva (version). Recarregue a página e tente novamente.' });
+    }
     const resultado = await ReservaModel.atualizarStatus(parseInt(id), status, req.user!.pousadaId!, version, {
       motivo: typeof req.body.motivo === 'string' ? sanitizarString(req.body.motivo, 300) || null : null,
       expiraEm: status === 'pre_reserva' ? prazoDaPreReserva(req.body.prazo_horas) : null,

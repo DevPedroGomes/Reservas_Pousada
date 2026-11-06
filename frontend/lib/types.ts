@@ -88,6 +88,7 @@ export interface ItemAgenda {
   pago_centavos?: number
   consumos_centavos?: number
   precheckin_em?: string | null
+  version?: number
 }
 
 export interface Agenda {

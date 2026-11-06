@@ -22,10 +22,11 @@ export default function Painel() {
   const nomesDosQuartos = Object.fromEntries(quartos.map((q) => [q.numero, q.nome]))
   const somenteLeitura = auth.user?.role === "auditoria" && !auth.user?.is_owner
 
-  async function mudar(id: number, status: StatusReserva) {
-    const res = await mudarStatus(id, status)
+  async function mudar(id: number, status: StatusReserva, version: number | undefined) {
+    const res = await mudarStatus(id, status, version)
     auth.setMessage({ type: res.sucesso ? "success" : "error", text: res.mensagem })
-    if (res.sucesso) void carregar()
+    // Recarrega também na recusa: versão velha só se resolve com a tela atualizada.
+    void carregar()
   }
 
   useEffect(() => { void carregar() }, [carregar])
@@ -63,7 +64,7 @@ export default function Painel() {
       {agenda && (
         <AgendaDoDia
           {...agenda}
-          onMudarStatus={somenteLeitura ? undefined : (id, status) => void mudar(id, status)}
+          onMudarStatus={somenteLeitura ? undefined : (id, status, version) => void mudar(id, status, version)}
           mudando={mudando}
           pousada={somenteLeitura ? undefined : pousada}
           nomesDosQuartos={nomesDosQuartos}

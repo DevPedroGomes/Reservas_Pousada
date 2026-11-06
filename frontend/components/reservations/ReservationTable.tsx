@@ -18,7 +18,7 @@ interface ReservationTableProps {
   onEdit: (id: number) => void
   onDelete: (id: number) => void
   /** Ação de um clique (confirmar, check-in, check-out). */
-  onMudarStatus?: (id: number, status: StatusReserva) => void
+  onMudarStatus?: (id: number, status: StatusReserva, version: number | undefined) => void
   /** Reserva com mudança de status em andamento. */
   mudando?: number | null
   loading?: boolean
@@ -110,7 +110,7 @@ export function ReservationTable({
                             onClick={() => {
                               const saldo = saldoDaReserva(reserva)
                               if (proximo === "finalizada" && saldo > 0 && !window.confirm(`Saldo em aberto de ${reais(saldo)}. Fazer o check-out mesmo assim?`)) return
-                              onMudarStatus(Number(reserva.id), proximo)
+                              onMudarStatus(Number(reserva.id), proximo, reserva.version)
                             }}
                           >
                             {ROTULO_ACAO[proximo]}

@@ -343,6 +343,7 @@ export class ReservaModel {
    */
   static async criar(reserva: NewReserva & { hospedeId: number }): Promise<ReservaComCriador> {
     // Duplo clique: mesmo hóspede, quarto e datas nos últimos 30s devolve a existente.
+    // Só a que ainda vale: quem cancelou e refez o pedido quer uma reserva nova.
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
@@ -352,6 +353,7 @@ export class ReservaModel {
         eq(reservas.dataEntrada, reserva.dataEntrada),
         eq(reservas.dataSaida, reserva.dataSaida),
         eq(reservas.pousadaId, reserva.pousadaId),
+        inArray(reservas.status, [...STATUS_QUE_OCUPAM]),
         isNull(reservas.deletedAt),
         gte(reservas.createdAt, new Date(Date.now() - 30_000)),
       ))
@@ -474,19 +476,17 @@ export class ReservaModel {
   }
 
   /**
-   * Update reservation status (with optimistic locking)
+   * Update reservation status. `version` é obrigatória: sem ela, duas telas
+   * abertas se sobrescreviam (check-in por cima de cancelamento, por exemplo).
    */
   static async atualizarStatus(
     id: number,
     status: string,
     pousadaId: number,
-    version?: number,
+    version: number,
     extra: { motivo?: string | null; expiraEm?: Date | null } = {},
   ): Promise<{ changes: number; id: number; status: string }> {
-    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId)];
-    if (version !== undefined) {
-      conditions.push(eq(reservas.version, version));
-    }
+    const conditions: SQL[] = [eq(reservas.id, id), eq(reservas.pousadaId, pousadaId), eq(reservas.version, version)];
 
     let result;
     try {
@@ -514,7 +514,7 @@ export class ReservaModel {
       throw err;
     }
 
-    if (result.rowCount === 0 && version !== undefined) {
+    if (result.rowCount === 0) {
       const exists = await this.buscarPorIdEPousada(id, pousadaId);
       if (exists) {
         const error = new Error('Conflito de versão: esta reserva foi alterada por outro usuário') as Error & { code?: string };
@@ -560,6 +560,8 @@ export class ReservaModel {
       valor: reservas.valor,
       pago: reservas.pago,
       status: reservas.status,
+      // O botão de status da agenda manda a versão que a tela está vendo.
+      version: reservas.version,
       // WhatsApp do hóspede: a agenda tem o botão de mensagem pronta.
       telefone: hospedes.telefone,
       // Para o {saldo} da mensagem bater com a conta.

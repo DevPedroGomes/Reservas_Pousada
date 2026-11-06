@@ -9,7 +9,7 @@ import type { ItemAgenda } from "../../lib/types"
 import { MenuWhatsApp } from "../whatsapp/MenuWhatsApp"
 import type { Modelo, PousadaMensagem } from "../../lib/mensagens"
 
-type MudarStatus = (id: number, status: StatusReserva) => void
+type MudarStatus = (id: number, status: StatusReserva, version: number | undefined) => void
 
 /** Aviso ao lado do nome quando o status pede atenção da recepção. */
 function avisoDeStatus(r: ItemAgenda, hoje: string): { texto: string; cor: string } | null {
@@ -76,7 +76,7 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
                     disabled={mudando === r.id}
                     onClick={() => {
                       if (proximo === "finalizada" && !r.pago && !window.confirm(`A conta de ${r.nome} ainda não está quitada. Fazer o check-out mesmo assim?`)) return
-                      onMudarStatus(r.id, proximo)
+                      onMudarStatus(r.id, proximo, r.version)
                     }}
                   >
                     {ROTULO_ACAO[proximo]}
@@ -113,7 +113,6 @@ export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, em_revisao
             itens={em_revisao}
             vazio=""
             mostrarData="saida"
-            onMudarStatus={undefined}
             nomesDosQuartos={nomesDosQuartos}
           />
         </div>

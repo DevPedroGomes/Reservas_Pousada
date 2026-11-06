@@ -385,6 +385,73 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('iCal: UID repetido e erro de conexão', () => {
+    it('UID repetido no feed não aborta a sincronização', async () => {
+      const { Ical, imp } = await novoCalendario();
+      const repetido = feed(ev('dup', d(150), d(152)), ev('dup', d(150), d(152)), ev('dup', d(155), d(157)), ev('outro', d(160), d(161)));
+      const r = await Ical.sincronizarImportacao(imp, repetido);
+      assert.equal(r.criadas, 3, 'mesmas datas contam uma vez; datas diferentes seguem bloqueadas');
+      const { rows } = await pool.query(`SELECT data_entrada::text AS ini FROM reservas WHERE ical_importacao_id = $1 ORDER BY data_entrada`, [imp.id]);
+      assert.deepEqual(rows.map((x) => x.ini), [d(150), d(155), d(160)]);
+      const de_novo = await Ical.sincronizarImportacao(imp, repetido);
+      assert.deepEqual([de_novo.criadas, de_novo.atualizadas, de_novo.canceladas, de_novo.ausentes], [0, 0, 0, 0], 'relendo o mesmo feed nada muda');
+    });
+
+    it('erro de rede não volta ao cliente nem ao aviso do calendário', async () => {
+      const { Ical, imp } = await novoCalendario();
+      const erro = mock.method(console, 'error', () => {});
+      try {
+        await assert.rejects(Ical.sincronizarImportacao(imp, async () => { throw new Error('connect ECONNREFUSED 10.0.0.5:443'); }));
+      } finally {
+        erro.mock.restore();
+      }
+      assert.equal(await avisoDoCalendario(imp.id), 'Não foi possível conectar ao calendário.');
+      // Domínio reservado: a resolução falha sem depender de rede de verdade.
+      await pool.query(`UPDATE ical_importacoes SET url = 'https://diaria-nao-existe.invalid/x.ics' WHERE id = $1`, [imp.id]);
+      const r = await dono.req('POST', `/api/ical/importacoes/${imp.id}/sincronizar`);
+      assert.equal(r.status, 502);
+      assert.doesNotMatch(r.json.mensagem, /ENOTFOUND|getaddrinfo|EAI_|ECONN|invalid/);
+    });
+  });
+
+  describe('dedupe do duplo clique', () => {
+    it('cancelada há segundos não é devolvida: nasce outra reserva', async () => {
+      const corpo = { nome: 'Mudou De Ideia', telefone: '48952220000', quarto: novoQuarto(), data_entrada: d(75), data_saida: d(77) };
+      const a = await recep.req('POST', '/api/reservas', corpo);
+      const duplo = await recep.req('POST', '/api/reservas', corpo);
+      assert.equal(duplo.json.reserva.id, a.json.reserva.id, 'duplo clique segue devolvendo a mesma');
+      await recep.req('PATCH', `/api/reservas/${a.json.reserva.id}/status`, { status: 'cancelada', version: a.json.reserva.version });
+      const b = await recep.req('POST', '/api/reservas', corpo);
+      assert.equal(b.status, 201, JSON.stringify(b.json));
+      assert.notEqual(b.json.reserva.id, a.json.reserva.id);
+      assert.equal(b.json.reserva.status, 'confirmada');
+    });
+  });
+
+  describe('PATCH de status exige version', () => {
+    it('sem version é recusado; com version velha, 409; com a atual, passa', async () => {
+      const r = await recep.req('POST', '/api/reservas', { nome: 'Com Versao', telefone: '48952220001', quarto: novoQuarto(), data_entrada: d(78), data_saida: d(79) });
+      const id = r.json.reserva.id;
+      const version = r.json.reserva.version;
+      const sem = await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada' });
+      assert.equal(sem.status, 400, JSON.stringify(sem.json));
+      assert.equal(sem.json.codigo, 'VAL_010');
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', version: 'abc' })).status, 400);
+      assert.equal((await recep.req('GET', `/api/reservas/${id}`)).json.reserva.status, 'confirmada');
+      const velha = await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', version: version + 5 });
+      assert.equal(velha.status, 409);
+      assert.equal(velha.json.codigo, 'RES_009');
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', version })).status, 200);
+    });
+
+    it('a agenda traz a version de cada item', async () => {
+      const r = await recep.req('POST', '/api/reservas', { nome: 'Na Agenda', telefone: '48952220002', quarto: novoQuarto(), data_entrada: d(2), data_saida: d(3) });
+      const ag = await recep.req('GET', '/api/reservas/agenda?dias=7');
+      const item = ag.json.proximas.find((x: { id: number }) => x.id === r.json.reserva.id);
+      assert.equal(item.version, r.json.reserva.version);
+    });
+  });
+
   describe('iCal: data fechada na OTA', () => {
     const bloqueio = async (impId: number, uid: string) =>
       (await pool.query(`SELECT ical_bloqueio FROM reservas WHERE ical_importacao_id = $1 AND ical_uid = $2`, [impId, uid])).rows[0].ical_bloqueio;
