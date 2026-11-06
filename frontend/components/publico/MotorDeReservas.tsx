@@ -359,7 +359,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
           </div>
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" required checked={dados.aceite} onChange={(e) => setDados((x) => ({ ...x, aceite: e.target.checked }))} className="mt-1 h-4 w-4 accent-primary" />
-            <span>Concordo que a {pousada.nome} use meus dados para tratar esta reserva.</span>
+            <span>Concordo que a {pousada.nome} use meus dados para tratar esta reserva, conforme a <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline">política de privacidade</a>.</span>
           </label>
           {TURNSTILE_SITE_KEY && <VerificacaoTurnstile key={desafio} siteKey={TURNSTILE_SITE_KEY} onToken={setTurnstileToken} />}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">

@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { enfileirar, FILAS, registrarTrabalhador } from './fila.js';
+import { mascararEmail } from '../utils/pii.js';
 
 /**
  * E-mails transacionais (Resend), enviados pela fila com retentativa.
@@ -288,8 +289,10 @@ async function enfileirarEmail(para: string, assunto: string, html: string, link
  * Exportado para os testes.
  */
 export async function entregarEmail(job: JobDeEmail): Promise<void> {
+  // O endereço é dado pessoal: em log e no erro (que vai ao Sentry), só mascarado.
+  const destino = mascararEmail(job.para);
   if (!resend) {
-    console.log(`[Email] (sem RESEND_API_KEY) Para: ${job.para} | Assunto: ${job.assunto}`);
+    console.log(`[Email] (sem RESEND_API_KEY) Para: ${destino} | Assunto: ${job.assunto}`);
     // Sem provedor, o link só existe aqui. Em desenvolvimento é o que permite
     // testar confirmação de e-mail e convite; em produção nunca vai para o log.
     if (job.link && !producao) console.log(`[Email] link: ${job.link}`);
@@ -304,9 +307,10 @@ export async function entregarEmail(job: JobDeEmail): Promise<void> {
     ...(REPLY_TO ? { replyTo: REPLY_TO } : {}),
   });
   if (error) {
-    throw new Error(`Resend recusou o envio para ${job.para}: ${error.message ?? JSON.stringify(error)}`);
+    const motivo = String(error.message ?? JSON.stringify(error)).replaceAll(job.para, destino);
+    throw new Error(`Resend recusou o envio para ${destino}: ${motivo}`);
   }
-  console.log(`[Email] Enviado para ${job.para}: ${job.assunto}`);
+  console.log(`[Email] Enviado para ${destino}: ${job.assunto}`);
 }
 
 registrarTrabalhador(FILAS.email, (dados) => entregarEmail(dados as unknown as JobDeEmail));

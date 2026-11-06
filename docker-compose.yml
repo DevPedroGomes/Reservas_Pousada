@@ -33,8 +33,21 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # Commit gravado na imagem, servido em /health/live. Só no build: em
+        # `environment`, mesmo sem valor, o compose sobrescreve com vazio na VPS
+        # (onde a variável não existe) e apaga o que a imagem traz.
+        APP_VERSION: ${APP_VERSION:-}
     container_name: reservas-backend
     restart: unless-stopped
+    # O server.ts tem 15 s para drenar as requisições depois do SIGTERM. O padrão
+    # do Docker (10 s) o mataria antes.
+    stop_grace_period: 20s
+    logging: &logs
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -42,6 +55,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
+      # Endereço público da API nas URLs de webhook Pix e calendário iCal. Vazio
+      # = BETTER_AUTH_URL.
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      # Fila pg-boss e contadores de rate limit: mantenha os padrões. Ver .env.example.
+      FILA_HABILITADA: ${FILA_HABILITADA:-true}
+      FILA_POOL_MAX: ${FILA_POOL_MAX:-3}
+      RATE_LIMIT_STORE: ${RATE_LIMIT_STORE:-postgres}
+      # Meses de trilha de auditoria. Menos de 6 é ignorado (jobs/limpeza.ts).
+      AUDITORIA_RETENCAO_MESES: ${AUDITORIA_RETENCAO_MESES:-6}
       DATABASE_URL: postgresql://${POSTGRES_USER:-reservas}:${POSTGRES_PASSWORD}@central-db:5432/${POSTGRES_DB:-reservas_pousada}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       # Endereco canonico da API. E o que o better-auth usa para montar o
@@ -109,6 +131,8 @@ services:
       WHATSAPP_WEBHOOK_VERIFY_TOKEN: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:-}
       AGENTE_PROVEDOR: ${AGENTE_PROVEDOR:-anthropic}
       AGENTE_API_KEY: ${AGENTE_API_KEY:-}
+      # Alternativa a AGENTE_API_KEY, com o provedor padrão.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AGENTE_MODELO: ${AGENTE_MODELO:-}
       AGENTE_BASE_URL: ${AGENTE_BASE_URL:-}
       # Sem cobrança o atendente não roda, salvo esta variável de demonstração.
@@ -123,6 +147,8 @@ services:
       # Número da PLATAFORMA para lembretes de quem não conectou o próprio (opcional).
       WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_MODELO_LEMBRETE: ${WHATSAPP_MODELO_LEMBRETE:-lembrete_chegada}
+      WHATSAPP_IDIOMA: ${WHATSAPP_IDIOMA:-pt_BR}
     networks:
       - internal
       - proxy
@@ -146,7 +172,8 @@ services:
       - "traefik.http.middlewares.reservas-api-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.reservas-api-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.reservas-api-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.reservas-api-security.headers.contentSecurityPolicy=default-src 'none'; frame-ancestors 'none'"
+      - "traefik.http.middlewares.reservas-api-security.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+      - "traefik.http.middlewares.reservas-api-security.headers.contentSecurityPolicy=default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     healthcheck:
       # Liveness (processo de pé). O /health inclui o banco e é o endpoint do
       # monitor de uptime externo — usar ele aqui faria uma oscilação do banco
@@ -177,6 +204,8 @@ services:
         NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY:-}
     container_name: reservas-frontend
     restart: unless-stopped
+    stop_grace_period: 20s
+    logging: *logs
     deploy:
       resources:
         limits:
@@ -204,7 +233,13 @@ services:
       - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://accounts.google.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
+      # Hosts externos: só GA (googletagmanager, google-analytics) e Pixel/SDK da
+      # Meta (facebook). A fonte é servida pelo próprio app (next/font), então
+      # fonts.googleapis.com e fonts.gstatic.com não entram. O login com Google é
+      # redirecionamento de página inteira: não passa por connect-src nem form-action.
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
+      # O app usa a área de transferência (copiar Pix e links), que fica de fora de propósito.
+      - "traefik.http.middlewares.pousada-frontend-security.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://127.0.0.1:3000"]
       interval: 30s

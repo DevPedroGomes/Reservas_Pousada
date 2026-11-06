@@ -30,6 +30,7 @@ import { criarLimitador } from './utils/limitadores.js';
 import { origensPermitidas } from './utils/origens.js';
 import { requerAssinaturaAtiva } from './middleware/assinatura.js';
 import { requestId } from './lib/observabilidade.js';
+import { exigirOrigemConfiavel } from './middleware/origemConfiavel.js';
 
 /**
  * Montagem do app Express — sem efeitos colaterais de boot (sem listen, sem
@@ -115,9 +116,28 @@ app.use(
   [
     '/api/auth/sign-in/email',
     '/api/auth/sign-in',
-    '/api/auth/forget-password',
+    '/api/auth/reset-password',
   ],
   authLimiter,
+);
+
+// Pedidos que disparam e-mail têm limitador PRÓPRIO, sem `skipSuccessfulRequests`.
+//
+// O better-auth responde 200 a todo pedido de redefinição (para não revelar se
+// o e-mail existe), então "só conta o que falhou" nunca contaria nada: qualquer
+// um poderia encher a caixa de qualquer pessoa. Aqui todo envio conta.
+const envioDeEmailLimiter = criarLimitador('envio-email', {
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 5,
+  keyGenerator: (req) => chaveDeRateLimit(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { sucesso: false, mensagem: 'Muitos pedidos de e-mail. Tente novamente em 1 hora.' },
+});
+
+app.use(
+  ['/api/auth/request-password-reset', '/api/auth/send-verification-email'],
+  envioDeEmailLimiter,
 );
 
 // Cadastro tem limitador PRÓPRIO, sem `skipSuccessfulRequests`.
@@ -137,15 +157,26 @@ const signupLimiter = criarLimitador('cadastro', {
 app.use('/api/auth/sign-up/email', signupLimiter);
 
 // ==========================================
+// Origem das escritas com cookie (CSRF)
+// ==========================================
+// Antes do better-auth e de toda rota. Ver middleware/origemConfiavel.ts.
+app.use(exigirOrigemConfiavel);
+
+// ==========================================
 // Session Invalidation on Sensitive Auth Changes
 // ==========================================
 // Better Auth does not expose a clean afterUpdate hook for change-password /
 // change-email at this version; intercept the response and, on 2xx, evict
 // every session for the user EXCEPT the current one. This forces other
 // devices to re-authenticate after credential changes.
+//
+// Na redefinição por token quem revoga é o `revokeSessionsOnPasswordReset`
+// (lib/auth.ts), que sabe de qual conta é o token; aqui a sessão lida é a do
+// navegador que abriu o link.
 const SENSITIVE_AUTH_PATHS = new Set([
   '/api/auth/change-password',
   '/api/auth/change-email',
+  '/api/auth/reset-password',
 ]);
 
 app.use((req, res, next) => {
@@ -195,7 +226,13 @@ app.use('/api/webhooks/whatsapp', webhookWhatsappRoutes);
 // Importação de planilha manda até 2.000 linhas: limite próprio, antes do geral.
 app.use('/api/reservas/importar', express.json({ limit: '3mb' }));
 app.use(express.json({ limit: '256kb' }));
-app.use(express.urlencoded({ extended: true, limit: '256kb' }));
+// Só JSON. Formulário HTML é a única forma de um site alheio mandar corpo sem
+// preflight de CORS, e nenhuma rota precisa dele. Corpo de outro tipo chega
+// vazio à rota e cai na validação dela, em vez de estourar como 500.
+app.use((req, _res, next) => {
+  req.body ??= {};
+  next();
+});
 
 // ==========================================
 // Activity Logger
@@ -276,8 +313,10 @@ app.get('/api/config', (_req, res) => {
   res.json({ sucesso: true, google: googleConfigurado });
 });
 
+// `version` é o commit da imagem (APP_VERSION, gravado no build): é o que o CI
+// confere para saber se a produção está servindo o que foi publicado.
 app.get('/health/live', (req, res) => {
-  res.json({ status: 'alive', timestamp: new Date().toISOString() });
+  res.json({ status: 'alive', version: process.env.APP_VERSION || 'desconhecida', timestamp: new Date().toISOString() });
 });
 
 // Readiness: a API consegue servir de verdade (inclui o banco). É o que o

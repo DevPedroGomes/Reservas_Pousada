@@ -52,12 +52,17 @@ RUN chown -R nodejs:nodejs /app
 # Switch to non-root user
 USER nodejs
 
+# Commit da imagem, para o /health/live. Depois de tudo o que é caro: um valor
+# novo a cada build não pode invalidar o cache do npm ci.
+ARG APP_VERSION
+ENV APP_VERSION=$APP_VERSION
+
 # Expose port
 EXPOSE 4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:4000/health/live', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+    CMD node -e "require('http').get('http://127.0.0.1:4000/health/live', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Start server
 CMD ["node", "dist/server.js"]

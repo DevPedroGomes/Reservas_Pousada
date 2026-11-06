@@ -61,7 +61,7 @@ interface ListarOptions {
  * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
  * é o documento quando ele é CPF, senão vazio.
  */
-export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'icalAusencias' | 'icalBloqueio' | 'canceladaManualmente' | 'lembreteEnviadoEm' | 'precheckinToken'> {
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'icalAusencias' | 'icalBloqueio' | 'canceladaManualmente' | 'lembreteEnviadoEm' | 'precheckinToken' | 'aceiteEm' | 'aceiteVersao' | 'aceiteForma'> {
   /** Quando o hóspede enviou a ficha de pré-check-in (null se não enviou). */
   precheckinEm?: Date | null;
   criadoPorNome?: string | null;

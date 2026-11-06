@@ -20,6 +20,7 @@ import { billingHabilitado } from '../lib/stripe.js';
 import { hojeLocal } from '../utils/datas.js';
 import { sanitizarNome, sanitizarString, validarCPF, validarData, validarEmail } from '../utils/validation.js';
 import { normalizarDocumento } from '../utils/crypto.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 export interface ConfigMotor {
   ativo: boolean;
@@ -170,12 +171,25 @@ export class PedidoRecusado extends Error {
   }
 }
 
+/** O que fica gravado na reserva: quando, sob qual versão da política e de que forma (migration 035). */
+export interface RegistroDeAceite {
+  em: Date;
+  versao: string;
+  forma: 'marcado_no_site' | 'informado_no_whatsapp';
+}
+
 export interface PedidoPublico {
   quarto: number; entrada: string; saida: string; adultos: number; criancas: number;
   nome: string; telefone: string; email: string | null; documento: string | null; observacoes: string | null;
+  aceite: RegistroDeAceite;
 }
 
-export function lerPedido(corpo: Record<string, unknown>): { pedido: PedidoPublico; erros: string[] } {
+/**
+ * Lê o pedido. Sem `aviso`, é o formulário do site, e a caixa precisa ter vindo
+ * marcada. Com `aviso`, o canal não tem caixa: o registro diz que a pessoa foi
+ * informada, nunca que aceitou.
+ */
+export function lerPedido(corpo: Record<string, unknown>, aviso?: RegistroDeAceite): { pedido: PedidoPublico; erros: string[] } {
   const erros: string[] = [];
   const nome = sanitizarNome(String(corpo.nome ?? ''));
   if (nome.split(' ').filter(Boolean).length < 2) erros.push('Informe nome e sobrenome.');
@@ -198,11 +212,12 @@ export function lerPedido(corpo: Record<string, unknown>): { pedido: PedidoPubli
   const criancas = Number(corpo.criancas ?? 0);
   if (!Number.isInteger(adultos) || adultos < 1 || adultos > 20) erros.push('Número de adultos inválido.');
   if (!Number.isInteger(criancas) || criancas < 0 || criancas > 20) erros.push('Número de crianças inválido.');
-  if (corpo.aceite !== true) erros.push('É preciso concordar com o uso dos dados para a reserva.');
+  if (!aviso && corpo.aceite !== true) erros.push('É preciso concordar com o uso dos dados para a reserva.');
   return {
     pedido: {
       quarto: Number(corpo.quarto), entrada: String(corpo.entrada ?? ''), saida: String(corpo.saida ?? ''), adultos, criancas,
       nome, telefone, email, documento, observacoes: sanitizarString(String(corpo.observacoes ?? ''), 500, true) || null,
+      aceite: aviso ?? { em: new Date(), versao: VERSAO_POLITICA, forma: 'marcado_no_site' },
     },
     erros,
   };
@@ -293,6 +308,9 @@ export async function solicitarReserva(p: PousadaPublica, pedido: PedidoPublico,
       adultos: pedido.adultos,
       criancas: pedido.criancas,
       canal,
+      aceiteEm: pedido.aceite.em,
+      aceiteVersao: pedido.aceite.versao,
+      aceiteForma: pedido.aceite.forma,
       observacoes: [canal === 'site' ? 'Pedido pelo site.' : 'Pré-reserva pelo atendente virtual do WhatsApp.', pedido.observacoes, hospede.revisaoMotivo].filter(Boolean).join(' '),
     });
     const totalCentavos = quarto.totalCentavos ?? 0;

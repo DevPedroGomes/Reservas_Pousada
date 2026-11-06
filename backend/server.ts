@@ -7,6 +7,7 @@ import { TIMEZONE } from './utils/datas.js';
 import { avisarEstadoDoBilling } from './lib/stripe.js';
 import { descarregarErros, iniciarObservabilidade, reportarErro } from './lib/observabilidade.js';
 import { iniciarFila, pararFila } from './lib/fila.js';
+import { problemasDeProducao } from './lib/configProducao.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -47,10 +48,10 @@ async function iniciarServidor() {
       process.exit(1);
     }
 
-    // URL pública é obrigatória em produção: o fallback silencioso para
-    // http://localhost:4000 quebra OAuth e links de email sem avisar.
-    if (process.env.NODE_ENV === 'production' && !process.env.BETTER_AUTH_URL) {
-      console.error('ERRO CRÍTICO: BETTER_AUTH_URL não definida em produção');
+    // Fatal pelo mesmo motivo: o que falta aqui falharia em silêncio depois.
+    const problemas = problemasDeProducao();
+    if (problemas.length > 0) {
+      for (const problema of problemas) console.error(`ERRO CRÍTICO: ${problema}`);
       process.exit(1);
     }
 
@@ -69,11 +70,6 @@ async function iniciarServidor() {
     // sobe. É o oposto do que acontecia antes — schema divergente do código,
     // servidor no ar, e todo endpoint de reserva respondendo 500.
     await runMigrations();
-
-    // Validate critical config
-    if (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY) {
-      console.warn('⚠ RESEND_API_KEY não definida — emails (convites, reset senha, verificação) NÃO serão enviados');
-    }
 
     // Jobs em background (limpeza, finalização de estadias, e-mails com
     // retentativa). Antes era um setInterval por processo: com duas réplicas

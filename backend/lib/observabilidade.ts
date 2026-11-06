@@ -3,8 +3,9 @@
  *
  * Sem SENTRY_DSN nada é carregado — o SDK nem é importado, para não gastar
  * memória num container de 256 MB. Com DSN, só erros 5xx e falhas fora do
- * fluxo de requisição são enviados; corpo da requisição, cookies e headers
- * nunca vão junto (CPF e sessão não podem sair para um terceiro).
+ * fluxo de requisição são enviados; corpo da requisição, cookies, headers e a
+ * URL nunca vão junto (CPF, sessão e os tokens que moram no caminho de algumas
+ * rotas não podem sair para um terceiro).
  */
 import { randomUUID } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
@@ -24,6 +25,29 @@ type SentryLike = {
 
 let sentry: SentryLike | null = null;
 
+type EventoDoSentry = {
+  request?: { method?: string };
+  user?: unknown;
+  transaction?: string;
+  breadcrumbs?: unknown;
+};
+
+/**
+ * Defesa em profundidade: do pedido, só o método. A rota vai no contexto, já
+ * como template (utils/rotaSegura.ts). `transaction` e a trilha de navegação
+ * também saem porque o SDK as preenche com a URL real e com linhas de log.
+ */
+export function limparEventoDoSentry<T extends EventoDoSentry>(evento: T): T {
+  const e: EventoDoSentry = evento;
+  if (e.request) {
+    e.request = { method: e.request.method };
+  }
+  delete e.user;
+  delete e.transaction;
+  delete e.breadcrumbs;
+  return evento;
+}
+
 export async function iniciarObservabilidade(): Promise<void> {
   const dsn = process.env.SENTRY_DSN?.trim();
   if (!dsn) return;
@@ -35,14 +59,7 @@ export async function iniciarObservabilidade(): Promise<void> {
       release: process.env.APP_VERSION || undefined,
       sendDefaultPii: false,
       tracesSampleRate: 0,
-      beforeSend(evento) {
-        // Defesa em profundidade: nada da requisição além de método e rota.
-        if (evento.request) {
-          evento.request = { method: evento.request.method, url: evento.request.url };
-        }
-        delete evento.user;
-        return evento;
-      },
+      beforeSend: limparEventoDoSentry,
     });
     sentry = Sentry as unknown as SentryLike;
     console.log('[Observabilidade] Sentry habilitado');

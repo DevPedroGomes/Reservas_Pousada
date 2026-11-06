@@ -7,6 +7,7 @@
  * conta do anúncio.
  */
 import { lerConsentimento } from "./consentimento"
+import { caminhoSemToken } from "./urlSensivel"
 
 const CHAVE = "diaria:origem:v1"
 const PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "gclid", "fbclid"] as const
@@ -33,7 +34,7 @@ export function capturarOrigem(): void {
   const ref = document.referrer
   if (ref && !ref.startsWith(window.location.origin)) origem.referrer = ref.slice(0, 300)
   if (Object.keys(origem).length === 0) return // visita direta: espera uma com informação
-  origem.landing = url.pathname
+  origem.landing = caminhoSemToken(url.pathname)
   origem.primeira_visita = new Date().toISOString()
   try {
     window.localStorage.setItem(CHAVE, JSON.stringify(origem))

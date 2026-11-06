@@ -175,12 +175,12 @@ export default function PreCheckin() {
 
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" required checked={aceite} onChange={(e) => setAceite(e.target.checked)} className="mt-1 h-4 w-4 accent-primary" />
-              <span>Autorizo o envio destes dados à {resumo.pousada} para o meu registro de hóspede (Ficha Nacional de Registro de Hóspedes).</span>
+              <span>Autorizo o envio destes dados à {resumo.pousada} para o meu registro de hóspede (Ficha Nacional de Registro de Hóspedes), conforme a <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline">política de privacidade</a>.</span>
             </label>
             <button type="submit" disabled={ocupado} className="h-12 w-full rounded-lg bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               {ocupado ? "Enviando..." : "Enviar ficha"}
             </button>
-            <p className="text-center text-xs text-muted-foreground">Seus dados vão protegidos e só a pousada tem acesso.</p>
+            <p className="text-center text-xs text-muted-foreground">Seus dados vão cifrados. Quem consulta a ficha é a equipe da pousada; o Diária a guarda a serviço dela.</p>
           </form>
         )}
       </div>

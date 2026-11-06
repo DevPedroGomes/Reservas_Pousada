@@ -10,6 +10,7 @@ import HospedeModel, { normalizarTelefone } from './Hospede.js';
 import { cifrarSegredo, decifrarSegredo, normalizarDocumento } from '../utils/crypto.js';
 import { sanitizarNome, sanitizarString, validarCPF, validarData, validarEmail } from '../utils/validation.js';
 import { hojeLocal } from '../utils/datas.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 export const MOTIVOS_VIAGEM = ['lazer', 'negocios', 'congresso', 'parentes_amigos', 'estudos', 'religiao', 'saude', 'compras', 'outro'] as const;
 export const MEIOS_TRANSPORTE = ['automovel', 'aviao', 'onibus', 'moto', 'navio', 'trem', 'outro'] as const;
@@ -188,9 +189,11 @@ export async function enviarFicha(token: string, corpo: Record<string, unknown>,
   if (erros.length) throw Object.assign(new PrecheckinRecusado(erros[0]), { erros });
 
   await pool.query(
-    `INSERT INTO precheckins (reserva_id, pousada_id, dados_cifrados, ip) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (reserva_id) DO UPDATE SET dados_cifrados = EXCLUDED.dados_cifrados, ip = EXCLUDED.ip, atualizado_em = now()`,
-    [r.id, r.pousada_id, cifrarSegredo(JSON.stringify(ficha)), ip],
+    // lerFicha já recusou quem não marcou a autorização. Reenvio é novo aceite.
+    `INSERT INTO precheckins (reserva_id, pousada_id, dados_cifrados, ip, aceite_em, aceite_versao) VALUES ($1, $2, $3, $4, now(), $5)
+     ON CONFLICT (reserva_id) DO UPDATE SET dados_cifrados = EXCLUDED.dados_cifrados, ip = EXCLUDED.ip, atualizado_em = now(),
+       aceite_em = EXCLUDED.aceite_em, aceite_versao = EXCLUDED.aceite_versao`,
+    [r.id, r.pousada_id, cifrarSegredo(JSON.stringify(ficha)), ip, VERSAO_POLITICA],
   );
 
   // A ficha completa o cadastro do hóspede (documento libera o check-in).

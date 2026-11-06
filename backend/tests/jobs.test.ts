@@ -88,6 +88,26 @@ describe('jobs — estadias e pré-reservas', { skip: !temBanco && 'DATABASE_URL
     }
   });
 
+  it('limpeza: apaga auditoria acima do prazo e respeita o mínimo do Marco Civil', async () => {
+    const { limpeza, mesesDeAuditoria } = await import('../jobs/limpeza.js');
+    await pool.query(`DELETE FROM auditoria`);
+    await pool.query(`
+      INSERT INTO auditoria (action, entity, created_at) VALUES
+        ('velha', 'reserva', now() - interval '7 months'),
+        ('no_limite', 'reserva', now() - interval '5 months'),
+        ('nova', 'reserva', now())`);
+    const r = await limpeza();
+    assert.equal(r.auditoria, 1);
+    const { rows } = await pool.query(`SELECT action FROM auditoria ORDER BY action`);
+    assert.deepEqual(rows.map((x) => x.action), ['no_limite', 'nova']);
+
+    assert.equal(mesesDeAuditoria({}), 6);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '12' }), 12);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '1' }), 6, 'abaixo do mínimo legal não vale');
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: 'abc' }), 6);
+    assert.equal(mesesDeAuditoria({ AUDITORIA_RETENCAO_MESES: '' }), 6);
+  });
+
   it('pré-reserva vencida é cancelada com motivo e o quarto fica livre', async () => {
     assert.equal(await expirar(), 1);
     const { rows } = await pool.query(`SELECT status, motivo_cancelamento FROM reservas WHERE pousada_id = 2 ORDER BY quarto`);
