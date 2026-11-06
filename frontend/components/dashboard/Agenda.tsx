@@ -91,11 +91,12 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
   )
 }
 
-export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarStatus, mudando, pousada, nomesDosQuartos }: {
+export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, em_revisao, onMudarStatus, mudando, pousada, nomesDosQuartos }: {
   chegadas: ItemAgenda[]
   saidas: ItemAgenda[]
   hospedados: ItemAgenda[]
   proximas: ItemAgenda[]
+  em_revisao: ItemAgenda[]
   /** Sem esta função (perfil só leitura), a agenda não mostra botões. */
   onMudarStatus?: MudarStatus
   mudando?: number | null
@@ -105,6 +106,18 @@ export function AgendaDoDia({ chegadas, saidas, hospedados, proximas, onMudarSta
   const acoes = { onMudarStatus, mudando, pousada, nomesDosQuartos }
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      {em_revisao.length > 0 && (
+        <div className="md:col-span-2">
+          <Lista
+            titulo="Para revisar: saída vencida sem check-in"
+            itens={em_revisao}
+            vazio=""
+            mostrarData="saida"
+            onMudarStatus={undefined}
+            nomesDosQuartos={nomesDosQuartos}
+          />
+        </div>
+      )}
       <Lista titulo="Chegadas hoje" itens={chegadas} vazio="Nenhuma chegada prevista hoje." mensagem="chegada" {...acoes} />
       <Lista titulo="Saídas hoje" itens={saidas} vazio="Nenhuma saída prevista hoje." mensagem="agradecimento" {...acoes} />
       <Lista titulo="Hospedados agora" itens={hospedados} vazio="Nenhum hóspede no momento." mostrarData="saida" mensagem="chegada" {...acoes} />

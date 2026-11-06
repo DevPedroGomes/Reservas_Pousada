@@ -96,6 +96,8 @@ export interface Agenda {
   saidas: ItemAgenda[]
   hospedados: ItemAgenda[]
   proximas: ItemAgenda[]
+  /** Confirmadas com a saída vencida e sem check-in. */
+  em_revisao: ItemAgenda[]
 }
 
 export interface UserPousada {

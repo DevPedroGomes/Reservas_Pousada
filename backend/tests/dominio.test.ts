@@ -151,6 +151,41 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('confirmada vencida sem check-in', () => {
+    const inicio = d(-40);
+    const fim = d(-30);
+
+    it('vai para revisão, aparece na agenda e não conta como receita nem a receber', async () => {
+      const receitaAntes = await dono.req('GET', `/api/relatorios?inicio=${inicio}&fim=${fim}`);
+      assert.equal(receitaAntes.status, 200, JSON.stringify(receitaAntes.json));
+      const { rows: [r] } = await pool.query(
+        `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status, valor) VALUES ($1, 'Nao Veio', $2, $3, $4, 'confirmada', 900) RETURNING id, version`,
+        [pousada, novoQuarto(), d(-38), d(-35)],
+      );
+      await (await import('../jobs/estadias.js')).finalizarEstadiasVencidas();
+      const { rows: [depois] } = await pool.query(`SELECT status, revisao_motivo FROM reservas WHERE id = $1`, [r.id]);
+      assert.equal(depois.status, 'confirmada', 'não vira finalizada');
+      assert.match(depois.revisao_motivo, /check-in/);
+
+      const ag = await recep.req('GET', '/api/reservas/agenda');
+      const item = ag.json.emRevisao.find((x: { id: number }) => x.id === r.id);
+      assert.ok(item, 'a recepção enxerga no painel');
+      assert.match(item.revisaoMotivo, /check-in/);
+
+      const rel = await dono.req('GET', `/api/relatorios?inicio=${inicio}&fim=${fim}`);
+      assert.equal(rel.json.relatorio.receitaHospedagemCentavos, receitaAntes.json.relatorio.receitaHospedagemCentavos, 'sem check-in não é receita');
+      assert.equal(rel.json.relatorio.noitesVendidas, receitaAntes.json.relatorio.noitesVendidas);
+      assert.ok(!rel.json.relatorio.aReceber.some((x: { id: number }) => x.id === r.id));
+
+      // A recepção decide: não compareceu. Sai da revisão.
+      const ns = await recep.req('PATCH', `/api/reservas/${r.id}/status`, { status: 'no_show', version: r.version });
+      assert.equal(ns.status, 200, JSON.stringify(ns.json));
+      const ag2 = await recep.req('GET', '/api/reservas/agenda');
+      assert.ok(!ag2.json.emRevisao.some((x: { id: number }) => x.id === r.id));
+      assert.equal((await pool.query(`SELECT revisao_em FROM reservas WHERE id = $1`, [r.id])).rows[0].revisao_em, null);
+    });
+  });
+
   describe('importação de planilha', () => {
     const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
     const importar = (linhas: unknown[]) => dono.req('POST', '/api/reservas/importar', { linhas, simular: false });
@@ -350,11 +385,14 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     it('grava a tentativa antes de buscar e passa à frente quem nunca tentou', async () => {
       const Ical = await import('../models/Ical.js');
       await pool.query(`UPDATE ical_importacoes SET ativo = false WHERE pousada_id = $1`, [pousada]);
-      const a = (await novoCalendario()).imp;
       const b = (await novoCalendario()).imp;
-      importacoesDeTeste.push(a.id, b.id);
-      // "a" travou numa rodada anterior: tentou, nunca concluiu.
-      await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = now() - interval '1 minute' WHERE id = $1`, [a.id]);
+      importacoesDeTeste.push(b.id);
+      // Estes travaram numa rodada anterior: tentaram, nunca concluíram.
+      for (let i = 0; i < Ical.CONCORRENCIA_SINCRONIZACAO + 1; i++) {
+        const { imp } = await novoCalendario();
+        importacoesDeTeste.push(imp.id);
+        await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = now() - interval '1 minute' WHERE id = $1`, [imp.id]);
+      }
       const ordem: string[] = [];
       let tentativaDuranteBusca: Date | null = null;
       await Ical.sincronizarImportacao(b, async () => {
@@ -363,8 +401,9 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       });
       assert.ok(tentativaDuranteBusca, 'tentativa já gravada durante a busca');
       await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = NULL WHERE id = $1`, [b.id]);
-      await Ical.sincronizarTodas(async (url) => { ordem.push(url); return feed()(); });
-      assert.deepEqual(ordem.filter((u) => u === a.url || u === b.url)[0], b.url);
+      await Ical.sincronizarTodas(async (url) => { ordem.push(url); await espera(20); return feed()(); });
+      // Os feeds da primeira leva começam em qualquer ordem entre si.
+      assert.ok(ordem.indexOf(b.url) < Ical.CONCORRENCIA_SINCRONIZACAO, `posição ${ordem.indexOf(b.url)} de ${ordem.length}`);
       await limpar();
       await pool.query(`UPDATE ical_importacoes SET ativo = true WHERE pousada_id = $1`, [pousada]);
     });

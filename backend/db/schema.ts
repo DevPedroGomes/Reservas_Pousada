@@ -147,6 +147,9 @@ export const reservas = pgTable('reservas', {
   icalBloqueio: boolean('ical_bloqueio').notNull().default(false),
   // Uma pessoa cancelou: a sincronização não reativa (migration 030).
   canceladaManualmente: boolean('cancelada_manualmente').notNull().default(false),
+  // Confirmada que passou da saída sem check-in (migration 034).
+  revisaoEm: timestamp('revisao_em', { withTimezone: true }),
+  revisaoMotivo: text('revisao_motivo'),
   // Lembrete de chegada pelo WhatsApp (migration 023).
   lembreteEnviadoEm: timestamp('lembrete_enviado_em', { withTimezone: true }),
   // Link secreto do pré-check-in (migration 024).

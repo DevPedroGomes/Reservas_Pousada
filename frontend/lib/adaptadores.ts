@@ -135,6 +135,7 @@ export function agendaDaApi(a: Bruto): Agenda {
     saidas: lista("saidas"),
     hospedados: lista("hospedados"),
     proximas: lista("proximas"),
+    em_revisao: lista("emRevisao"),
   }
 }
 

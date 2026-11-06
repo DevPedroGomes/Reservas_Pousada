@@ -8,6 +8,11 @@
  * Um dia de tolerância depois da saída, para não fechar a estadia de quem
  * ainda está fazendo check-out tarde. Cada finalização vira registro na
  * auditoria (sem usuário: foi o sistema).
+ *
+ * Só finaliza quem fez check-in. Confirmada vencida pode ser hóspede que não
+ * veio: finalizar virava receita de estadia que não houve. Ela fica em revisão,
+ * visível na agenda, até a recepção decidir. A exceção é a data fechada na OTA,
+ * que não é estadia nem receita e não tem o que revisar.
  */
 import { pool } from '../db/index.js';
 import { cancelarNoGateway, type CobrancaEncerrada } from '../models/Pix.js';
@@ -21,7 +26,7 @@ export async function finalizarEstadiasVencidas(hoje: string = hojeLocal()): Pro
       `UPDATE reservas
           SET status = 'finalizada', version = version + 1, updated_at = now(),
               check_out_em = COALESCE(check_out_em, now())
-        WHERE status IN ('confirmada', 'hospedada')
+        WHERE (status = 'hospedada' OR (status = 'confirmada' AND ical_bloqueio AND COALESCE(valor, 0) = 0))
           AND deleted_at IS NULL
           AND data_saida < ($1::date - 1)
       RETURNING id`,
@@ -35,6 +40,28 @@ export async function finalizarEstadiasVencidas(hoje: string = hojeLocal()): Pro
         [rows.map((r) => r.id)],
       );
     }
+    const { rows: paraRevisar } = await cliente.query<{ id: number }>(
+      `UPDATE reservas
+          SET revisao_em = now(), revisao_motivo = 'Saída vencida sem check-in', updated_at = now()
+        WHERE status = 'confirmada' AND deleted_at IS NULL AND revisao_em IS NULL
+          AND data_saida < ($1::date - 1)
+      RETURNING id`,
+      [hoje],
+    );
+    if (paraRevisar.length > 0) {
+      await cliente.query(
+        `INSERT INTO auditoria (user_id, action, entity, entity_id, details)
+         SELECT NULL, 'revisao_automatica', 'reserva', id, '{"motivo":"saída vencida sem check-in"}'::jsonb
+           FROM unnest($1::int[]) AS id`,
+        [paraRevisar.map((r) => r.id)],
+      );
+    }
+    // Data corrigida para a frente: não há mais o que revisar.
+    await cliente.query(
+      `UPDATE reservas SET revisao_em = NULL, revisao_motivo = NULL
+        WHERE revisao_em IS NOT NULL AND data_saida >= ($1::date - 1)`,
+      [hoje],
+    );
     await cliente.query('COMMIT');
     return rows.length;
   } catch (err) {

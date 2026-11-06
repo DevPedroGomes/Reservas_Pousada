@@ -2,7 +2,8 @@
  * Relatórios da pousada num período [inicio, fim] (noites, datas inclusivas).
  *
  * Conta só negócio fechado: confirmada, hospedada e finalizada. Pré-reserva
- * ainda pode cair e cancelada/no-show não ocuparam o quarto.
+ * ainda pode cair e cancelada/no-show não ocuparam o quarto. Confirmada em
+ * revisão (saída vencida sem check-in) fica de fora até a recepção decidir.
  *
  * - Receita de hospedagem por competência: cada noite vale valor/noites da
  *   reserva; entra a noite que cai no período (estadia que atravessa o mês
@@ -32,7 +33,7 @@ export async function relatorio(pousadaId: number, inicio: string, fim: string) 
     r AS (
       SELECT id, canal, quarto, valor, ical_bloqueio, data_entrada, data_saida, GREATEST(data_saida - data_entrada, 1) AS total_noites
         FROM reservas
-       WHERE pousada_id = $1 AND deleted_at IS NULL AND status IN ${STATUS}
+       WHERE pousada_id = $1 AND deleted_at IS NULL AND status IN ${STATUS} AND revisao_em IS NULL
          AND data_entrada <= $3::date AND data_saida > $2::date
     ),
     noites AS (
@@ -48,7 +49,7 @@ export async function relatorio(pousadaId: number, inicio: string, fim: string) 
              + COALESCE((SELECT sum(c.quantidade * c.valor_unitario_centavos) FROM consumos c WHERE c.reserva_id = r.id), 0)::int
              - COALESCE((SELECT sum(p.valor_centavos) FROM pagamentos p WHERE p.reserva_id = r.id), 0)::int AS saldo_centavos
       FROM reservas r
-     WHERE r.pousada_id = $1 AND r.deleted_at IS NULL AND r.status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')`;
+     WHERE r.pousada_id = $1 AND r.deleted_at IS NULL AND r.revisao_em IS NULL AND r.status IN ('pre_reserva', 'confirmada', 'hospedada', 'finalizada')`;
 
   const [quartos, quartosNoPeriodo, totais, porCanal, porDia, recebido, consumos, cancelamentos, aReceberTotal, aReceber] = await Promise.all([
     pool.query(`SELECT count(*)::int AS n FROM quartos WHERE pousada_id = $1 AND ativo`, [pousadaId]),
