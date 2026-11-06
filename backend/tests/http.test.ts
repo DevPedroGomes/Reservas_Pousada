@@ -1059,7 +1059,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
     it('conectar troca o código, guarda o token cifrado e cria os modelos de mensagem', async () => {
       const ruim = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'velho', waba_id: '100200300', phone_number_id: NUMERO });
       assert.equal(ruim.status, 502);
-      assert.match(ruim.json.mensagem, /código expirado/);
+      assert.match(ruim.json.mensagem, /Meta recusou/);
       const r = await donoA.req('POST', '/api/whatsapp/conectar', { code: 'codigo-ok', waba_id: '100200300', phone_number_id: NUMERO, coexistencia: true });
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.deepEqual([r.json.conta.conectado, r.json.conta.numero, r.json.conta.coexistencia, r.json.conta.agenteAtivo, r.json.conta.modelosCriados], [true, '+55 48 3000-0000', true, false, true]);

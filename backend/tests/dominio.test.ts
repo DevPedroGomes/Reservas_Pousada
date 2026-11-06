@@ -177,7 +177,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
         const emails = await emailsDe(async () => { r = await dono.req('PUT', `/api/pousadas/${pousada}/pix`, { ...CORPO, asaas_chave: ASAAS }); });
         assert.equal(r!.status, 200, JSON.stringify(r!.json));
         const aviso = emails.filter((e) => /Pix/.test(e.assunto) && /alterad/i.test(e.assunto));
-        assert.ok(aviso.some((e) => e.para === 'dono@dominio.com'), JSON.stringify(emails));
+        assert.ok(aviso.some((e) => e.para === 'd***@dominio.com'), JSON.stringify(emails));
         const { rows: [aud] } = await pool.query(`SELECT details FROM auditoria WHERE action = 'config_pix' ORDER BY id DESC LIMIT 1`);
         const texto = JSON.stringify(aud.details);
         assert.ok(!texto.includes('+5548988887777'), `chave inteira na auditoria: ${texto}`);
@@ -676,8 +676,8 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       assert.deepEqual([pgs[0].valor_centavos, pgs[0].forma], [15000, 'pix']);
       assert.match(pgs[0].observacao, /estornar/i);
       const paraEquipe = emails.filter((e) => /estornar/i.test(e.assunto));
-      assert.ok(paraEquipe.some((e) => e.para === 'dono@dominio.com'), JSON.stringify(emails));
-      assert.equal(paraEquipe.filter((e) => e.para === 'dono@dominio.com').length, 1);
+      assert.ok(paraEquipe.some((e) => e.para === 'd***@dominio.com'), JSON.stringify(emails));
+      assert.equal(paraEquipe.filter((e) => e.para === 'd***@dominio.com').length, 1);
       const { rows: [aud] } = await pool.query(`SELECT details FROM auditoria WHERE action = 'pix_estorno_pendente' AND entity_id = $1`, [p.id]);
       assert.equal(aud.details.valorCentavos, 15000);
       const lista = await recep.req('GET', `/api/reservas/${p.id}/pix`);
@@ -780,7 +780,10 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       const { usarModeloDeTeste } = await import('../lib/llm.js');
       const { responder } = await import('../models/Agente.js');
       const contato = '5548993330000';
-      const ctx = { pousadaId: pousada, conversaId: 0, contato, nomeContato: null };
+      // Reserva pelo atendente exige o aviso de dados registrado na conversa.
+      const { rows: [conversa] } = await pool.query(
+        `INSERT INTO whatsapp_conversas (pousada_id, contato, aviso_enviado) VALUES ($1, $2, true) RETURNING id`, [pousada, contato]);
+      const ctx = { pousadaId: pousada, conversaId: conversa.id, contato, nomeContato: null };
       let resultado: unknown;
       const passos = [
         { texto: '', chamadas: [{ id: '1', nome: 'criar_pre_reserva', argumentos: { quarto: 2, entrada: d(230), saida: d(231), adultos: 1, nome_completo: 'Golpista Pereira', cpf: CPF_VITIMA } }] },
@@ -920,7 +923,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
         }
         await espera(100);
       });
-      const recibos = emails.filter((e) => e.para.startsWith('caixa.de.alguem'));
+      const recibos = emails.filter((e) => e.para.startsWith('c***@example.com'));
       assert.equal(recibos.length, 3, JSON.stringify(emails));
     });
 

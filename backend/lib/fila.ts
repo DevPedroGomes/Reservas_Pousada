@@ -138,9 +138,9 @@ export async function iniciarFila(): Promise<void> {
     const opcoes = {
       deadLetter: dlq,
       retentionSeconds: SEGUNDOS_NA_DLQ,
-      // E-mail carrega link com token (convite, redefinição de senha): o job
+      // E-mail leva link com token e WhatsApp leva a conversa do hóspede: o job
       // concluído é apagado em 1 dia em vez de ficar guardado por semanas.
-      ...(nome === FILAS.email ? { deleteAfterSeconds: 24 * 60 * 60 } : {}),
+      ...(nome === FILAS.email || nome === FILAS.whatsappEntrada ? { deleteAfterSeconds: 24 * 60 * 60 } : {}),
     };
     await fila.createQueue(nome, opcoes);
     // createQueue não mexe em fila que já existe, e as de produção nasceram sem DLQ.

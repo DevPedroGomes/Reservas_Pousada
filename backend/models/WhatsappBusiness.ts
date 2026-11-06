@@ -85,7 +85,9 @@ export async function conectar(pousadaId: number, d: { code: string; wabaId: str
     await m.assinarWebhooks(d.wabaId, token);
     if (!d.coexistencia) await m.registrarNumero(d.phoneNumberId, token, String(randomInt(100000, 1000000)));
   } catch (err) {
-    throw new WhatsappRecusado(`Não foi possível concluir a conexão com a Meta (${(err as Error).message}).`, 502);
+    // O detalhe da Meta fica no log; pode citar token ou identificadores internos.
+    console.error('[WhatsApp] conexão recusada pela Meta:', (err as Error).message);
+    throw new WhatsappRecusado('A Meta recusou a conexão. Confira o número escolhido e tente de novo.', 502);
   }
   const numero = await m.dadosDoNumero(d.phoneNumberId, token).catch(() => ({ numero: null, nome: null }));
   await pool.query(
@@ -167,7 +169,9 @@ export async function receberWebhook(corpo: Record<string, any>): Promise<number
           const contato = String(m.from ?? '').replace(/\D/g, '');
           if (!contato || !m.id) continue;
           const texto = m.type === 'text' ? m.text?.body ?? '' : m.type === 'button' ? m.button?.text ?? '' : m.type === 'interactive' ? (m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? '') : null;
-          await enfileirar(FILAS.whatsappEntrada, { phoneNumberId, contato, nome: nomes.get(contato) ?? null, wamid: String(m.id), tipo: String(m.type), texto } satisfies Entrada as unknown as Record<string, unknown>);
+          const entrada: Entrada = { phoneNumberId, contato, nome: nomes.get(contato) ?? null, wamid: String(m.id), tipo: String(m.type), texto };
+          // A tabela de jobs não guarda a conversa em claro: o conteúdo vai cifrado, como em whatsapp_mensagens.
+          await enfileirar(FILAS.whatsappEntrada, { cifrado: cifrarSegredo(JSON.stringify(entrada)) });
           n++;
         }
       } else if (mudanca.field === 'smb_message_echoes') {
@@ -362,7 +366,7 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     const { rows: [p] } = await pool.query(`SELECT nome FROM pousadas WHERE id = $1`, [conta.pousada_id]);
     const base = (process.env.APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
     await enviar(conta, c.id, e.contato,
-      `Olá! Sou o atendente virtual da ${p?.nome ?? 'pousada'}: consulto vagas e preços e faço sua pré-reserva. Seus dados são usados só para o seu atendimento${base ? ` (${base}/privacidade)` : ''}. Para falar com uma pessoa, escreva "atendente".`,
+      `Olá! Sou o atendente virtual da ${p?.nome ?? 'pousada'}: consulto vagas e preços e faço sua pré-reserva. Seus dados são usados para este atendimento e passam pelos fornecedores listados na política de privacidade${base ? ` (${base}/privacidade)` : ''}. Para falar com uma pessoa, escreva "atendente".`,
       'sistema');
     await pool.query(`UPDATE whatsapp_conversas SET aviso_enviado = true WHERE id = $1`, [c.id]);
   }
@@ -448,8 +452,11 @@ function dentroDoTeto(msgs: MensagemLLM[], teto: number): MensagemLLM[] {
 }
 
 registrarTrabalhador(FILAS.whatsappEntrada, async (dados) => {
-  const r = await tratarEntrada(dados as unknown as Entrada);
-  console.log(`[WhatsApp] entrada ${(dados as unknown as Entrada).wamid}: ${r}`);
+  // Jobs enfileirados antes da cifra ainda chegam em claro.
+  const cifrado = (dados as { cifrado?: unknown }).cifrado;
+  const entrada = (typeof cifrado === 'string' ? JSON.parse(decifrarSegredo(cifrado)) : dados) as Entrada;
+  const r = await tratarEntrada(entrada);
+  console.log(`[WhatsApp] entrada ${entrada.wamid}: ${r}`);
 });
 
 // ---------------------------------------------------------------------------
