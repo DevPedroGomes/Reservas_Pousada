@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db, assinaturas, quartos, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
+import { billingHabilitado } from '../lib/stripe.js';
 import { hashEmail } from '../utils/crypto.js';
 import {
   avaliarAcessoComUso,
@@ -183,6 +184,38 @@ export class AssinaturaModel {
     const efetiva = await this.efetiva(pousadaId);
     if (!efetiva) return null;
     return avaliarAcessoComUso(this.paraEstado(efetiva.row), await this.usoDaPousada(pousadaId, efetiva.pagadoraId));
+  }
+
+  /**
+   * Pousadas que não podem operar agora, para os jobs que gastam com elas. Mesma
+   * regra de `vereditoDaPousada`, em lote. Devolve a lista em vez de filtrar depois
+   * do LIMIT do job: quem está bloqueado nunca sincroniza, ficaria sempre no topo
+   * da fila e tomaria a vez de quem paga.
+   */
+  static async pousadasBloqueadas(agora: Date = new Date()): Promise<number[]> {
+    if (!billingHabilitado()) return [];
+
+    const [linhas, porQuartos, porUsuarios] = await Promise.all([
+      db.select().from(assinaturas),
+      db.select({ id: quartos.pousadaId, n: sql<number>`count(*)::int` }).from(quartos).where(eq(quartos.ativo, true)).groupBy(quartos.pousadaId),
+      db.select({ id: userPousadas.pousadaId, n: sql<number>`count(*)::int` }).from(userPousadas).groupBy(userPousadas.pousadaId),
+    ]);
+    const nQuartos = new Map(porQuartos.map((r) => [r.id, Number(r.n)]));
+    const nUsuarios = new Map(porUsuarios.map((r) => [r.id, Number(r.n)]));
+    const porPousada = new Map(linhas.map((l) => [l.pousadaId, l]));
+
+    const bloqueadas: number[] = [];
+    for (const linha of linhas) {
+      const pagadora = linha.cobertaPorPousadaId ? porPousada.get(linha.cobertaPorPousadaId) : undefined;
+      const efetiva = pagadora && !pagadora.cobertaPorPousadaId ? pagadora : linha;
+      const veredito = avaliarAcessoComUso(this.paraEstado(efetiva), {
+        quartos: nQuartos.get(linha.pousadaId) ?? 0,
+        usuarios: nUsuarios.get(linha.pousadaId) ?? 0,
+        pousadas: 1 + linhas.filter((l) => l.cobertaPorPousadaId === efetiva.pousadaId).length,
+      }, agora);
+      if (!veredito.liberado) bloqueadas.push(linha.pousadaId);
+    }
+    return bloqueadas;
   }
 
   static async situacao(pousadaId: number): Promise<{

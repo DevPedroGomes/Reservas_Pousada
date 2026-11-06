@@ -14,7 +14,7 @@ import { pool } from '../db/index.js';
 import { sendStaffInviteEmail } from '../lib/email.js';
 import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
-import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios } from '../middleware/assinatura.js';
+import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios, requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
@@ -378,7 +378,7 @@ router.get('/:id/whatsapp', requirePousadaAccess, async (req: Request, res: Resp
   res.json({ sucesso: true, apiOficial: whatsappApiConfigurada() || rows.length > 0, numeroProprio: rows.length > 0 });
 });
 
-router.get('/:id/dashboard', requirePousadaAccess, async (req: Request, res: Response) => {
+router.get('/:id/dashboard', requirePousadaAccess, requerAssinaturaAtiva, async (req: Request, res: Response) => {
   try {
     const id = param(req, 'id');
 

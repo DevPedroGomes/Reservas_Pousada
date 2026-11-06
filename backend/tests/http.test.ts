@@ -1358,6 +1358,36 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal((await donoB.req('GET', '/api/billing/situacao')).json.assinatura.liberado, false);
     });
 
+    it('relatórios, dashboard e sincronização iCal também ficam atrás do guard', async () => {
+      // pousadaB está com o trial vencido desde o teste anterior.
+      const relatorio = await donoB.req('GET', '/api/relatorios');
+      assert.equal(relatorio.status, 402);
+      assert.equal(relatorio.json.precisaAssinar, true);
+      assert.equal((await donoB.req('GET', `/api/pousadas/${pousadaB}/dashboard`)).status, 402);
+      const { rows: [imp] } = await pool.query(
+        `INSERT INTO ical_importacoes (pousada_id, quarto_numero, nome, canal, url) VALUES ($1, 1, 'Airbnb', 'airbnb', 'https://airbnb.exemplo/a.ics') RETURNING id`,
+        [pousadaB],
+      );
+      assert.equal((await donoB.req('POST', `/api/ical/importacoes/${imp.id}/sincronizar`)).status, 402);
+      assert.equal((await donoB.req('POST', '/api/ical/importacoes', { quarto: 1, nome: 'Booking', canal: 'booking', url: 'https://booking.exemplo/b.ics' })).status, 402);
+    });
+
+    it('quem está bloqueado continua conseguindo configurar e regularizar', async () => {
+      assert.equal((await donoB.req('GET', '/api/ical')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/quartos')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/conta/exportar')).status, 200);
+      assert.equal((await donoB.req('GET', '/api/billing/situacao')).status, 200);
+      const { rows: [imp] } = await pool.query(`SELECT id FROM ical_importacoes WHERE pousada_id = $1 LIMIT 1`, [pousadaB]);
+      assert.equal((await donoB.req('DELETE', `/api/ical/importacoes/${imp.id}`)).status, 200);
+    });
+
+    it('o feed iCal de exportação segue no ar para pousada bloqueada', async () => {
+      const { rows: [q] } = await pool.query(`SELECT ical_token FROM quartos WHERE pousada_id = $1 AND ical_token IS NOT NULL LIMIT 1`, [pousadaB]);
+      const r = await new Cliente(base, '203.0.113.200').req('GET', `/ical/${q.ical_token}.ics`);
+      assert.equal(r.status, 200);
+      assert.match(String(r.json), /BEGIN:VCALENDAR/);
+    });
+
     it('segunda pousada em trial é recusada (402)', async () => {
       const r = await donoA.req('POST', '/api/pousadas', {
         nome: 'Segunda da A', num_quartos: 5, endereco: 'Rua B, 200', telefone: '48999990000', email: 'b@b.com',

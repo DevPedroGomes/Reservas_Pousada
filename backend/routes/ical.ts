@@ -6,6 +6,7 @@ import {
 } from '../models/Ical.js';
 import { validarUrlIcal } from '../lib/ical.js';
 import { authorize } from '../middleware/auth.js';
+import { requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sanitizarString, CANAIS_RESERVA } from '../utils/validation.js';
 import { param } from '../utils/http.js';
@@ -34,7 +35,8 @@ router.get('/', authorize(['admin']), async (req: Request, res: Response, next: 
   }
 });
 
-router.post('/importacoes', authorize(['admin']), async (req: Request, res: Response, next: NextFunction) => {
+// Adicionar já roda a primeira sincronização, por isso também exige assinatura.
+router.post('/importacoes', authorize(['admin']), requerAssinaturaAtiva, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const erros: string[] = [];
     const quarto = Number(req.body.quarto);
@@ -68,7 +70,7 @@ router.post('/importacoes', authorize(['admin']), async (req: Request, res: Resp
   }
 });
 
-router.post('/importacoes/:id/sincronizar', authorize(['admin', 'recepcao']), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/importacoes/:id/sincronizar', authorize(['admin', 'recepcao']), requerAssinaturaAtiva, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const imp = await buscarImportacao(req.user!.pousadaId!, Number(param(req, 'id')));
     if (!imp) return res.status(404).json({ sucesso: false, codigo: 'ICS_404', mensagem: 'Calendário não encontrado' });

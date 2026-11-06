@@ -13,6 +13,7 @@ import { enviarModelo, whatsappApiConfigurada } from '../lib/whatsapp.js';
 import { meta } from '../lib/metaWhatsapp.js';
 import { decifrarSegredo } from '../utils/crypto.js';
 import { hojeLocal } from '../utils/datas.js';
+import AssinaturaModel from '../models/Assinatura.js';
 
 export async function lembretesDeChegada(
   enviar: typeof enviarModelo = enviarModelo,
@@ -28,12 +29,12 @@ export async function lembretesDeChegada(
        LEFT JOIN quartos q ON q.pousada_id = r.pousada_id AND q.numero = r.quarto
        LEFT JOIN whatsapp_contas w ON w.pousada_id = r.pousada_id
       WHERE r.data_entrada = $1 AND r.status = 'confirmada' AND r.deleted_at IS NULL AND r.lembrete_enviado_em IS NULL
-        AND h.telefone IS NOT NULL AND p.excluida_em IS NULL
+        AND h.telefone IS NOT NULL AND p.excluida_em IS NULL AND NOT (r.pousada_id = ANY($3::int[]))
         AND (p.configuracoes->>'whatsapp_lembrete')::boolean IS TRUE
         AND (w.pousada_id IS NOT NULL OR $2::boolean)
         AND NOT EXISTS (SELECT 1 FROM whatsapp_conversas c WHERE c.pousada_id = r.pousada_id AND c.contato = h.telefone AND c.optout)
       LIMIT 1000`,
-    [amanha, plataforma],
+    [amanha, plataforma, await AssinaturaModel.pousadasBloqueadas()],
   );
   const modelo = process.env.WHATSAPP_MODELO_LEMBRETE || 'lembrete_chegada';
   let enviados = 0;

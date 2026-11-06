@@ -233,12 +233,16 @@ app.use('/api/pousadas', authMiddleware, userLimiter, pousadaRoutes);
 app.use('/api/quartos', authMiddleware, userLimiter, requirePousada, quartoRoutes);
 // Tarifário também é configuração (sem trava de assinatura).
 app.use('/api/tarifas', authMiddleware, userLimiter, requirePousada, tarifaRoutes);
+// Sem trava na montagem: listar, remover e trocar link é configuração. Só o que
+// sincroniza leva requerAssinaturaAtiva, em routes/ical.ts.
 app.use('/api/ical', authMiddleware, userLimiter, requirePousada, icalRoutes);
-app.use('/api/relatorios', authMiddleware, userLimiter, requirePousada, relatorioRoutes);
+app.use('/api/relatorios', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, relatorioRoutes);
 app.use('/api/whatsapp', authMiddleware, userLimiter, requirePousada, requerAssinaturaAtiva, whatsappRoutes);
 
 // Calendário exportado de um quarto: público, protegido pelo token secreto
 // do link. A OTA consulta de tempos em tempos; o limite segura varredura.
+// Fica fora do guard de propósito: com o feed fora do ar, a OTA para de ver as
+// datas ocupadas e vende o quarto, e o overbooking cai sobre o hóspede.
 const icalLimiter = criarLimitador('ical', { windowMs: 60 * 1000, max: 30, keyGenerator: (req) => chaveDeRateLimit(req.ip) });
 app.get('/ical/:arquivo', icalLimiter, async (req, res, next) => {
   try {

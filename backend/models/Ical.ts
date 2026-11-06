@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { pool } from '../db/index.js';
 import { buscarIcal, gerarIcal, lerIcal, type EventoIcal } from '../lib/ical.js';
 import { hojeLocal } from '../utils/datas.js';
+import AssinaturaModel from './Assinatura.js';
 
 const PG_EXCLUSION_VIOLATION = '23P01';
 
@@ -189,12 +190,14 @@ export async function sincronizarImportacao(
   }
 }
 
-/** Job: todos os calendários ativos de pousadas que existem. */
+/** Job: todos os calendários ativos de pousadas que existem e podem operar. */
 export async function sincronizarTodas(): Promise<{ calendarios: number; falhas: number }> {
   const { rows } = await pool.query<Importacao>(
     `SELECT i.id, i.pousada_id, i.quarto_numero, i.nome, i.canal, i.url
        FROM ical_importacoes i JOIN pousadas p ON p.id = i.pousada_id
-      WHERE i.ativo AND p.excluida_em IS NULL ORDER BY i.ultima_sincronizacao NULLS FIRST LIMIT 500`,
+      WHERE i.ativo AND p.excluida_em IS NULL AND NOT (i.pousada_id = ANY($1::int[]))
+      ORDER BY i.ultima_sincronizacao NULLS FIRST LIMIT 500`,
+    [await AssinaturaModel.pousadasBloqueadas()],
   );
   let falhas = 0;
   for (const imp of rows) {

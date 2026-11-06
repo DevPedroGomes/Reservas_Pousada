@@ -53,7 +53,7 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
   });
 
   beforeEach(async () => {
-    await pool.query(`DELETE FROM assinaturas; DELETE FROM user_pousadas; DELETE FROM quartos;`);
+    await pool.query(`DELETE FROM reservas; DELETE FROM hospedes; DELETE FROM ical_importacoes; DELETE FROM assinaturas; DELETE FROM user_pousadas; DELETE FROM quartos;`);
   });
 
   async function assinatura(pousadaId: number, plano: string | null, extra: { status?: string; cobertaPor?: number } = {}) {
@@ -65,6 +65,78 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
   async function quartos(pousadaId: number, n: number) {
     await pool.query(`INSERT INTO quartos (pousada_id, numero, nome) SELECT $1, g, 'Q' || g FROM generate_series(1, $2::int) g`, [pousadaId, n]);
   }
+
+  describe('jobs pagos pulam pousada bloqueada', () => {
+    it('calcula a lista com a mesma regra do guard, inclusive cobertura e limite', async () => {
+      await assinatura(1, 'rede');
+      await assinatura(2, null, { status: 'trial', cobertaPor: 1 });
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status, trial_termina_em) VALUES (3, 'trial', now() - interval '1 day')`);
+      const AssinaturaModel = (await import('../models/Assinatura.js')).default;
+      assert.deepEqual(await AssinaturaModel.pousadasBloqueadas(), [3]);
+
+      await pool.query(`UPDATE assinaturas SET status = 'cancelada' WHERE pousada_id = 1`);
+      assert.deepEqual((await AssinaturaModel.pousadasBloqueadas()).sort(), [1, 2, 3], 'a coberta segue a pagadora');
+
+      await pool.query(`UPDATE assinaturas SET status = 'ativa', plano = 'essencial' WHERE pousada_id = 1`);
+      assert.deepEqual((await AssinaturaModel.pousadasBloqueadas()).sort(), [1, 2, 3], 'acima do limite de pousadas');
+    });
+
+    it('sem cobrança ligada ninguém é pulado', async () => {
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status, trial_termina_em) VALUES (3, 'trial', now() - interval '1 day')`);
+      process.env.BILLING_ENABLED = 'false';
+      try {
+        const AssinaturaModel = (await import('../models/Assinatura.js')).default;
+        assert.deepEqual(await AssinaturaModel.pousadasBloqueadas(), []);
+      } finally {
+        process.env.BILLING_ENABLED = 'true';
+      }
+    });
+
+    it('sincronização de calendários não busca os de pousada bloqueada, sem tomar a vez de quem paga', async () => {
+      await assinatura(1, 'pousada');
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status, trial_termina_em) VALUES (2, 'trial', now() - interval '1 day')`);
+      await quartos(1, 1);
+      await quartos(2, 1);
+      await pool.query(`
+        INSERT INTO ical_importacoes (pousada_id, quarto_numero, nome, canal, url) VALUES
+          (1, 1, 'Paga', 'airbnb', 'http://127.0.0.1:9/paga.ics'),
+          (2, 1, 'Bloqueada', 'airbnb', 'http://127.0.0.1:9/bloqueada.ics');
+      `);
+      const { sincronizarTodas } = await import('../models/Ical.js');
+      const r = await sincronizarTodas();
+      assert.equal(r.calendarios, 1);
+      const { rows } = await pool.query(`SELECT nome, ultima_sincronizacao FROM ical_importacoes ORDER BY nome`);
+      assert.equal(rows.find((x) => x.nome === 'Bloqueada').ultima_sincronizacao, null);
+      assert.ok(rows.find((x) => x.nome === 'Paga').ultima_sincronizacao);
+    });
+
+    it('lembrete de chegada não sai para pousada bloqueada', async () => {
+      const amanha = new Date(Date.now() + 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      await assinatura(1, 'pousada');
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status, trial_termina_em) VALUES (2, 'trial', now() - interval '1 day')`);
+      await pool.query(`UPDATE pousadas SET configuracoes = '{"whatsapp_lembrete": true}' WHERE id IN (1, 2)`);
+      await quartos(1, 1);
+      await quartos(2, 1);
+      await pool.query(`
+        INSERT INTO hospedes (id, pousada_id, nome, telefone) VALUES (901, 1, 'Paga', '5548999990011'), (902, 2, 'Bloqueada', '5548999990022');
+        INSERT INTO reservas (pousada_id, nome, hospede_id, quarto, data_entrada, data_saida, status) VALUES
+          (1, 'Paga', 901, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada'),
+          (2, 'Bloqueada', 902, 1, '${amanha}', '${amanha}'::date + 2, 'confirmada');
+      `);
+      const antes = { ...process.env };
+      process.env.WHATSAPP_TOKEN = 'tok';
+      process.env.WHATSAPP_PHONE_NUMBER_ID = '123';
+      try {
+        const { lembretesDeChegada } = await import('../jobs/lembretes.js');
+        const para: string[] = [];
+        const r = await lembretesDeChegada(async (telefone) => { para.push(telefone); return 'ok'; });
+        assert.deepEqual(r, { enviados: 1, falhas: 0 });
+        assert.deepEqual(para, ['5548999990011']);
+      } finally {
+        process.env = antes;
+      }
+    });
+  });
 
   describe('trial não renova', () => {
     let seq = 0;
