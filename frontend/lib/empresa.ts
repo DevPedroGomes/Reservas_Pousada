@@ -16,4 +16,5 @@ export const EMPRESA = {
   encarregado: v(process.env.NEXT_PUBLIC_ENCARREGADO_NOME),
 }
 
-export const VIGENCIA_DOCUMENTOS = "3 de outubro de 2026"
+// Ao mudar, atualize também VERSAO_POLITICA (backend/utils/politica.ts).
+export const VIGENCIA_DOCUMENTOS = "6 de novembro de 2026"
