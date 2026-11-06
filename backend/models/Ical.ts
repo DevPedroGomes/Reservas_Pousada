@@ -113,6 +113,14 @@ function ehConflito(err: unknown): boolean {
 const br = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
 
 /**
+ * O evento é data fechada na OTA, não hóspede? O Booking publica reserva e data
+ * fechada com o mesmo "CLOSED - Not available": lá fica como venda sem valor.
+ */
+function ehBloqueio(resumo: string, canal: string): boolean {
+  return canal !== 'booking' && /not available|unavailable|indispon|blocked|bloquead/i.test(resumo);
+}
+
+/**
  * Sincronizações seguidas sem o evento até cancelar a reserva. Antes bastava
  * uma: um feed ruim cancelava tudo e a data ia para venda de novo.
  */
@@ -162,10 +170,10 @@ export async function sincronizarImportacao(
       try {
         if (!atual) {
           await pool.query(
-            `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status, canal, ical_importacao_id, ical_uid, observacoes)
-             VALUES ($1, $2, $3, $4, $5, 'confirmada', $6, $7, $8, $9)`,
+            `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status, canal, ical_importacao_id, ical_uid, observacoes, ical_bloqueio)
+             VALUES ($1, $2, $3, $4, $5, 'confirmada', $6, $7, $8, $9, $10)`,
             [imp.pousada_id, `${imp.nome} · ${e.resumo || 'Reservado'}`.slice(0, 100), imp.quarto_numero, e.inicio, e.fim,
-              imp.canal, imp.id, e.uid, `Importada do calendário ${imp.nome}.`],
+              imp.canal, imp.id, e.uid, `Importada do calendário ${imp.nome}.`, ehBloqueio(e.resumo, imp.canal)],
           );
           resumo.criadas++;
         } else if (atual.status === 'cancelada' || atual.inicio !== e.inicio || atual.fim !== e.fim) {

@@ -16,6 +16,7 @@ import { cn } from "../../../lib/utils"
 
 interface Relatorio {
   inicio: string; fim: string; dias: number; quartosAtivos: number
+  quartosConsiderados: number; noitesComValor: number; noitesSemValor: number; noitesBloqueadas: number; aReceberTotal: number
   noitesDisponiveis: number; noitesVendidas: number; reservas: number; ocupacao: number
   receitaHospedagemCentavos: number; adrCentavos: number; revparCentavos: number; consumosCentavos: number
   porCanal: { canal: string; reservas: number; noites: number; receitaCentavos: number }[]
@@ -96,12 +97,20 @@ export default function Relatorios() {
       {rel && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Indicador titulo="Ocupação" valor={`${rel.ocupacao.toLocaleString("pt-BR")}%`} detalhe={`${rel.noitesVendidas} de ${rel.noitesDisponiveis} noites (${rel.quartosAtivos} quartos)`} />
-            <Indicador titulo="Diária média (ADR)" valor={reais(rel.adrCentavos)} detalhe="Receita de hospedagem ÷ noites vendidas" />
-            <Indicador titulo="RevPAR" valor={reais(rel.revparCentavos)} detalhe="Receita ÷ noites disponíveis" />
+            <Indicador
+              titulo="Ocupação"
+              valor={`${rel.ocupacao.toLocaleString("pt-BR")}%`}
+              detalhe={`${rel.noitesVendidas} de ${rel.noitesDisponiveis} noites (${rel.quartosConsiderados} quartos)${rel.noitesBloqueadas ? ` · ${rel.noitesBloqueadas} bloqueada(s) fora da conta` : ""}`}
+            />
+            <Indicador
+              titulo="Diária média (ADR)"
+              valor={reais(rel.adrCentavos)}
+              detalhe={`Receita ÷ ${rel.noitesComValor} noite(s) com valor${rel.noitesSemValor ? ` · ${rel.noitesSemValor} sem valor (OTA) à parte` : ""}`}
+            />
+            <Indicador titulo="RevPAR" valor={reais(rel.revparCentavos)} detalhe="Receita ÷ noites disponíveis com valor conhecido" />
             <Indicador titulo="Receita de hospedagem" valor={reais(rel.receitaHospedagemCentavos)} detalhe={`${rel.reservas} reserva(s) no período${rel.consumosCentavos ? ` · consumos ${reais(rel.consumosCentavos)}` : ""}`} />
             <Indicador titulo="Recebido no período" valor={reais(rel.recebidoCentavos)} detalhe="Pagamentos lançados nessas datas" />
-            <Indicador titulo="A receber (hoje)" valor={reais(rel.aReceberCentavos)} detalhe={`${rel.aReceber.length} reserva(s) com saldo`} />
+            <Indicador titulo="A receber (hoje)" valor={reais(rel.aReceberCentavos)} detalhe={`${rel.aReceberTotal} reserva(s) com saldo`} />
           </div>
 
           <Card>

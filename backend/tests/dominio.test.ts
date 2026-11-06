@@ -201,6 +201,24 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('iCal: data fechada na OTA', () => {
+    const bloqueio = async (impId: number, uid: string) =>
+      (await pool.query(`SELECT ical_bloqueio FROM reservas WHERE ical_importacao_id = $1 AND ical_uid = $2`, [impId, uid])).rows[0].ical_bloqueio;
+
+    it('"Not available" no Airbnb é bloqueio; "Reserved" é venda sem valor', async () => {
+      const { Ical, imp } = await novoCalendario('airbnb');
+      await Ical.sincronizarImportacao(imp, feed(ev('venda', d(150), d(153)), ev('fechada', d(160), d(162), 'Airbnb (Not available)')));
+      assert.equal(await bloqueio(imp.id, 'venda'), false);
+      assert.equal(await bloqueio(imp.id, 'fechada'), true);
+    });
+
+    it('no Booking "CLOSED - Not available" também pode ser reserva: não vira bloqueio', async () => {
+      const { Ical, imp } = await novoCalendario('booking');
+      await Ical.sincronizarImportacao(imp, feed(ev('fechada', d(160), d(162), 'CLOSED - Not available')));
+      assert.equal(await bloqueio(imp.id, 'fechada'), false);
+    });
+  });
+
   describe('iCal: feed lento não trava os outros', () => {
     const espera = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
     const importacoesDeTeste: number[] = [];
