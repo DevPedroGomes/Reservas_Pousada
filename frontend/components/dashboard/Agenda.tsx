@@ -46,11 +46,11 @@ function Lista({ titulo, itens, vazio, mostrarData, onMudarStatus, mudando, pous
           const aviso = avisoDeStatus(r, hoje)
           return (
             <div key={`${titulo}-${r.id}`} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50">
-              <Link href={`/reservas/${r.id}`} className="flex min-w-0 flex-1 basis-40 items-center gap-2">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-primary/10 px-1.5 text-xs font-semibold text-primary">
+              <Link href={`/reservas/${r.id}`} className="flex min-w-0 flex-1 basis-full flex-wrap items-center gap-x-2 gap-y-1 sm:basis-40">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-accent px-1.5 text-xs font-medium text-accent-foreground num">
                   {r.quarto}
                 </span>
-                <span className="truncate">{r.nome}</span>
+                <span className="min-w-0 truncate">{r.nome}</span>
                 {aviso && <span className={`rounded px-1.5 py-0.5 text-[11px] whitespace-nowrap ${aviso.cor}`}>{aviso.texto}</span>}
                 {r.precheckin_em && r.status !== "hospedada" && (
                   <span className="rounded bg-success/10 px-1.5 py-0.5 text-[11px] whitespace-nowrap text-success" title="Pré-check-in feito">ficha ✓</span>

@@ -156,7 +156,7 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
           )}
         </div>
 
-        <nav className="order-last -mx-1 flex w-full items-center gap-1 overflow-x-auto md:order-none md:mx-0 md:w-auto">
+        <nav className="order-last -mx-1 flex w-full items-center gap-1 overflow-x-auto [scrollbar-width:none] md:order-none md:mx-0 md:w-auto">
           {navItems.map((item) => (
             <Link
               key={item.href}
