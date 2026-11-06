@@ -17,6 +17,8 @@ variável** vai.
 push na main ──> GitHub Actions: testes ──> build das imagens ──> GHCR (tags <sha> e latest)
                                                                   │
 VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) ──> central-db (Postgres)
+                                                                  │
+GitHub Actions: verificar-producao ──> /health/live serve o sha publicado? (até 15 min; senão, run vermelho)
 ```
 
 - Domínios: `https://diaria.pgdev.com.br` (app) e `https://api.diaria.pgdev.com.br` (API).
@@ -27,18 +29,20 @@ VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) �
   "Build & push image (VPS auto-pulls)" → Run workflow* (ou qualquer push na
   `main`).
 - Rollback para uma versão exata: README, seção *Release and rollback*.
+- Run vermelho em `verificar-producao` = a imagem foi publicada e a VPS não está
+  servindo: vá para a seção [Recuperação](#recuperação-produção-atrasada).
 
 ### O que é obrigatório e o que é opcional
 
 | Serviço | Para quê | Obrigatório? |
 |---|---|---|
 | Segredos da VPS | a API nem sobe sem eles | **sim** |
-| Resend (e-mail) | confirmar cadastro, redefinir senha, convites, avisos | **sim** (sem ele ninguém novo entra) |
+| Resend (e-mail) | confirmar cadastro, redefinir senha, convites, avisos | **sim** (sem `RESEND_API_KEY` a API não sobe em produção) |
 | Dados da empresa | política de privacidade e termos | **sim** (antes de divulgar) |
 | Backup + cópia das chaves | não perder os dados | **sim** |
 | Monitor de uptime + Sentry | saber da queda antes do cliente | **sim** |
 | Google OAuth | "Continuar com Google" | opcional (recomendado) |
-| Stripe | cobrar a assinatura | quando for cobrar |
+| Stripe | cobrar a assinatura | quando for cobrar (`BILLING_ENABLED=true` sem `STRIPE_WEBHOOK_SECRET` não sobe) |
 | GA4 / Meta Pixel | medir anúncios | opcional |
 | Meta (WhatsApp) + Anthropic | WhatsApp da pousada e atendente virtual | opcional |
 | Asaas | Pix automático | nada global: cada pousada liga a dela |
@@ -74,10 +78,10 @@ recupera os dados cifrados; chave junto do backup não protege nada.
 
 ## 2. E-mail — Resend **[VPS]** — obrigatório e urgente
 
-O login exige e-mail confirmado. Sem Resend o link não é enviado e **nenhum
-cadastro novo consegue entrar**. Quem já tinha conta e nunca confirmou o
-e-mail também fica preso (o sistema reenvia o link no login, mas sem Resend
-ele não sai).
+O login exige e-mail confirmado, e sem Resend o link não sai. Por isso, em
+produção, **a API se recusa a subir sem `RESEND_API_KEY`**: é melhor o deploy
+falhar com a mensagem no log do que nenhum cadastro novo conseguir entrar sem
+ninguém perceber.
 
 1. Crie a conta em <https://resend.com>.
 2. **Domains → Add domain** → `pgdev.com.br` (ou o domínio da marca, quando
@@ -366,7 +370,7 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
    docker compose logs -f backend
    ```
    No log, espere ver:
-   - `[migrate] aplicada 025_whatsapp_business.sql` (na primeira subida desta versão);
+   - `[migrate] schema em dia` ou a lista de migrations aplicadas;
    - `[Fila] pg-boss iniciado`;
    - `[Email] Resend configurado com sucesso`.
 2. **GitHub**: Variables do passo 3 (e 8) → *Run workflow* → a VPS puxa o
@@ -391,6 +395,153 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
 
 ---
 
+## Recuperação: produção atrasada
+
+Sintoma: `verificar-producao` vermelho, ou `/health/live` sem o campo `version`,
+ou com um sha que não é o último publicado. Nada se perde enquanto a VPS está
+parada; o risco está em subir tudo de uma vez sem preparo. Siga na ordem. Os
+comandos rodam na VPS, na pasta do `docker-compose.yml`, salvo indicação.
+
+### 1. Diagnosticar por que o auto-pull parou
+
+```bash
+# O timer existe e rodou? Procure pela última e pela próxima execução.
+systemctl list-timers --all | grep -iE 'pull|deploy|reservas|diaria'
+
+# O que aconteceu nas últimas execuções (troque pelo nome visto acima).
+journalctl -u <unidade> --since "14 days ago" --no-pager | tail -50
+
+# Congelamento manual: com este arquivo o deploy não anda.
+ls -la .deploy-freeze
+
+# Login no GHCR vencido: "denied" ou "unauthorized" aqui é a causa.
+docker pull ghcr.io/devpedrogomes/reservas_pousada/backend:latest
+
+# Digest do que está rodando e do que está publicado. Diferentes = atrasado.
+docker inspect reservas-backend --format '{{.Image}}'
+docker image inspect "$(docker inspect reservas-backend --format '{{.Image}}')" --format '{{json .RepoDigests}}'
+docker buildx imagetools inspect ghcr.io/devpedrogomes/reservas_pousada/backend:latest | grep Digest
+```
+
+Se o login venceu: `docker login ghcr.io -u <usuário>` com um token de leitura de
+pacotes. Corrija a causa antes de seguir, ou a próxima versão também vai parar.
+Enquanto a recuperação não termina, deixe o auto-pull sem agir:
+`touch .deploy-freeze`, se é esse o mecanismo em uso, e confira no passo acima
+que o timer respeita o arquivo.
+
+### 2. Backup e marcação da versão atual
+
+```bash
+# Banco, para fora da VPS. É o único caminho de volta: migration não desfaz.
+docker exec central-db pg_dump -U <POSTGRES_USER> -Fc <POSTGRES_DB> > /backups/diaria-antes-recuperacao.dump
+docker exec -i central-db pg_restore --list < /backups/diaria-antes-recuperacao.dump | head -3
+
+# Imagens atuais, com tag local: sem isso um `docker image prune` as apaga.
+for servico in backend frontend; do
+  docker tag "$(docker inspect reservas-$servico --format '{{.Image}}')" \
+    ghcr.io/devpedrogomes/reservas_pousada/$servico:antes-recuperacao
+done
+
+# Configuração.
+cp .env .env.antes-recuperacao
+cp docker-compose.yml docker-compose.yml.antes-recuperacao
+```
+
+Anote a versão atual do schema, para saber o tamanho do salto:
+
+```bash
+docker exec central-db psql -U <POSTGRES_USER> -d <POSTGRES_DB> \
+  -c "SELECT count(*), max(version) FROM schema_migrations"
+```
+
+### 3. Preparar o `.env` antes de trocar a imagem
+
+Um salto grande (na última medição, 48 commits e 25 migrations) traz regras novas
+que derrubam o boot ou mudam o comportamento:
+
+- `RESEND_API_KEY` tem de existir, senão a API não sobe. Com `BILLING_ENABLED=true`,
+  também `STRIPE_WEBHOOK_SECRET`.
+- `CPF_ENCRYPTION_KEY`: 64 caracteres hex, **a mesma de sempre**. Chave nova torna
+  ilegível o que já está cifrado. Sem ela a API também não sobe.
+- Login passa a exigir e-mail confirmado: quem nunca confirmou recebe o link ao
+  entrar. Decida antes se marca as contas antigas como confirmadas (seção 2 deste guia).
+- `IMAGE_TAG=<sha de 12 caracteres>`, copiado do resumo do run no GitHub Actions
+  ("Publicado: ..."). **Use a tag por sha, não `latest`**: `latest` pode mudar no
+  meio da operação, e a recuperação precisa de uma versão só nas duas imagens.
+
+Atualize também o `docker-compose.yml` para o do mesmo commit: ele traz os cabeçalhos
+novos, as variáveis novas e a rotação de log.
+
+### 4. Subir na ordem certa
+
+```bash
+docker compose pull backend frontend
+
+# Backend sozinho primeiro: as migrations rodam no boot, antes de aceitar tráfego.
+docker compose up -d backend
+docker compose logs -f backend
+```
+
+Cada migration roda numa transação. Se uma falhar, ela é desfeita, a API não sobe
+e o log diz qual foi; as anteriores continuam aplicadas. Espere ver a lista de
+pendentes, `[Fila] pg-boss iniciado` e `Servidor rodando na porta 4000`. Só então:
+
+```bash
+curl -fsS https://api.diaria.pgdev.com.br/health
+docker compose up -d frontend
+```
+
+Entre um passo e outro o frontend antigo fala com a API nova: faça em minutos, fora
+do horário de check-in. Se a API não subir e o problema não for resolvido na hora,
+volte com `IMAGE_TAG=antes-recuperacao`, restaurando **antes** o dump do passo 2:
+com um salto deste tamanho, a imagem antiga não é garantida contra o schema novo.
+
+### 5. Conferir
+
+```bash
+# A versão é o sha do IMAGE_TAG.
+curl -fsS https://api.diaria.pgdev.com.br/health/live
+curl -fsS https://api.diaria.pgdev.com.br/health
+
+# Esqueci a senha: o caminho antigo não existe; o novo responde 200 (use um e-mail seu).
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/auth/forget-password
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/auth/request-password-reset \
+  -H 'Content-Type: application/json' -H 'Origin: https://diaria.pgdev.com.br' \
+  -d '{"email":"seu@email.com","redirectTo":"https://diaria.pgdev.com.br/reset-password"}'
+
+# Escrita com cookie de outra origem: 403.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/pousadas \
+  -H 'Cookie: a=1' -H 'Origin: https://outro.pgdev.com.br'
+
+# Cabeçalhos novos do frontend.
+curl -sI https://diaria.pgdev.com.br | grep -iE 'content-security-policy|permissions-policy'
+```
+
+Depois, o roteiro da seção 11, item 3. Por fim:
+
+1. Tire `IMAGE_TAG` do `.env` para voltar a seguir `latest`, ou o auto-pull continua
+   preso nesta versão, e remova o `.deploy-freeze`, se criou.
+2. Confirme que o timer roda: `systemctl list-timers --all`.
+3. No GitHub Actions, *Re-run* no `verificar-producao` do último push: tem de ficar verde.
+4. Mantenha o dump e as tags `antes-recuperacao` por alguns dias.
+
+---
+
+## Dependências: o que o `npm audit` ainda mostra
+
+O CI falha com aviso alto ou crítico em dependência de produção (`npm audit --omit=dev
+--audit-level=high`) e publica o relatório inteiro no resumo do job. Sem exceção
+silenciosa: para aceitar um aviso, a mudança precisa aparecer no workflow, num commit.
+
+Abaixo do corte, hoje, restam só 4 avisos moderados no backend, todos do mesmo caso:
+`esbuild` antigo dentro do `drizzle-kit` (GHSA-67mh-4wv8-2f99). O `drizzle-kit` é
+ferramenta de geração de migration, peer opcional do `better-auth`, e o aviso diz
+respeito ao servidor de desenvolvimento do esbuild, que nada sobe em produção. A
+correção sugerida pelo `npm audit fix --force` rebaixaria o `drizzle-kit` para uma
+versão incompatível; fica para quando ele trocar a dependência.
+
+---
+
 ## Apêndice — todas as variáveis
 
 | Variável | Onde | Obrigatória | Passo |
@@ -410,8 +561,16 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
 | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | VPS | não | 9 |
 | `AGENTE_API_KEY`, `AGENTE_PROVEDOR`, `AGENTE_MODELO`, `AGENTE_BASE_URL`, `AGENTE_LIMITE_DIARIO` | VPS | não | 9 |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | VPS | não (número da plataforma para lembretes) | — |
+| `WHATSAPP_MODELO_LEMBRETE`, `WHATSAPP_IDIOMA` | VPS | não (padrões `lembrete_chegada`, `pt_BR`) | — |
+| `ANTHROPIC_API_KEY` | VPS | não (alternativa a `AGENTE_API_KEY`) | 9 |
+| `API_PUBLIC_URL` | VPS | não (padrão: `BETTER_AUTH_URL`) | — |
+| `AUDITORIA_RETENCAO_MESES` | VPS | não (padrão e mínimo: 6) | — |
+| `FILA_HABILITADA`, `FILA_POOL_MAX`, `RATE_LIMIT_STORE` | VPS | não (padrões `true`, `3`, `postgres`) | — |
 | `DB_POOL_MAX`, `DB_POOL_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS` | VPS | não | — |
 
 Definidas no próprio `docker-compose.yml` (não mexa no `.env`):
 `DATABASE_URL`, `BETTER_AUTH_URL`, `CORS_ORIGIN`, `APP_URL`,
 `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_URL`.
+
+`APP_VERSION` é build arg: o CI grava o commit na imagem do backend. Não entra no
+`.env` da VPS nem em `environment` do compose, que apagaria o valor da imagem.
