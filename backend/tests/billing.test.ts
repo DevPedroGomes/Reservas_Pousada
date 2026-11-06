@@ -65,6 +65,29 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
     await pool.query(`INSERT INTO quartos (pousada_id, numero, nome) SELECT $1, g, 'Q' || g FROM generate_series(1, $2::int) g`, [pousadaId, n]);
   }
 
+  describe('inadimplência e cancelamento', () => {
+    it('inadimplente há mais de 7 dias é cortado mesmo com o período avançado pelo Stripe', async () => {
+      await assinatura(1, 'pousada', { status: 'inadimplente' });
+      await pool.query(`UPDATE assinaturas SET periodo_termina_em = now() + interval '25 days', inadimplente_desde = now() - interval '8 days' WHERE pousada_id = 1`);
+      const r = await guard(1);
+      assert.equal(r.status, 402);
+      assert.equal(r.corpo.motivo, 'tolerancia_esgotada');
+    });
+
+    it('cancelada sem agendamento é cortada na hora', async () => {
+      await assinatura(1, 'pousada', { status: 'cancelada' });
+      await pool.query(`UPDATE assinaturas SET periodo_termina_em = now() + interval '25 days', cancela_no_fim = false WHERE pousada_id = 1`);
+      assert.equal((await guard(1)).corpo?.motivo, 'cancelada');
+    });
+
+    it('migration dá a carência a quem já estava inadimplente em vez de cortar no deploy', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { fileURLToPath } = await import('node:url');
+      const sql = readFileSync(fileURLToPath(new URL('../migrations/027_inadimplencia_e_estorno.sql', import.meta.url)), 'utf8');
+      assert.match(sql, /inadimplente_desde\s*=\s*now\(\)[\s\S]*status\s*=\s*'inadimplente'/);
+    });
+  });
+
   describe('recursos acima do limite do plano vigente', () => {
     it('quartos acima do limite bloqueiam a operação, com mensagem clara e sem apagar nada', async () => {
       await assinatura(1, 'essencial');

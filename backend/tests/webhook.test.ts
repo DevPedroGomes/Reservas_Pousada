@@ -144,6 +144,27 @@ describe('webhook do Stripe', { skip: !temBanco && 'DATABASE_URL não definida' 
     assert.equal((await statusLocal()).status, 'ativa');
   });
 
+  describe('inadimplente_desde', () => {
+    const desde = async () => (await pool.query(`SELECT status, inadimplente_desde FROM assinaturas WHERE stripe_customer_id = 'cus_teste'`)).rows[0];
+
+    it('grava na primeira falha, não anda nas seguintes e limpa quando regulariza', async () => {
+      await processarEvento(evento('evt_f1', 'invoice.payment_failed', { id: 'in_f', customer: 'cus_teste', parent: { subscription_details: { subscription: 'sub_A' } } }), leitura({ sub_A: sub('sub_A', 'past_due') }));
+      const primeira = await desde();
+      assert.equal(primeira.status, 'inadimplente');
+      assert.ok(primeira.inadimplente_desde instanceof Date);
+
+      await pool.query(`UPDATE assinaturas SET inadimplente_desde = now() - interval '3 days' WHERE stripe_customer_id = 'cus_teste'`);
+      const antes = (await desde()).inadimplente_desde.getTime();
+      await processarEvento(evento('evt_f2', 'customer.subscription.updated', { id: 'sub_A' }), leitura({ sub_A: sub('sub_A', 'past_due') }));
+      assert.equal((await desde()).inadimplente_desde.getTime(), antes, 'a retentativa do Stripe não renova a carência');
+
+      await processarEvento(evento('evt_f3', 'customer.subscription.updated', { id: 'sub_A' }), leitura({ sub_A: sub('sub_A', 'active') }));
+      const paga = await desde();
+      assert.equal(paga.status, 'ativa');
+      assert.equal(paga.inadimplente_desde, null);
+    });
+  });
+
   describe('plano vem do Price, não do metadata', () => {
     const antes = { ...process.env };
     before(() => {

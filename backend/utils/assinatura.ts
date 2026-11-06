@@ -28,6 +28,9 @@ export interface EstadoAssinatura {
   plano: CodigoPlano | null;
   trialTerminaEm: Date | null;
   periodoTerminaEm: Date | null;
+  /** Primeira falha de cobrança ainda não regularizada. */
+  inadimplenteDesde: Date | null;
+  cancelaNoFim: boolean;
 }
 
 export type MotivoLiberado = 'cortesia' | 'ativa' | 'trial' | 'tolerancia';
@@ -53,7 +56,9 @@ function diasAte(alvo: Date, agora: Date): number {
  *
  * `inadimplente` continua liberado durante a tolerância: cartão expirado é o
  * motivo mais comum de falha de cobrança e não significa que o cliente quis
- * sair. Cortar no mesmo dia transforma um problema de cadastro em churn.
+ * sair. Cortar no mesmo dia transforma um problema de cadastro em churn. A conta
+ * sai da data da falha, nunca do fim do período: o Stripe avança o período ao
+ * gerar a fatura, mesmo que a cobrança falhe.
  */
 export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Veredito {
   switch (e.status) {
@@ -74,8 +79,8 @@ export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Ve
     }
 
     case 'inadimplente': {
-      if (!e.periodoTerminaEm) return { liberado: false, motivo: 'tolerancia_esgotada' };
-      const limite = new Date(e.periodoTerminaEm.getTime() + DIAS_DE_TOLERANCIA * MS_POR_DIA);
+      if (!e.inadimplenteDesde) return { liberado: false, motivo: 'tolerancia_esgotada' };
+      const limite = new Date(e.inadimplenteDesde.getTime() + DIAS_DE_TOLERANCIA * MS_POR_DIA);
       if (limite.getTime() <= agora.getTime()) {
         return { liberado: false, motivo: 'tolerancia_esgotada' };
       }
@@ -86,8 +91,10 @@ export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Ve
       return { liberado: false, motivo: 'suspensa' };
 
     case 'cancelada':
-      // Cancelamento agendado ainda tem período pago pela frente.
-      if (e.periodoTerminaEm && e.periodoTerminaEm.getTime() > agora.getTime()) {
+      // Só o cancelamento agendado mantém o período pago. O imediato (no painel
+      // do Stripe, ou depois de esgotar as retentativas de cobrança) corta na
+      // hora, mesmo com `periodoTerminaEm` no futuro.
+      if (e.cancelaNoFim && e.periodoTerminaEm && e.periodoTerminaEm.getTime() > agora.getTime()) {
         return { liberado: true, motivo: 'ativa', diasRestantes: diasAte(e.periodoTerminaEm, agora) };
       }
       return { liberado: false, motivo: 'cancelada' };

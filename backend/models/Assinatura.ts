@@ -78,6 +78,8 @@ export class AssinaturaModel {
         plano: assinaturas.plano,
         trialTerminaEm: assinaturas.trialTerminaEm,
         periodoTerminaEm: assinaturas.periodoTerminaEm,
+        inadimplenteDesde: assinaturas.inadimplenteDesde,
+        cancelaNoFim: assinaturas.cancelaNoFim,
         cobertaPor: assinaturas.cobertaPorPousadaId,
       })
       .from(userPousadas)
@@ -115,12 +117,16 @@ export class AssinaturaModel {
     plano: string | null;
     trialTerminaEm: Date | null;
     periodoTerminaEm: Date | null;
+    inadimplenteDesde: Date | null;
+    cancelaNoFim: boolean;
   }): EstadoAssinatura {
     return {
       status: row.status as StatusAssinatura,
       plano: (row.plano as CodigoPlano | null) ?? null,
       trialTerminaEm: row.trialTerminaEm,
       periodoTerminaEm: row.periodoTerminaEm,
+      inadimplenteDesde: row.inadimplenteDesde,
+      cancelaNoFim: row.cancelaNoFim,
     };
   }
 
@@ -229,6 +235,10 @@ export class AssinaturaModel {
         ciclo: params.ciclo,
         periodoTerminaEm: params.periodoTerminaEm,
         cancelaNoFim: params.cancelaNoFim,
+        // Guarda a PRIMEIRA falha: as retentativas do Stripe não renovam a carência.
+        inadimplenteDesde: params.status === 'inadimplente'
+          ? sql`COALESCE(${assinaturas.inadimplenteDesde}, now())`
+          : null,
         updatedAt: new Date(),
       })
       .where(eq(assinaturas.stripeCustomerId, params.stripeCustomerId));

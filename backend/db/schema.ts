@@ -260,6 +260,8 @@ export const assinaturas = pgTable('assinaturas', {
   trialTerminaEm: timestamp('trial_termina_em', { withTimezone: true }),
   periodoTerminaEm: timestamp('periodo_termina_em', { withTimezone: true }),
   cancelaNoFim: boolean('cancela_no_fim').notNull().default(false),
+  // Primeira falha de cobrança ainda não regularizada. Ver migration 027.
+  inadimplenteDesde: timestamp('inadimplente_desde', { withTimezone: true }),
   stripeCustomerId: text('stripe_customer_id').unique(),
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
   // Pousada extra coberta pela assinatura de outra (plano Rede). Ver migration 012.

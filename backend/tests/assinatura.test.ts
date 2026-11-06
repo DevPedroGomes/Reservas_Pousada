@@ -26,7 +26,7 @@ const DIA = 24 * 60 * 60 * 1000;
 const emDias = (n: number) => new Date(AGORA.getTime() + n * DIA);
 
 function estado(over: Partial<EstadoAssinatura> = {}): EstadoAssinatura {
-  return { status: 'trial', plano: null, trialTerminaEm: null, periodoTerminaEm: null, ...over };
+  return { status: 'trial', plano: null, trialTerminaEm: null, periodoTerminaEm: null, inadimplenteDesde: null, cancelaNoFim: false, ...over };
 }
 
 describe('acesso — trial', () => {
@@ -76,35 +76,62 @@ describe('acesso — assinatura paga', () => {
 describe('acesso — inadimplência e tolerância', () => {
   it('libera durante a tolerância — cartão vencido não é pedido de cancelamento', () => {
     const v = avaliarAcesso(
-      estado({ status: 'inadimplente', plano: 'pousada', periodoTerminaEm: emDias(-2) }),
+      estado({ status: 'inadimplente', plano: 'pousada', inadimplenteDesde: emDias(-2) }),
       AGORA,
     );
     assert.equal(v.liberado, true);
     assert.equal(v.liberado && v.motivo, 'tolerancia');
+    assert.equal(v.liberado && v.diasRestantes, DIAS_DE_TOLERANCIA - 2);
   });
 
-  it('bloqueia depois da tolerância', () => {
+  it('o Stripe avança o período mesmo com a cobrança falhando: a carência conta da falha', () => {
     const v = avaliarAcesso(
-      estado({ status: 'inadimplente', periodoTerminaEm: emDias(-(DIAS_DE_TOLERANCIA + 1)) }),
+      estado({ status: 'inadimplente', plano: 'pousada', periodoTerminaEm: emDias(25), inadimplenteDesde: emDias(-(DIAS_DE_TOLERANCIA + 1)) }),
       AGORA,
     );
     assert.equal(v.liberado, false);
     assert.equal(!v.liberado && v.motivo, 'tolerancia_esgotada');
   });
 
-  it('sem data de período, bloqueia em vez de liberar por omissão', () => {
-    const v = avaliarAcesso(estado({ status: 'inadimplente', periodoTerminaEm: null }), AGORA);
+  it('a carência termina exatamente no sétimo dia', () => {
+    assert.equal(avaliarAcesso(estado({ status: 'inadimplente', inadimplenteDesde: emDias(-DIAS_DE_TOLERANCIA) }), AGORA).liberado, false);
+  });
+
+  it('bloqueia depois da tolerância', () => {
+    const v = avaliarAcesso(
+      estado({ status: 'inadimplente', inadimplenteDesde: emDias(-(DIAS_DE_TOLERANCIA + 1)) }),
+      AGORA,
+    );
+    assert.equal(v.liberado, false);
+    assert.equal(!v.liberado && v.motivo, 'tolerancia_esgotada');
+  });
+
+  it('sem data da falha, bloqueia em vez de liberar por omissão', () => {
+    const v = avaliarAcesso(estado({ status: 'inadimplente', periodoTerminaEm: emDias(20), inadimplenteDesde: null }), AGORA);
     assert.equal(v.liberado, false);
   });
 });
 
 describe('acesso — cancelamento', () => {
-  it('cancelada com período pago pela frente continua liberada', () => {
+  it('cancelamento agendado dentro do período pago continua liberado', () => {
     const v = avaliarAcesso(
-      estado({ status: 'cancelada', plano: 'pousada', periodoTerminaEm: emDias(10) }),
+      estado({ status: 'cancelada', plano: 'pousada', periodoTerminaEm: emDias(10), cancelaNoFim: true }),
       AGORA,
     );
     assert.equal(v.liberado, true, 'quem pagou até o dia 14 usa até o dia 14');
+  });
+
+  it('cancelamento imediato bloqueia mesmo com o período ainda no futuro', () => {
+    const v = avaliarAcesso(
+      estado({ status: 'cancelada', plano: 'pousada', periodoTerminaEm: emDias(10), cancelaNoFim: false }),
+      AGORA,
+    );
+    assert.equal(v.liberado, false);
+    assert.equal(!v.liberado && v.motivo, 'cancelada');
+  });
+
+  it('cancelamento agendado com o período vencido bloqueia', () => {
+    assert.equal(avaliarAcesso(estado({ status: 'cancelada', periodoTerminaEm: emDias(-1), cancelaNoFim: true }), AGORA).liberado, false);
   });
 
   it('cancelada com período vencido bloqueia', () => {
