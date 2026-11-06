@@ -1,15 +1,41 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
-import { IBM_Plex_Mono, IBM_Plex_Sans, Space_Grotesk } from 'next/font/google';
+import localFont from 'next/font/local';
 import { cn } from '../lib/utils';
 import { ErrorBoundary } from '../components/error-boundary';
 import { AvisoDeCookies } from '../components/legal/AvisoDeCookies';
 import { Medicao } from '../components/medicao/Medicao';
 import { RegistrarPwa } from '../components/pwa/Pwa';
 
-const display = Space_Grotesk({ subsets: ['latin'], variable: '--font-display', weight: ['500', '600', '700'], display: 'swap' });
-const texto = IBM_Plex_Sans({ subsets: ['latin'], variable: '--font-sans', weight: ['400', '500', '600'], display: 'swap', preload: false });
-const dado = IBM_Plex_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '500'], display: 'swap', preload: false });
+// Fontes no repositório: o build não depende de buscar nada no Google Fonts.
+const display = localFont({
+  src: [
+    { path: './fontes/space-grotesk-latin-500-normal.woff2', weight: '500' },
+    { path: './fontes/space-grotesk-latin-600-normal.woff2', weight: '600' },
+    { path: './fontes/space-grotesk-latin-700-normal.woff2', weight: '700' },
+  ],
+  variable: '--font-display',
+  display: 'swap',
+});
+const texto = localFont({
+  src: [
+    { path: './fontes/ibm-plex-sans-latin-400-normal.woff2', weight: '400' },
+    { path: './fontes/ibm-plex-sans-latin-500-normal.woff2', weight: '500' },
+    { path: './fontes/ibm-plex-sans-latin-600-normal.woff2', weight: '600' },
+  ],
+  variable: '--font-sans',
+  display: 'swap',
+  preload: false,
+});
+const dado = localFont({
+  src: [
+    { path: './fontes/ibm-plex-mono-latin-400-normal.woff2', weight: '400' },
+    { path: './fontes/ibm-plex-mono-latin-500-normal.woff2', weight: '500' },
+  ],
+  variable: '--font-mono',
+  display: 'swap',
+  preload: false,
+});
 
 const URL_APP = process.env.NEXT_PUBLIC_APP_URL || 'https://diaria.pgdev.com.br';
 
