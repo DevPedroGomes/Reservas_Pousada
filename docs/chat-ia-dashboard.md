@@ -181,7 +181,5 @@ tenant (o chat é mais uma superfície onde vazamento cross-tenant seria fatal).
 
 ## Referências
 
-- Auditoria de 2026-08-03 — bloqueadores, roadmap e precificação
 - `backend/utils/pii.ts` — redação de PII, mesmo padrão a aplicar aqui
 - `backend/models/Reserva.ts` — as queries que as ferramentas vão encapsular
-- Regras de controle de custo e billing: `CLAUDE.md` global da VPS
