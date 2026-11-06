@@ -17,6 +17,7 @@ import type { Server } from 'node:http';
 import { prepararBanco, temBanco } from './helpers/banco.js';
 import { createHmac } from 'node:crypto';
 import type { MensagemLLM, RespostaLLM } from '../lib/llm.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 type Resposta = { status: number; json: any };
 
@@ -781,6 +782,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal(res.valor, 400);
       assert.ok(res.horas > 11.9 && res.horas <= 12, `prazo de 12h (${res.horas})`);
       assert.equal(res.telefone, '5548991234567');
+      const { rows: [aceite] } = await pool.query(`SELECT aceite_em, aceite_versao, aceite_forma FROM reservas WHERE id = $1`, [r.json.pedido.id]);
+      assert.ok(aceite.aceite_em);
+      assert.equal(aceite.aceite_versao, VERSAO_POLITICA);
+      assert.equal(aceite.aceite_forma, 'marcado_no_site');
       const de_novo = await visitante().req('POST', `/api/publico/${SLUG}/reservas`, pedido({ nome: 'Outra Pessoa', telefone: '48990000000' }));
       assert.equal(de_novo.status, 409, 'quarto não está mais livre');
       const disp = await visitante().req('GET', `/api/publico/${SLUG}/disponibilidade?entrada=${d(250)}&saida=${d(252)}&pessoas=2`);
@@ -955,8 +960,10 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const anon = new Cliente(base, '198.51.100.222');
       const r = await anon.req('POST', `/api/publico/checkin/${token}`, ficha({}, [{ nome: 'Pedro Ficha', dataNascimento: '2016-03-10', parentesco: 'filho' }]));
       assert.equal(r.status, 200, JSON.stringify(r.json));
-      const { rows: [pc] } = await pool.query(`SELECT dados_cifrados FROM precheckins WHERE reserva_id = $1`, [id]);
+      const { rows: [pc] } = await pool.query(`SELECT dados_cifrados, aceite_em, aceite_versao FROM precheckins WHERE reserva_id = $1`, [id]);
       assert.ok(!pc.dados_cifrados.includes('52601815906') && !pc.dados_cifrados.includes('Curitiba'), 'nada em claro');
+      assert.ok(pc.aceite_em, 'data do aceite gravada');
+      assert.equal(pc.aceite_versao, VERSAO_POLITICA);
       const det = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva;
       assert.equal(det.documento, '52601815906', 'documento da ficha completou o cadastro (libera o check-in)');
       assert.ok(det.precheckinEm);
@@ -1121,6 +1128,14 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const { rows: [res] } = await pool.query(
         `SELECT r.status, r.canal, h.telefone, h.nome FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [reservaId]);
       assert.deepEqual(res, { status: 'pre_reserva', canal: 'whatsapp', telefone: contato, nome: 'Joana Zap Silva' });
+      // No chat não há caixa para marcar: fica registrado como informado, e com a
+      // data do aviso, não como aceite do momento do pedido.
+      const { rows: [aceite] } = await pool.query(
+        `SELECT r.aceite_forma, r.aceite_versao,
+                abs(extract(epoch FROM r.aceite_em - (SELECT min(m.created_at) FROM whatsapp_mensagens m JOIN whatsapp_conversas c ON c.id = m.conversa_id
+                                WHERE c.contato = $2 AND m.direcao = 'sistema'))) < 0.01 AS na_data_do_aviso
+           FROM reservas r WHERE r.id = $1`, [reservaId, contato]);
+      assert.deepEqual(aceite, { aceite_forma: 'informado_no_whatsapp', aceite_versao: VERSAO_POLITICA, na_data_do_aviso: true });
 
       roteiro = [
         ferramenta('minhas_reservas', {}),

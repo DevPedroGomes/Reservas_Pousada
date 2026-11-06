@@ -9,9 +9,10 @@
  */
 import { pool } from '../db/index.js';
 import { modeloDoAgente, type Ferramenta, type MensagemLLM } from '../lib/llm.js';
-import { disponibilidade, lerPedido, PedidoRecusado, pousadaPorId, quartosPublicos, solicitarReserva, validarEstadia, type PousadaPublica } from './Motor.js';
+import { disponibilidade, lerPedido, PedidoRecusado, pousadaPorId, quartosPublicos, solicitarReserva, validarEstadia, type PousadaPublica, type RegistroDeAceite } from './Motor.js';
 import { gerarCobranca, situacaoPix } from './Pix.js';
 import { TIMEZONE, hojeLocal } from '../utils/datas.js';
+import { VERSAO_POLITICA } from '../utils/politica.js';
 
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -73,6 +74,24 @@ export interface ContextoAgente {
   nomeContato: string | null;
 }
 
+/**
+ * O que dá para afirmar sobre os dados no WhatsApp: a pessoa recebeu o aviso no
+ * início da conversa (models/WhatsappBusiness.ts). Não há aceite explícito no
+ * chat, e o modelo não pode declarar um por ela. A data é a da primeira mensagem
+ * do sistema; se ela já saiu pela retenção de 90 dias, vale o momento do pedido.
+ * Sem aviso registrado não há reserva: quem assume é a equipe.
+ */
+async function avisoDaConversa(conversaId: number): Promise<RegistroDeAceite | null> {
+  const { rows: [c] } = await pool.query(
+    `SELECT c.aviso_enviado,
+            (SELECT min(m.created_at) FROM whatsapp_mensagens m WHERE m.conversa_id = c.id AND m.direcao = 'sistema') AS em
+       FROM whatsapp_conversas c WHERE c.id = $1`,
+    [conversaId],
+  );
+  if (!c?.aviso_enviado) return null;
+  return { em: c.em ?? new Date(), versao: VERSAO_POLITICA, forma: 'informado_no_whatsapp' };
+}
+
 /** Resultado de uma ferramenta, ou o pedido de passar a conversa para a equipe. */
 async function executar(nome: string, args: Record<string, any>, ctx: ContextoAgente, p: PousadaPublica): Promise<{ resultado: unknown; transferir?: string }> {
   switch (nome) {
@@ -105,10 +124,12 @@ async function executar(nome: string, args: Record<string, any>, ctx: ContextoAg
       };
     }
     case 'criar_pre_reserva': {
+      const aviso = await avisoDaConversa(ctx.conversaId);
+      if (!aviso) return { resultado: { erro: 'Não é possível reservar por aqui agora; ofereça chamar um atendente.' } };
       const { pedido, erros } = lerPedido({
         quarto: args.quarto, entrada: args.entrada, saida: args.saida, adultos: args.adultos ?? 1, criancas: args.criancas ?? 0,
-        nome: args.nome_completo, telefone: `+${ctx.contato}`, documento: args.cpf ?? '', aceite: true,
-      });
+        nome: args.nome_completo, telefone: `+${ctx.contato}`, documento: args.cpf ?? '',
+      }, aviso);
       if (erros.length) return { resultado: { erro: erros.join(' ') } };
       try {
         const r = await solicitarReserva(p, pedido, 'whatsapp');

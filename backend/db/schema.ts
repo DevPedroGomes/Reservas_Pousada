@@ -135,6 +135,10 @@ export const reservas = pgTable('reservas', {
   adultos: integer('adultos').notNull().default(1),
   criancas: integer('criancas').notNull().default(0),
   canal: text('canal').notNull().default('direto'),
+  // Registro do aceite ou do aviso de dados (migration 035).
+  aceiteEm: timestamp('aceite_em', { withTimezone: true }),
+  aceiteVersao: text('aceite_versao'),
+  aceiteForma: text('aceite_forma'),
   // Reserva que veio do calendário de uma OTA (migration 021).
   icalImportacaoId: integer('ical_importacao_id'),
   icalUid: text('ical_uid'),
