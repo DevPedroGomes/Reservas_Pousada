@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import AuditoriaModel from '../models/Auditoria.js';
 import QuartoModel from '../models/Quarto.js';
 import {
-  buscarImportacao, criarImportacao, listarCalendarios, novoLinkDoQuarto, removerImportacao, sincronizarImportacao,
+  atingiuLimiteDeCalendarios, buscarImportacao, criarImportacao, listarCalendarios, MAX_CALENDARIOS_POR_POUSADA, novoLinkDoQuarto, removerImportacao, sincronizarImportacao,
 } from '../models/Ical.js';
 import { validarUrlIcal } from '../lib/ical.js';
 import { authorize } from '../middleware/auth.js';
@@ -48,6 +48,9 @@ router.post('/importacoes', authorize(['admin']), async (req: Request, res: Resp
     const quartos = await QuartoModel.listar(req.user!.pousadaId!);
     if (!quartos.some((q) => q.numero === quarto)) erros.push('Quarto não encontrado nesta pousada');
     if (erros.length) return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Dados inválidos', erros });
+    if (await atingiuLimiteDeCalendarios(req.user!.pousadaId!)) {
+      return res.status(409).json({ sucesso: false, codigo: 'ICS_008', mensagem: `Esta pousada chegou ao limite de ${MAX_CALENDARIOS_POR_POUSADA} calendários. Remova um para ligar outro.` });
+    }
 
     let imp;
     try {

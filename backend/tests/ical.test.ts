@@ -1,9 +1,12 @@
 /**
  * iCal: formato exportado, leitura de feeds reais e a guarda contra SSRF.
  */
-import { describe, it } from 'node:test';
+import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { buscarIcal, enderecoInterno, gerarIcal, IcalRecusado, lerIcal, lookupSeguro, validarUrlIcal } from '../lib/ical.js';
+import http from 'node:http';
+import https from 'node:https';
+import type { AddressInfo } from 'node:net';
+import { buscarIcal, enderecoInterno, gerarIcal, IcalRecusado, lerIcal, lookupSeguro, PRAZO_BUSCA_MS, validarUrlIcal } from '../lib/ical.js';
 
 // Recorte no formato que o Airbnb publica (linha dobrada, DTSTART de data).
 const AIRBNB = [
@@ -71,5 +74,48 @@ describe('iCal — guarda contra SSRF', () => {
 
   it('buscar recusa URL inválida sem abrir conexão', async () => {
     await assert.rejects(buscarIcal('http://exemplo.com/x.ics'), IcalRecusado);
+  });
+});
+
+describe('iCal — prazo absoluto da busca', () => {
+  /** Conexão real, sem TLS: a busca fala https e a guarda recusa endereço local. */
+  async function comServidor(tratar: http.RequestListener, fn: () => Promise<void>) {
+    const servidor = http.createServer(tratar);
+    await new Promise<void>((ok) => servidor.listen(0, '127.0.0.1', ok));
+    const porta = (servidor.address() as AddressInfo).port;
+    const get = mock.method(https, 'get', ((_url: string, opcoes: http.RequestOptions, cb: (r: http.IncomingMessage) => void) =>
+      http.get(`http://127.0.0.1:${porta}/`, { headers: opcoes.headers, timeout: opcoes.timeout }, cb)) as never);
+    try {
+      await fn();
+    } finally {
+      get.mock.restore();
+      servidor.closeAllConnections();
+      servidor.close();
+    }
+  }
+
+  it('o prazo padrão é de 30 segundos', () => {
+    assert.equal(PRAZO_BUSCA_MS, 30_000);
+  });
+
+  it('feed que pinga um byte por vez não segura a busca além do prazo', { timeout: 5000 }, async () => {
+    await comServidor((_req, res) => {
+      res.writeHead(200);
+      const pingo = setInterval(() => res.write('x'), 20);
+      res.on('close', () => clearInterval(pingo));
+    }, async () => {
+      const inicio = Date.now();
+      await assert.rejects(
+        buscarIcal('https://calendario.exemplo.com/x.ics', { sinal: AbortSignal.timeout(150) }),
+        (e: Error) => e instanceof IcalRecusado && /demorou/.test(e.message),
+      );
+      assert.ok(Date.now() - inicio < 2000);
+    });
+  });
+
+  it('feed cortado é recusado na busca', async () => {
+    await comServidor((_req, res) => { res.writeHead(200); res.end('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\n'); }, async () => {
+      await assert.rejects(buscarIcal('https://calendario.exemplo.com/x.ics'), (e: Error) => e instanceof IcalRecusado && /incompleto/.test(e.message));
+    });
   });
 });

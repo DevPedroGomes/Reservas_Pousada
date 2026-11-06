@@ -125,6 +125,9 @@ export function feedCompleto(conteudo: string): boolean {
 
 export const MENSAGEM_FEED_INCOMPLETO = 'O calendário veio incompleto; nenhuma reserva foi alterada.';
 
+/** Tempo total de uma busca, redirecionamentos incluídos. */
+export const PRAZO_BUSCA_MS = 30_000;
+
 // ---------------------------------------------------------------------------
 // Busca protegida
 
@@ -178,9 +181,18 @@ export function validarUrlIcal(texto: string): string | null {
   return null;
 }
 
-export async function buscarIcal(endereco: string, saltos = 3): Promise<string> {
+/**
+ * `timeout` do socket só mede silêncio: um servidor que pinga um byte por vez
+ * nunca dispara. Quem limita a busca inteira é o `sinal`, que atravessa os
+ * redirecionamentos.
+ */
+export async function buscarIcal(endereco: string, opcoes: { saltos?: number; sinal?: AbortSignal } = {}): Promise<string> {
+  const saltos = opcoes.saltos ?? 3;
+  const sinal = opcoes.sinal ?? AbortSignal.timeout(PRAZO_BUSCA_MS);
   const erro = validarUrlIcal(endereco);
   if (erro) throw new IcalRecusado(erro);
+  const demorou = () => new IcalRecusado('O calendário demorou demais para responder.');
+  if (sinal.aborted) throw demorou();
   return new Promise((resolve, reject) => {
     const req = https.get(endereco, {
       lookup: lookupSeguro,
@@ -192,7 +204,7 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
         res.resume();
         if (saltos <= 0) return reject(new IcalRecusado('Redirecionamentos demais.'));
         const proximo = new URL(res.headers.location, endereco).toString();
-        return buscarIcal(proximo, saltos - 1).then(resolve, reject);
+        return buscarIcal(proximo, { saltos: saltos - 1, sinal }).then(resolve, reject);
       }
       if (status !== 200) {
         res.resume();
@@ -203,7 +215,7 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
       res.on('data', (c: Buffer) => {
         tamanho += c.length;
         if (tamanho > 2 * 1024 * 1024) {
-          req.destroy(new IcalRecusado('Calendário grande demais (máx. 2 MB).'));
+          falhar(new IcalRecusado('Calendário grande demais (máx. 2 MB).'));
           return;
         }
         partes.push(c);
@@ -216,7 +228,16 @@ export async function buscarIcal(endereco: string, saltos = 3): Promise<string> 
       });
       res.on('error', reject);
     });
-    req.on('timeout', () => req.destroy(new IcalRecusado('O calendário demorou demais para responder.')));
+    // Rejeita antes de destruir: com a resposta em curso, o erro que chegaria
+    // pela conexão seria um "aborted" genérico no lugar deste motivo.
+    function falhar(motivo: IcalRecusado) {
+      reject(motivo);
+      req.destroy();
+    }
+    const aoVencer = () => falhar(demorou());
+    sinal.addEventListener('abort', aoVencer, { once: true });
+    req.on('close', () => sinal.removeEventListener('abort', aoVencer));
+    req.on('timeout', aoVencer);
     req.on('error', reject);
   });
 }

@@ -185,6 +185,70 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('iCal: feed lento não trava os outros', () => {
+    const espera = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+    const importacoesDeTeste: number[] = [];
+    const limpar = async () => {
+      await pool.query(`DELETE FROM ical_importacoes WHERE id = ANY($1::int[])`, [importacoesDeTeste.splice(0)]);
+    };
+
+    it('sincroniza vários ao mesmo tempo, com limite', async () => {
+      const Ical = await import('../models/Ical.js');
+      for (let i = 0; i < 12; i++) importacoesDeTeste.push((await novoCalendario()).imp.id);
+      let agora = 0;
+      let pico = 0;
+      const r = await Ical.sincronizarTodas(async () => {
+        pico = Math.max(pico, ++agora);
+        await espera(30);
+        agora--;
+        return feed()();
+      });
+      assert.ok(r.calendarios >= 12);
+      assert.equal(pico, Ical.CONCORRENCIA_SINCRONIZACAO, `pico de ${pico}`);
+      await limpar();
+    });
+
+    it('grava a tentativa antes de buscar e passa à frente quem nunca tentou', async () => {
+      const Ical = await import('../models/Ical.js');
+      await pool.query(`UPDATE ical_importacoes SET ativo = false WHERE pousada_id = $1`, [pousada]);
+      const a = (await novoCalendario()).imp;
+      const b = (await novoCalendario()).imp;
+      importacoesDeTeste.push(a.id, b.id);
+      // "a" travou numa rodada anterior: tentou, nunca concluiu.
+      await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = now() - interval '1 minute' WHERE id = $1`, [a.id]);
+      const ordem: string[] = [];
+      let tentativaDuranteBusca: Date | null = null;
+      await Ical.sincronizarImportacao(b, async () => {
+        tentativaDuranteBusca = (await pool.query(`SELECT ultima_tentativa FROM ical_importacoes WHERE id = $1`, [b.id])).rows[0].ultima_tentativa;
+        return feed()();
+      });
+      assert.ok(tentativaDuranteBusca, 'tentativa já gravada durante a busca');
+      await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = NULL WHERE id = $1`, [b.id]);
+      await Ical.sincronizarTodas(async (url) => { ordem.push(url); return feed()(); });
+      assert.deepEqual(ordem.filter((u) => u === a.url || u === b.url)[0], b.url);
+      await limpar();
+      await pool.query(`UPDATE ical_importacoes SET ativo = true WHERE pousada_id = $1`, [pousada]);
+    });
+
+    it('limita os calendários por pousada, na criação e no job', async () => {
+      const Ical = await import('../models/Ical.js');
+      const q = novoQuarto();
+      const { rows } = await pool.query(
+        `INSERT INTO ical_importacoes (pousada_id, quarto_numero, nome, canal, url)
+         SELECT $1, $2, 'Lote', 'airbnb', 'https://www.airbnb.com/lote/' || g || '.ics' FROM generate_series(1, $3::int) g RETURNING id`,
+        [pousada, q, Ical.MAX_CALENDARIOS_POR_POUSADA + 3],
+      );
+      importacoesDeTeste.push(...rows.map((x) => x.id as number));
+      const r = await dono.req('POST', '/api/ical/importacoes', { quarto: q, nome: 'Airbnb', canal: 'airbnb', url: 'https://www.airbnb.com/mais-um.ics' });
+      assert.equal(r.status, 409, JSON.stringify(r.json));
+      assert.match(r.json.mensagem, /limite/i);
+      let chamadas = 0;
+      await Ical.sincronizarTodas(async () => { chamadas++; return feed()(); });
+      assert.ok(chamadas <= Ical.MAX_CALENDARIOS_POR_POUSADA, `${chamadas} feeds de uma pousada numa rodada`);
+      await limpar();
+    });
+  });
+
   // -------------------------------------------------------------------------
   /** Roda `fn` e devolve os assuntos dos e-mails entregues (sem Resend, vão ao log). */
   async function emailsDe(fn: () => Promise<unknown>): Promise<{ para: string; assunto: string }[]> {

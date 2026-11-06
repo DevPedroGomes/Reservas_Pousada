@@ -199,6 +199,8 @@ export const icalImportacoes = pgTable('ical_importacoes', {
   url: text('url').notNull(),
   ativo: boolean('ativo').notNull().default(true),
   ultimaSincronizacao: timestamp('ultima_sincronizacao', { withTimezone: true }),
+  // Gravada antes de buscar o feed (migration 030).
+  ultimaTentativa: timestamp('ultima_tentativa', { withTimezone: true }),
   ultimoErro: text('ultimo_erro'),
   eventos: integer('eventos'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

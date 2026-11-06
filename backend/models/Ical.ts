@@ -134,6 +134,7 @@ export async function sincronizarImportacao(
   const resumo: ResumoSincronizacao = { eventos: 0, criadas: 0, atualizadas: 0, canceladas: 0, ausentes: 0, conflitos: [], aviso: null };
   try {
     const hoje = hojeLocal();
+    await pool.query(`UPDATE ical_importacoes SET ultima_tentativa = now() WHERE id = $1`, [imp.id]);
     const conteudo = await buscar(imp.url);
     if (!feedCompleto(conteudo)) throw new IcalRecusado(MENSAGEM_FEED_INCOMPLETO);
     const lidos = lerIcal(conteudo);
@@ -221,18 +222,43 @@ export async function sincronizarImportacao(
   }
 }
 
-/** Job: todos os calendários ativos de pousadas que existem. */
-export async function sincronizarTodas(): Promise<{ calendarios: number; falhas: number }> {
+/** Feeds buscados ao mesmo tempo: cada um pode levar até o prazo da busca. */
+export const CONCORRENCIA_SINCRONIZACAO = 5;
+
+/** Teto por pousada, para uma só não ocupar a rodada de todas. */
+export const MAX_CALENDARIOS_POR_POUSADA = 60;
+
+/**
+ * Job: todos os calendários ativos de pousadas que existem, os que tentaram há
+ * mais tempo primeiro. Feed lento ocupa uma vaga, não a rodada inteira.
+ */
+export async function sincronizarTodas(
+  buscar: (url: string) => Promise<string> = buscarIcal,
+): Promise<{ calendarios: number; falhas: number }> {
   const { rows } = await pool.query<Importacao>(
-    `SELECT i.id, i.pousada_id, i.quarto_numero, i.nome, i.canal, i.url
-       FROM ical_importacoes i JOIN pousadas p ON p.id = i.pousada_id
-      WHERE i.ativo AND p.excluida_em IS NULL ORDER BY i.ultima_sincronizacao NULLS FIRST LIMIT 500`,
+    `SELECT id, pousada_id, quarto_numero, nome, canal, url FROM (
+       SELECT i.*, row_number() OVER (PARTITION BY i.pousada_id ORDER BY i.id) AS posicao
+         FROM ical_importacoes i JOIN pousadas p ON p.id = i.pousada_id
+        WHERE i.ativo AND p.excluida_em IS NULL
+     ) t
+     WHERE posicao <= $1 ORDER BY ultima_tentativa NULLS FIRST LIMIT 500`,
+    [MAX_CALENDARIOS_POR_POUSADA],
   );
   let falhas = 0;
-  for (const imp of rows) {
-    await sincronizarImportacao(imp).catch(() => { falhas++; });
-  }
+  let proximo = 0;
+  const trabalhador = async () => {
+    while (proximo < rows.length) {
+      await sincronizarImportacao(rows[proximo++], buscar).catch(() => { falhas++; });
+    }
+  };
+  await Promise.all(Array.from({ length: CONCORRENCIA_SINCRONIZACAO }, trabalhador));
   return { calendarios: rows.length, falhas };
+}
+
+/** A pousada já chegou ao teto de calendários? */
+export async function atingiuLimiteDeCalendarios(pousadaId: number): Promise<boolean> {
+  const { rows: [c] } = await pool.query(`SELECT count(*)::int AS n FROM ical_importacoes WHERE pousada_id = $1`, [pousadaId]);
+  return c.n >= MAX_CALENDARIOS_POR_POUSADA;
 }
 
 export async function buscarImportacao(pousadaId: number, id: number): Promise<Importacao | null> {
