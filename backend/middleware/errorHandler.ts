@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { reportarErro } from '../lib/observabilidade.js';
+import { rotaSegura } from '../utils/rotaSegura.js';
 
 /**
  * Custom error class with status code
@@ -31,6 +32,8 @@ export function notFoundHandler(req: Request, res: Response, next: NextFunction)
  * Global error handler middleware
  */
 export function errorHandler(err: Error | AppError, req: Request, res: Response, next: NextFunction) {
+  const rota = rotaSegura(req);
+
   // Log error for debugging
   console.error('Error:', {
     requestId: req.id,
@@ -38,7 +41,7 @@ export function errorHandler(err: Error | AppError, req: Request, res: Response,
     // Stack sempre no log do servidor (é onde se investiga um 500); só a
     // resposta ao cliente é que nunca o carrega fora de desenvolvimento.
     stack: err.stack,
-    path: req.path,
+    path: rota,
     method: req.method,
   });
 
@@ -53,7 +56,7 @@ export function errorHandler(err: Error | AppError, req: Request, res: Response,
   const codigo = err instanceof AppError ? err.codigo : erroDoCliente ? 'ERR_REQUEST' : 'ERR_INTERNAL';
 
   if (statusCode >= 500) {
-    reportarErro(err, { requestId: req.id, rota: `${req.method} ${req.path}` });
+    reportarErro(err, { requestId: req.id, rota: `${req.method} ${rota}` });
   }
 
   // Send error response
