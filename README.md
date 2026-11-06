@@ -12,25 +12,25 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 - **Guests as records**: CPF, passport or other document (encrypted + HMAC), WhatsApp with country code, e-mail, nationality, stay history; deduplicated by document (or name + phone).
 - **Reservation account**: deposit, partial payments, refunds and extra consumption; balance always derived, `pago` kept in sync.
 - **Rates**: season / weekday / per-room rules (fixed price or percentage) with minimum stay; the reservation form suggests the price night by night.
-- **iCal sync** with Booking/Airbnb: per-room secret export feed (no guest data), imported OTA calendars every 30 min become reservations (so the DB overbooking guard covers them too); SSRF-guarded fetch.
+- **iCal sync** with Booking/Airbnb: per-room secret export feed (no guest data), imported OTA calendars every 30 min become reservations (so the DB overbooking guard covers them too); SSRF-guarded fetch. iCal is not a channel manager: each OTA re-reads the exported feed on its own schedule, typically a window of hours, so a room sold here can stay open on the OTA until then. Overbooking across channels is reduced, not eliminated.
 - **Reports**: occupancy, ADR, RevPAR, revenue by channel (accrual), cash received by payment method, receivables.
 - **CSV import** from Excel/Google Sheets with dry-run preview, per-row errors, idempotent re-import.
 - **Public booking page** `/r/<slug>`: availability with tariff prices, request becomes a pre-reservation (channel `site`) with deadline; abuse limits (per-IP rate limit, honeypot, max open requests per phone).
 - **Pix for the deposit**: BR Code "copia e cola" + QR built from the inn's own Pix key (manual "Recebi o Pix"), or automatic confirmation through the inn's own **Asaas** account (key stored encrypted, webhook registered via API, authenticated by header and re-checked against the Asaas API). Gateways sit behind `lib/gatewayPix.ts` (`GatewayPix`), so Pagar.me & co. plug in without touching the rest. Webhook URLs use `API_PUBLIC_URL` (falls back to `BETTER_AUTH_URL`).
-- **Online pre-check-in (FNRH fields)**: each reservation gets a secret link `/checkin/<token>`; the guest fills in their registration card and companions' before arriving. The card is stored AES-encrypted, completes the guest record (document → check-in allowed), shows "ficha ✓" in the agenda, can be viewed/printed by the front desk, closes on check-in/cancellation, and is deleted by the retention job.
+- **Online pre-check-in (FNRH fields)**: this collects the fields of the national guest registration card for the inn; nothing is sent to the Ministry of Tourism (MTur), there is no such integration. Each reservation gets a secret link `/checkin/<token>`; the guest fills in their registration card and companions' before arriving. The card is stored AES-encrypted, completes the guest record (document → check-in allowed), shows "ficha ✓" in the agenda, can be viewed/printed by the front desk, closes on check-in/cancellation, and is deleted by the retention job when the inn has set a retention period. The page records when, and under which policy version, the guest authorized the submission.
 - **WhatsApp**: ready messages (confirmation, deposit request, arrival instructions, thank-you) that open the inn's own WhatsApp via `wa.me` with the text filled in — editable per inn with `{variables}`, available on the reservation page and in the daily agenda (no API, no cost). A daily job sends the arrival reminder the day before (for inns that opt in) through the inn's own connected number, or through an optional platform number (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_MODELO_LEMBRETE`, `WHATSAPP_IDIOMA`), using the template `lembrete_chegada` with body variables `{{1}}` guest first name, `{{2}}` inn, `{{3}}` arrival date (dd/mm), `{{4}}` room; guests who replied "parar" are skipped.
 - **WhatsApp Business per inn + virtual attendant**: each inn connects its own number from Settings via Meta's Embedded Signup (coexistence with the WhatsApp Business phone app supported). Token stored AES-encrypted; one signed webhook (`/api/webhooks/whatsapp`, `X-Hub-Signature-256` over the raw body) routes events by `phone_number_id` into a pg-boss queue; default utility templates are created on connect. Conversations page `/whatsapp` for the front desk (reply within the 24h window, hand back to the agent). Optional LLM attendant (`AGENTE_*`, Anthropic or any OpenAI-compatible API) with server-side tools (inn info, real availability and tariff prices, pre-reservation with Pix, the sender's own reservations, call a human); it never confirms payments, cancels or changes bookings. Human handoff by keyword, by tool, on media messages, on model failure or after the per-inn daily cap, with an e-mail to the inn; "parar"/"voltar" opt-out; staff replies (panel or phone echo) pause the agent for 12h; messages encrypted and purged after 90 days. Meta setup checklist in [`docs/whatsapp-meta.md`](docs/whatsapp-meta.md).
 - Team roles (owner/admin, front desk, auditor), multi-property (Rede plan), Stripe billing, LGPD tooling (export, deletion, retention).
 
 ## Overview
 
-Three Docker services behind Traefik v3:
+Two Docker services behind Traefik v3, plus a database that is not part of this compose file:
 
-- `postgres` (PostgreSQL 16-alpine) on the `internal` network only
-- `backend` (Express 5 + TypeScript, port 4000) on `internal` and `proxy`
+- `backend` (Express 5 + TypeScript, port 4000) on `internal`, `proxy` and `databases`
 - `frontend` (Next.js 15 standalone, port 3000) on `proxy`
+- PostgreSQL 16 in `central-db`, a shared instance outside this repository, reached over the external `databases` network. Backups of that instance are not managed here either.
 
-Traefik terminates TLS (Let's Encrypt), enforces security headers, applies a global rate-limit middleware, and strips the `Server` response header. The backend exits on startup if `BETTER_AUTH_SECRET` is missing and warns if `RESEND_API_KEY` is unset in production.
+Traefik terminates TLS (Let's Encrypt), enforces security headers, applies a global rate-limit middleware, and strips the `Server` response header. The backend exits on startup if `BETTER_AUTH_SECRET` or `CPF_ENCRYPTION_KEY` is missing and, in production, if `BETTER_AUTH_URL` or `RESEND_API_KEY` is missing or `BILLING_ENABLED=true` has no `STRIPE_WEBHOOK_SECRET` (`lib/configProducao.ts`).
 
 Multi-tenancy uses a `user_pousadas` junction table. A user can belong to multiple pousadas, each with an independent role and an `is_owner` flag. The active tenant is chosen **per browser tab**: the frontend sends `X-Pousada-Id` on every request and `authMiddleware` validates it against `user_pousadas` (role and owner flag come from that membership row). Without the header, `user.pousada_id` (the last pousada chosen) is used. Every domain query is scoped to the resolved tenant.
 
@@ -42,11 +42,11 @@ Background work (transactional e-mail with retries, session/rate-limit cleanup, 
 flowchart TD
     Client[Browser / Mobile client]
     Traefik[Traefik v3<br/>TLS + global ratelimit + strip-server-header]
-    Frontend[Next.js 14<br/>standalone]
-    Backend[Express 4 + TS<br/>:4000]
+    Frontend[Next.js 15<br/>standalone]
+    Backend[Express 5 + TS<br/>:4000]
     AuthMW[authMiddleware<br/>better-auth getSession]
     AuthLimit[authLimiter<br/>10 req / 15 min]
-    UserLimit[userLimiter<br/>500 req / hour per user]
+    UserLimit[userLimiter<br/>2000 req / hour per user]
     ReqPousada[requirePousada<br/>active tenant required]
     Authorize[authorize roles]
     Routes[Route handler<br/>routes/*.ts]
@@ -98,7 +98,7 @@ sequenceDiagram
     Z->>V: role allowed
     V->>M: sanitized payload
     M->>DB: idempotency check (CPF+room+dates, 30s)
-    M->>DB: encrypt CPF (AES-256-GCM) + hash (SHA-256)
+    M->>DB: encrypt CPF (AES-256-GCM) + keyed hash (HMAC-SHA-256)
     M->>DB: insert reserva (version=1, pousada_id scoped)
     M->>DB: insert auditoria entry
     M-->>API: 201 row
@@ -161,7 +161,7 @@ Infra:
 
 ```
 .
-├── docker-compose.yml          postgres + backend + frontend, Traefik labels
+├── docker-compose.yml          backend + frontend, Traefik labels (database in central-db)
 ├── .env.example                required env vars
 ├── backend/
 │   ├── server.ts               app wiring, middleware stack, ratelimits, session evictor
@@ -181,11 +181,10 @@ Infra:
 │   │   └── convites.ts         /api/convites/:token (public + accept)
 │   ├── models/                 Reserva, Pousada, StaffInvite, Auditoria, Usuario
 │   ├── utils/
-│   │   ├── crypto.ts           AES-256-GCM CPF encryption + SHA-256 hash
+│   │   ├── crypto.ts           AES-256-GCM CPF encryption + HMAC-SHA-256 lookup hash
 │   │   └── validation.ts       CPF modulo-11, sanitizarReserva, sanitizarPousada
-│   ├── migrations/             001..007 SQL files (schema, jsonb audit, invites,
-│   │                            soft delete + indexes, junction unique, optimistic
-│   │                            locking, CPF encryption)
+│   ├── migrations/             numbered SQL files, applied in order at boot (25 from the
+│   │                            initial schema to the WhatsApp tables, then newer ones)
 │   └── Dockerfile              multi-stage, runs as `nodejs` (uid 1001)
 └── frontend/
     ├── app/                    layout, /, /auth, /onboarding, /convite,
@@ -203,7 +202,7 @@ Authentication (`backend/lib/auth.ts`)
 - `better-auth` with the Drizzle adapter against the `user`, `session`, `account`, `verification` tables.
 - Email + password (8..100 chars). **E-mail must be verified before the first sign-in** (`requireEmailVerification`); signing in unverified re-sends the link. Password reset via Resend.
 - Google OAuth (`prompt=select_account`, no offline token) only registered when `GOOGLE_CLIENT_*` are set; the login screen asks `GET /api/config` and shows the button only then. The OAuth state carries the destination (invite, page that asked for login), the marketing attribution and the error return (`/entrar?error=<code>`).
-- Session: 12h absolute lifetime, 1h sliding refresh (`updateAge`), 5-minute cookie cache.
+- Session: 12h absolute lifetime, 1h sliding refresh (`updateAge`), cookie cache off so a revoked session stops working immediately. Password reset revokes every session of the account (`revokeSessionsOnPasswordReset`).
 - HTTPOnly secure cookies in production, no JWTs in headers, no client-side tokens.
 
 Authorization (`backend/middleware/auth.ts`)
@@ -225,18 +224,24 @@ Roles:
 Rate limiting
 
 - Traefik: `global-ratelimit@file` + `strip-server-header@file` chained on both routers.
-- Express global: 300 requests / 15 min per IP on `/api/`.
-- Auth-endpoint limiter: 10 requests / 15 min on `/api/auth/sign-in`, `/sign-in/email`, `/forget-password`. Successful sign-ins do not consume the budget.
+- Express global: 1500 requests / 15 min per IP on `/api/`.
+- Auth-endpoint limiter: 10 requests / 15 min on `/api/auth/sign-in`, `/sign-in/email`, `/reset-password`. Successful requests do not consume the budget.
+- Requests that send e-mail (`/request-password-reset`, `/send-verification-email`): 5 / hour per IP, counting successes, because the reset endpoint answers 200 whether or not the address exists.
 - Sign-up has its own limiter (5 / hour) that does **not** skip successful requests — otherwise creating real accounts was unlimited.
 - All IP-based limiters key on the **/64 prefix** for IPv6 (`utils/rede.ts`). Keying on the full address gave any attacker with an IPv6 block an effectively unlimited budget.
-- Per-user authenticated limiter: 500 requests / hour, keyed by `req.user.id`.
+- Per-user authenticated limiter: 2000 requests / hour, keyed by `req.user.id`.
 - CSV export: 5 requests / hour per user.
 
 Session hygiene
 
-- Background sweep deletes `WHERE expires_at < NOW()` every 6 hours.
+- Background sweep deletes `WHERE expires_at < NOW()` every hour.
 - After a successful `POST /api/auth/change-password` or `/change-email`, all other sessions for the user are deleted (current session preserved). Implemented as a `res.on('finish')` interceptor that runs only on 2xx responses.
 - After a successful invite acceptance, `auth.api.revokeOtherSessions()` is called to defeat session-pinning across role changes.
+
+CSRF (`backend/middleware/origemConfiavel.ts`)
+
+- `SameSite=Lax` treats every host under the same registrable domain as the same site, so a sibling subdomain could post with the session cookie. Any write that carries a cookie must have an `Origin` from `CORS_ORIGIN`; webhooks are exempt.
+- The API parses JSON only, there is no form-encoded body parser.
 
 Invite acceptance (`backend/models/StaffInvite.ts`, `backend/routes/convites.ts`)
 
@@ -276,7 +281,8 @@ Validation
 Headers
 
 - Express: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`, HSTS in production, `x-powered-by` disabled.
-- Traefik per-router: HSTS preload, `frameDeny`, `contentTypeNosniff`, `referrerPolicy`, plus a strict CSP (`default-src 'none'` for the API; site CSP for the frontend).
+- Traefik per-router: HSTS preload, `frameDeny`, `contentTypeNosniff`, `referrerPolicy`, `Permissions-Policy`, plus a strict CSP (`default-src 'none'` for the API; site CSP with `base-uri` and `form-action` for the frontend, whose only external hosts are GA and the Meta Pixel/SDK).
+- Logs and Sentry record the route template, never the URL: several paths carry a secret token (`utils/rotaSegura.ts`). GA and the Pixel do not load on pages whose address carries a token.
 - Next.js: `poweredByHeader: false`.
 
 Audit trail
@@ -301,7 +307,7 @@ CPF_ENCRYPTION_KEY=...                         # openssl rand -hex 32      (serv
 APP_TIMEZONE=America/Sao_Paulo                 # optional, this is the default
 GOOGLE_CLIENT_ID=                              # optional
 GOOGLE_CLIENT_SECRET=                          # optional
-RESEND_API_KEY=                                # optional in dev
+RESEND_API_KEY=                                # optional in dev, fatal if missing in production
 ```
 
 Both secrets are fatal at boot on purpose. `BETTER_AUTH_SECRET` was already;
@@ -319,6 +325,8 @@ cp .env.example .env
 docker compose up -d --build
 docker compose logs -f
 ```
+
+This expects the production layout: external `proxy` and `databases` networks and a reachable `central-db`. Elsewhere, run without Docker against any PostgreSQL 16 by setting `DATABASE_URL`.
 
 Run without Docker:
 
@@ -355,13 +363,16 @@ The compose file expects:
 
 Database migrations under `backend/migrations/` are applied by a versioned runner (`db/migrate.ts`) at boot, inside a transaction per file, tracked in `schema_migrations` and serialized across instances with a Postgres advisory lock. A migration that fails aborts startup deliberately — the server never runs against a schema it does not expect.
 
-A clean `001` → `009` run against an empty database is exercised on every CI build (`tests/banco.test.ts`), so "deploy from scratch" is a tested path rather than an assumption.
+A clean run of every migration against an empty database is exercised on every CI build (`tests/banco.test.ts`), so "deploy from scratch" is a tested path rather than an assumption.
 
 ### Release and rollback
 
 Every push to `main` that passes CI publishes both images twice: tagged with the
 first 12 characters of the commit SHA (immutable) and as `latest` (what the VPS
-auto-pull consumes).
+auto-pull consumes). The backend image carries that SHA, served as `version` by
+`/health/live`. The `verificar-producao` job waits up to 15 minutes and fails if
+production does not serve the SHA just published, so a stalled auto-pull shows up
+as a red run. Recovery steps are in `docs/deploy-producao.md`.
 
 Roll back to a known-good version on the VPS:
 
@@ -375,7 +386,7 @@ Remove the `IMAGE_TAG` line to go back to following `latest`. Migrations are
 forward-only: rolling back the code does not undo a migration, so a release that
 changes the schema must stay compatible with the previous code for one version.
 
-Health endpoints: `/health/live` (process up — used by the Docker healthcheck)
+Health endpoints: `/health/live` (process up, with the image `version` — used by the Docker healthcheck)
 and `/health` (also checks Postgres; returns 503 when the database is
 unreachable — point the external uptime monitor here).
 
@@ -408,7 +419,7 @@ POST   /api/auth/sign-up/email          register (no session until the e-mail is
 POST   /api/auth/sign-in/email          login (HTTPOnly cookie); 403 EMAIL_NOT_VERIFIED re-sends the link
 POST   /api/auth/sign-out               logout
 GET    /api/auth/get-session            current session
-POST   /api/auth/forget-password        request password reset
+POST   /api/auth/request-password-reset request password reset (always 200; 5 / hour per IP)
 POST   /api/auth/reset-password         consume reset token
 POST   /api/auth/change-password        evicts other sessions on success
 POST   /api/auth/sign-in/social         Google OAuth start (when configured)
@@ -499,7 +510,7 @@ GET    /api/admin/aquisicao?dias=             sign-ups → pousadas → paying, 
 ### Health
 
 ```
-GET    /health/live                           process is up (Docker healthcheck)
+GET    /health/live                           process is up, with the image version (Docker healthcheck, CI)
 GET    /health                                also checks Postgres; 503 when unreachable (uptime monitor)
 ```
 
@@ -524,4 +535,4 @@ conversation that produced it:
 
 ## License
 
-ISC
+ISC. See [`LICENSE`](LICENSE).
