@@ -134,8 +134,7 @@ async function paraApi(c: Record<string, any>): Promise<CobrancaApi> {
   };
 }
 
-/** Valor sugerido: o sinal da pré-reserva, ou o saldo da conta. */
-export async function valorSugerido(reservaId: number, pousadaId: number): Promise<number> {
+async function contaDaReserva(reservaId: number, pousadaId: number) {
   const { rows: [r] } = await pool.query(
     `SELECT r.status, p.configuracoes,
             COALESCE(round(r.valor * 100), 0)::int
@@ -144,6 +143,18 @@ export async function valorSugerido(reservaId: number, pousadaId: number): Promi
        FROM reservas r JOIN pousadas p ON p.id = r.pousada_id WHERE r.id = $1 AND r.pousada_id = $2`,
     [reservaId, pousadaId],
   );
+  return r as { status: string; configuracoes: unknown; total: number; pago: number } | undefined;
+}
+
+/** Quanto ainda falta pagar na reserva (0 se a conta já fechou). */
+export async function saldoDaReserva(reservaId: number, pousadaId: number): Promise<number> {
+  const r = await contaDaReserva(reservaId, pousadaId);
+  return r ? Math.max(r.total - r.pago, 0) : 0;
+}
+
+/** Valor sugerido: o sinal da pré-reserva, ou o saldo da conta. */
+export async function valorSugerido(reservaId: number, pousadaId: number): Promise<number> {
+  const r = await contaDaReserva(reservaId, pousadaId);
   if (!r) return 0;
   const saldo = r.total - r.pago;
   if (r.status === 'pre_reserva' && r.pago === 0) return Math.round((r.total * configMotor(r.configuracoes).sinalPercentual) / 100) || saldo;

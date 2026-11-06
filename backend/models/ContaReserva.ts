@@ -31,12 +31,15 @@ export interface DadosConsumo {
   lancadoEm: string;
 }
 
-/** Reais (número ou "150,50") para centavos; NaN se não for valor. */
-function centavos(v: unknown): number {
+/** Reais (número, "150,50", "150.50", "1.234,56" ou "1.500") para centavos; NaN se não for valor. */
+export function centavos(v: unknown): number {
   if (v === null || v === undefined || v === '') return NaN;
   const texto = String(v).trim();
-  // "1.234,56" (pt-BR) ou "1234.56"; número já vem pronto.
-  const n = typeof v === 'number' ? v : Number(texto.includes(',') ? texto.replace(/\./g, '').replace(',', '.') : texto);
+  // Vírgula é sempre o decimal; ponto seguido de três dígitos é o milhar
+  // ("1.500" são R$ 1.500,00); qualquer outro ponto é o decimal ("150.50").
+  const normalizado = texto.includes(',') ? texto.replace(/\./g, '').replace(',', '.')
+    : /^-?\d{1,3}(\.\d{3})+$/.test(texto) ? texto.replace(/\./g, '') : texto;
+  const n = typeof v === 'number' ? v : Number(normalizado);
   return Number.isFinite(n) ? Math.round(n * 100) : NaN;
 }
 

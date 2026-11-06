@@ -9,9 +9,9 @@ import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
-import ContaReservaModel, { lerConsumo, lerPagamento } from '../models/ContaReserva.js';
+import ContaReservaModel, { centavos, lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
-import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, valorSugerido } from '../models/Pix.js';
+import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, saldoDaReserva, valorSugerido } from '../models/Pix.js';
 import { fichaDaReserva, linkDaReserva } from '../models/Precheckin.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
@@ -379,9 +379,20 @@ router.post('/:id/pix', authorize(['admin', 'recepcao']), async (req: Request, r
     const reserva = await reservaDaRota(req, res);
     if (!reserva) return;
     const informado = req.body?.valor;
-    const valor = informado === undefined || informado === null || informado === ''
-      ? await valorSugerido(reserva.id, reserva.pousadaId)
-      : Math.round(Number(String(informado).replace(/\./g, '').replace(',', '.')) * 100);
+    let valor: number;
+    if (informado === undefined || informado === null || informado === '') {
+      valor = await valorSugerido(reserva.id, reserva.pousadaId);
+    } else {
+      valor = centavos(informado);
+      if (!Number.isFinite(valor) || valor <= 0) {
+        return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: 'Valor do Pix inválido.' });
+      }
+      const saldo = await saldoDaReserva(reserva.id, reserva.pousadaId);
+      if (valor > saldo) {
+        const emReais = (saldo / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return res.status(400).json({ sucesso: false, codigo: 'VAL_001', mensagem: `O valor passa do saldo da reserva (${emReais}).` });
+      }
+    }
     const cobranca = await gerarCobranca(reserva.pousadaId, reserva.id, valor, { userId: req.user!.id });
     AuditoriaModel.log(req.user!.id, 'gerar_pix', 'reserva', reserva.id, { valorCentavos: valor, provedor: cobranca.provedor }, req.ip || null).catch(() => {});
     res.status(201).json({ sucesso: true, cobranca });
