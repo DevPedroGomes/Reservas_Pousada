@@ -57,7 +57,7 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
     const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
     usarClienteMetaDeTeste({
       async enviarTexto(_phone: string, _token: string, para: string, texto: string) {
-        if (falhaNoEnvio > 0) { falhaNoEnvio--; throw new Error('Meta fora do ar'); }
+        if (falhaNoEnvio > 0 && texto === 'Olá!') { falhaNoEnvio--; throw new Error('Meta fora do ar'); }
         enviadas.push({ para, texto });
         return `wamid.S${seq++}`;
       },
@@ -175,6 +175,64 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
       process.env.AGENTE_TETO_GLOBAL_TOKENS_DIA = 'muito';
       const { limitesAgente } = await import('../config/agente.js');
       assert.ok(limitesAgente().tetoGlobalTokensDia > 0);
+    });
+  });
+
+  describe('retentativa da fila', () => {
+    const wamid = () => `wamid.R${seq++}`;
+
+    it('resposta pronta não chama o modelo de novo: a retentativa só reenvia', async () => {
+      const contato = '5548900000060';
+      const id = wamid();
+      falhaNoEnvio = 1;
+      await assert.rejects(entrada(contato, 'oi', id), /Meta fora do ar/);
+      assert.equal(chamadasAoModelo.length, 1);
+      assert.equal(paraContato(contato).filter((t) => t === 'Olá!').length, 0);
+
+      assert.equal(await entrada(contato, 'oi', id), 'respondeu');
+      assert.equal(chamadasAoModelo.length, 1, 'a segunda tentativa não paga outra chamada');
+      assert.equal(paraContato(contato).filter((t) => t === 'Olá!').length, 1);
+
+      const { rows } = await pool.query(`SELECT 1 FROM whatsapp_mensagens WHERE resposta_pendente_cifrada IS NOT NULL`);
+      assert.equal(rows.length, 0, 'não fica texto de resposta guardado depois de enviar');
+    });
+
+    it('a resposta pendente fica cifrada', async () => {
+      falhaNoEnvio = 1;
+      await assert.rejects(entrada('5548900000061', 'oi'), /Meta fora do ar/);
+      const { rows: [m] } = await pool.query(`SELECT resposta_pendente_cifrada FROM whatsapp_mensagens WHERE resposta_pendente_cifrada IS NOT NULL`);
+      assert.ok(!String(m.resposta_pendente_cifrada).includes('Olá'));
+    });
+
+    it('a resposta paga é entregue mesmo que o teto tenha sido atingido entre as tentativas', async () => {
+      const contato = '5548900000062';
+      const id = wamid();
+      falhaNoEnvio = 1;
+      await assert.rejects(entrada(contato, 'oi', id), /Meta fora do ar/);
+      process.env.AGENTE_TETO_GLOBAL_TOKENS_DIA = '1';
+      assert.equal(await entrada(contato, 'oi', id), 'respondeu');
+      assert.equal(chamadasAoModelo.length, 1);
+    });
+
+    it('a passagem para a equipe sobrevive à retentativa', async () => {
+      const contato = '5548900000063';
+      const id = wamid();
+      resposta = () => { throw new Error('modelo fora do ar'); };
+      falhaNoEnvio = 0;
+      const erro = mock.method(console, 'error', () => {});
+      assert.equal(await entrada(contato, 'oi', id), 'respondeu e passou para a equipe');
+      erro.mock.restore();
+      const { rows: [c] } = await pool.query(`SELECT modo FROM whatsapp_conversas WHERE contato = $1`, [contato]);
+      assert.equal(c.modo, 'humano');
+    });
+
+    it('reenvio da Meta depois da resposta entregue continua sendo descartado', async () => {
+      const contato = '5548900000064';
+      const id = wamid();
+      assert.equal(await entrada(contato, 'oi', id), 'respondeu');
+      assert.equal(await entrada(contato, 'oi', id), 'repetida');
+      assert.equal(chamadasAoModelo.length, 1);
+      assert.equal(paraContato(contato).filter((t) => t === 'Olá!').length, 1);
     });
   });
 

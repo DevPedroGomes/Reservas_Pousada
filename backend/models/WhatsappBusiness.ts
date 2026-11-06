@@ -204,16 +204,44 @@ async function gravar(conversaId: number, direcao: 'entrada' | 'agente' | 'equip
 /**
  * Mensagem já gravada (reenvio da Meta ou retentativa da fila): só volta a
  * ser tratada se nada saiu depois dela — a tentativa anterior falhou antes
- * de responder.
+ * de responder. Com resposta pendente, só a própria resposta do atendente conta:
+ * o aviso de privacidade pode ter saído antes da falha.
  */
 async function idSemResposta(conversaId: number, wamid: string): Promise<number | null> {
   const { rows: [m] } = await pool.query(
     `SELECT m.id FROM whatsapp_mensagens m
       WHERE m.wamid = $1 AND m.conversa_id = $2
-        AND NOT EXISTS (SELECT 1 FROM whatsapp_mensagens d WHERE d.conversa_id = m.conversa_id AND d.id > m.id)`,
+        AND NOT EXISTS (
+          SELECT 1 FROM whatsapp_mensagens d
+           WHERE d.conversa_id = m.conversa_id AND d.id > m.id
+             AND (m.resposta_pendente_cifrada IS NULL OR d.direcao = 'agente')
+        )`,
     [wamid, conversaId],
   );
   return m?.id ?? null;
+}
+
+interface RespostaDoAgente { texto: string; transferir?: string }
+
+/** Resposta já paga ao modelo e ainda não entregue. */
+async function respostaPendente(entradaId: number): Promise<RespostaDoAgente | null> {
+  const { rows: [m] } = await pool.query(
+    `SELECT resposta_pendente_cifrada, resposta_transferir FROM whatsapp_mensagens WHERE id = $1`,
+    [entradaId],
+  );
+  if (!m?.resposta_pendente_cifrada) return null;
+  return { texto: decifrarSegredo(m.resposta_pendente_cifrada), transferir: m.resposta_transferir ?? undefined };
+}
+
+async function guardarResposta(entradaId: number, r: RespostaDoAgente): Promise<void> {
+  await pool.query(
+    `UPDATE whatsapp_mensagens SET resposta_pendente_cifrada = $2, resposta_transferir = $3 WHERE id = $1`,
+    [entradaId, cifrarSegredo(r.texto), r.transferir ?? null],
+  );
+}
+
+async function limparResposta(entradaId: number): Promise<void> {
+  await pool.query(`UPDATE whatsapp_mensagens SET resposta_pendente_cifrada = NULL, resposta_transferir = NULL WHERE id = $1`, [entradaId]);
 }
 
 /** Chegou outra mensagem do hóspede depois desta? A resposta fica para a mais nova (com o histórico todo). */
@@ -349,26 +377,35 @@ export async function tratarEntrada(e: Entrada): Promise<string> {
     return 'pediu humano';
   }
 
-  const barreira = await barreiraDeCusto(conta.pousada_id, c.id);
-  if (barreira) {
-    // O aviso é cortesia: Meta fora do ar não pode impedir de chamar a equipe.
-    await enviar(conta, c.id, e.contato, AVISO_TETO, 'sistema').catch((err) => console.error('[WhatsApp] aviso de teto:', err));
-    await passarParaEquipe(conta, c, barreira.motivo);
-    return barreira.codigo;
-  }
+  // Retentativa com a resposta já paga: só falta entregar. Nem o teto se aplica,
+  // porque o custo já aconteceu.
+  let r = await respostaPendente(entradaId);
+  if (!r) {
+    const barreira = await barreiraDeCusto(conta.pousada_id, c.id);
+    if (barreira) {
+      // O aviso é cortesia: Meta fora do ar não pode impedir de chamar a equipe.
+      await enviar(conta, c.id, e.contato, AVISO_TETO, 'sistema').catch((err) => console.error('[WhatsApp] aviso de teto:', err));
+      await passarParaEquipe(conta, c, barreira.motivo);
+      return barreira.codigo;
+    }
 
-  if (await superada(c.id, entradaId)) return 'superada';
-  const historico = await historicoParaAgente(c.id);
-  let r: { texto: string; transferir?: string };
-  try {
-    r = await responder({ pousadaId: conta.pousada_id, conversaId: c.id, contato: e.contato, nomeContato: c.nome_contato ?? e.nome }, historico);
-  } catch (err) {
-    // Provedor do modelo fora do ar: o hóspede não fica sem resposta.
-    console.error('[WhatsApp] atendente virtual falhou:', err);
-    r = { texto: 'Desculpe, tive um problema para responder agora. Vou chamar alguém da equipe.', transferir: 'falha do atendente virtual' };
+    if (await superada(c.id, entradaId)) return 'superada';
+    const historico = await historicoParaAgente(c.id);
+    try {
+      r = await responder({ pousadaId: conta.pousada_id, conversaId: c.id, contato: e.contato, nomeContato: c.nome_contato ?? e.nome }, historico);
+    } catch (err) {
+      // Provedor do modelo fora do ar: o hóspede não fica sem resposta.
+      console.error('[WhatsApp] atendente virtual falhou:', err);
+      r = { texto: 'Desculpe, tive um problema para responder agora. Vou chamar alguém da equipe.', transferir: 'falha do atendente virtual' };
+    }
+    await guardarResposta(entradaId, r);
   }
-  if (await superada(c.id, entradaId)) return 'superada';
+  if (await superada(c.id, entradaId)) {
+    await limparResposta(entradaId);
+    return 'superada';
+  }
   await enviar(conta, c.id, e.contato, r.texto, 'agente');
+  await limparResposta(entradaId);
   if (r.transferir) await passarParaEquipe(conta, c, r.transferir);
   return r.transferir ? 'respondeu e passou para a equipe' : 'respondeu';
 }
