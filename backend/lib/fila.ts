@@ -28,6 +28,7 @@ export const FILAS = {
   sincronizarIcal: 'sincronizar-ical',
   lembretesWhatsapp: 'lembretes-whatsapp',
   whatsappEntrada: 'whatsapp-entrada',
+  reconciliarStripe: 'reconciliar-stripe',
 } as const;
 
 type Trabalhador = (dados: Record<string, unknown>) => Promise<unknown>;
@@ -52,6 +53,12 @@ export function registrarTrabalhador(fila: string, fn: Trabalhador): void {
   trabalhadores.set(fila, fn);
 }
 
+/** Import dinâmico: ver a nota em jobs/reconciliacaoStripe.ts. */
+async function reconciliarStripe() {
+  const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+  return reconciliarAssinaturas();
+}
+
 async function executarAgendado(nome: string, fn: () => Promise<unknown>) {
   try {
     const resultado = await fn();
@@ -71,6 +78,7 @@ export async function iniciarFila(): Promise<void> {
       void executarAgendado('finalizar-estadias', () => finalizarEstadiasVencidas()).catch(() => {});
       void executarAgendado('expirar-pre-reservas', expirarPreReservas).catch(() => {});
       void executarAgendado('sincronizar-ical', sincronizarCalendarios).catch(() => {});
+      void executarAgendado('reconciliar-stripe', reconciliarStripe).catch(() => {});
     }, 6 * 60 * 60 * 1000);
     intervaloLocal.unref();
     return;
@@ -105,6 +113,9 @@ export async function iniciarFila(): Promise<void> {
   // Lembrete de chegada (véspera, 10h) — só envia com a API oficial do WhatsApp configurada.
   await boss.schedule(FILAS.lembretesWhatsapp, '0 10 * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.lembretesWhatsapp, async () => executarAgendado('lembretes-whatsapp', () => lembretesDeChegada()));
+  // Pega o que o webhook do Stripe perdeu. Fora do horário de pico, uma vez por dia.
+  await boss.schedule(FILAS.reconciliarStripe, '15 5 * * *', null, { tz: TIMEZONE });
+  await boss.work(FILAS.reconciliarStripe, async () => executarAgendado('reconciliar-stripe', reconciliarStripe));
   await boss.schedule(FILAS.anonimizarHospedes, '45 4 * * *', null, { tz: TIMEZONE });
   await boss.work(FILAS.anonimizarHospedes, async () =>
     executarAgendado('anonimizar-hospedes', anonimizarHospedesAntigos),

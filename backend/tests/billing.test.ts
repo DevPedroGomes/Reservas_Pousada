@@ -65,6 +65,61 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
     await pool.query(`INSERT INTO quartos (pousada_id, numero, nome) SELECT $1, g, 'Q' || g FROM generate_series(1, $2::int) g`, [pousadaId, n]);
   }
 
+  describe('reconciliação diária com o Stripe', () => {
+    const assinaturaStripe = (id: string, customer: string, status: string) => ({
+      id, customer, status, cancel_at_period_end: false, metadata: {},
+      items: { data: [{ current_period_end: 1893456000, price: { id: 'price_x' } }] },
+    }) as unknown as import('stripe').Stripe.Subscription;
+
+    async function comStripe(pousadaId: number, status: string, sub: string) {
+      await pool.query(
+        `INSERT INTO assinaturas (pousada_id, status, plano, stripe_customer_id, stripe_subscription_id) VALUES ($1, $2, 'pousada', $3, $4)`,
+        [pousadaId, status, `cus_${sub}`, sub],
+      );
+    }
+
+    it('reaplica o estado do Stripe quando o webhook se perdeu', async () => {
+      await comStripe(1, 'ativa', 'sub_1');
+      const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+      const r = await reconciliarAssinaturas(async (id) => assinaturaStripe(id, 'cus_sub_1', 'canceled'), () => {});
+      assert.deepEqual(r, { assinaturas: 1, falhas: 0 });
+      assert.equal((await pool.query(`SELECT status FROM assinaturas WHERE pousada_id = 1`)).rows[0].status, 'cancelada');
+    });
+
+    it('falha numa assinatura alerta e não impede as demais', async () => {
+      await comStripe(1, 'ativa', 'sub_ruim');
+      await comStripe(2, 'ativa', 'sub_boa');
+      const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+      const alertas: unknown[] = [];
+      const r = await reconciliarAssinaturas(async (id) => {
+        if (id === 'sub_ruim') throw new Error('Stripe fora do ar');
+        return assinaturaStripe(id, 'cus_sub_boa', 'past_due');
+      }, (erro, contexto) => { alertas.push([(erro as Error).message, contexto]); });
+      assert.deepEqual(r, { assinaturas: 2, falhas: 1 });
+      assert.deepEqual(alertas, [['Stripe fora do ar', { job: 'reconciliar-stripe', assinatura: 'sub_ruim', pousadaId: 1 }]]);
+      assert.equal((await pool.query(`SELECT status FROM assinaturas WHERE pousada_id = 2`)).rows[0].status, 'inadimplente');
+    });
+
+    it('assinatura encerrada e cortesia não gastam chamada à API', async () => {
+      await comStripe(1, 'cancelada', 'sub_fim');
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status) VALUES (2, 'cortesia')`);
+      const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+      const r = await reconciliarAssinaturas(async () => { throw new Error('não deveria chamar'); }, () => {});
+      assert.deepEqual(r, { assinaturas: 0, falhas: 0 });
+    });
+
+    it('com a cobrança desligada não faz nada', async () => {
+      await comStripe(1, 'ativa', 'sub_off');
+      process.env.BILLING_ENABLED = 'false';
+      try {
+        const { reconciliarAssinaturas } = await import('../jobs/reconciliacaoStripe.js');
+        assert.deepEqual(await reconciliarAssinaturas(async () => { throw new Error('não deveria chamar'); }, () => {}), { assinaturas: 0, falhas: 0 });
+      } finally {
+        process.env.BILLING_ENABLED = 'true';
+      }
+    });
+  });
+
   describe('inadimplência e cancelamento', () => {
     it('inadimplente há mais de 7 dias é cortado mesmo com o período avançado pelo Stripe', async () => {
       await assinatura(1, 'pousada', { status: 'inadimplente' });
