@@ -258,7 +258,7 @@ async function tentarReativar(cliente: PoolClient, reservaId: number): Promise<b
   try {
     await cliente.query(
       `UPDATE reservas SET status = 'confirmada', cancelada_em = NULL, motivo_cancelamento = NULL, expira_em = NULL,
-              version = version + 1, updated_at = now()
+              cancelada_manualmente = false, version = version + 1, updated_at = now()
         WHERE id = $1`,
       [reservaId],
     );

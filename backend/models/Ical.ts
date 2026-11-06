@@ -156,17 +156,25 @@ export async function sincronizarImportacao(
     }
     const eventos = lidos.filter((e) => e.fim >= hoje);
     resumo.eventos = eventos.length;
-    const { rows: existentes } = await pool.query(
-      `SELECT id, ical_uid, data_entrada::text AS inicio, data_saida::text AS fim, status, ical_ausencias
-         FROM reservas WHERE ical_importacao_id = $1 AND deleted_at IS NULL`,
+    const { rows: reservasDoFeed } = await pool.query(
+      `SELECT id, ical_uid, data_entrada::text AS inicio, data_saida::text AS fim, status, ical_ausencias, cancelada_manualmente, deleted_at
+         FROM reservas WHERE ical_importacao_id = $1`,
       [imp.id],
     );
+    const existentes = reservasDoFeed.filter((r) => !r.deleted_at);
+    const excluidas = new Set(reservasDoFeed.filter((r) => r.deleted_at).map((r) => r.ical_uid as string));
     const porUid = new Map(existentes.map((r) => [r.ical_uid as string, r]));
     const vistos = new Set<string>();
+    const decididasAMao: string[] = [];
 
     for (const e of eventos as EventoIcal[]) {
       vistos.add(e.uid);
       const atual = porUid.get(e.uid);
+      // Uma pessoa cancelou ou excluiu aqui: o feed não desfaz, só avisa.
+      if (atual ? atual.status === 'cancelada' && atual.cancelada_manualmente : excluidas.has(e.uid)) {
+        decididasAMao.push(`${br(e.inicio)} a ${br(e.fim)}`);
+        continue;
+      }
       try {
         if (!atual) {
           await pool.query(
@@ -216,6 +224,7 @@ export async function sincronizarImportacao(
 
     const avisos: string[] = [];
     if (resumo.conflitos.length) avisos.push(`Possível overbooking: ${resumo.conflitos.join(', ')} já ocupado(s) por reserva do sistema.`);
+    if (decididasAMao.length) avisos.push(`A OTA ainda mostra ${decididasAMao.join(', ')}, mas a reserva foi cancelada ou excluída à mão aqui. Confira na OTA.`);
     if (resumo.ausentes) avisos.push(`${resumo.ausentes} reserva(s) sumiram do calendário; se continuarem fora por ${SINCRONIZACOES_ATE_CANCELAR} sincronizações seguidas, serão canceladas.`);
     resumo.aviso = avisos.join(' ') || null;
     await pool.query(

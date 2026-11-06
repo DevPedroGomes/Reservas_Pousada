@@ -61,7 +61,7 @@ interface ListarOptions {
  * nome de quem criou. `cpf` continua existindo para quem lê a API antiga:
  * é o documento quando ele é CPF, senão vazio.
  */
-export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'icalAusencias' | 'icalBloqueio' | 'lembreteEnviadoEm' | 'precheckinToken'> {
+export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'icalUid' | 'icalAusencias' | 'icalBloqueio' | 'canceladaManualmente' | 'lembreteEnviadoEm' | 'precheckinToken'> {
   /** Quando o hóspede enviou a ficha de pré-check-in (null se não enviou). */
   precheckinEm?: Date | null;
   criadoPorNome?: string | null;
@@ -76,20 +76,22 @@ export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'ic
 /**
  * Carimbos de cada transição: quando entrou, saiu, foi cancelada. Voltar um
  * passo (desfazer check-out, reativar) limpa o carimbo correspondente.
+ * Só as rotas passam por aqui: é a decisão de uma pessoa, e cancelar marca isso
+ * para a sincronização de calendário não desfazer.
  */
 export function camposDaTransicao(status: string, extra: { motivo?: string | null; expiraEm?: Date | null } = {}) {
   const agora = new Date();
   switch (status) {
     case 'pre_reserva':
-      return { expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null };
+      return { expiraEm: extra.expiraEm ?? null, canceladaEm: null, motivoCancelamento: null, canceladaManualmente: false };
     case 'confirmada':
-      return { expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null };
+      return { expiraEm: null, checkInEm: null, canceladaEm: null, motivoCancelamento: null, canceladaManualmente: false };
     case 'hospedada':
       return { expiraEm: null, checkInEm: sql`COALESCE(${reservas.checkInEm}, now())`, checkOutEm: null };
     case 'finalizada':
       return { checkOutEm: agora };
     case 'cancelada':
-      return { canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null };
+      return { canceladaEm: agora, motivoCancelamento: extra.motivo ?? null, expiraEm: null, canceladaManualmente: true };
     default:
       return {};
   }

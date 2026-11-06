@@ -15,6 +15,14 @@ UPDATE reservas SET ical_bloqueio = true
  WHERE ical_importacao_id IS NOT NULL AND canal <> 'booking' AND valor IS NULL AND NOT ical_bloqueio
    AND nome ~* '(not available|unavailable|indispon|blocked|bloquead)';
 
+-- cancelada_manualmente: uma pessoa cancelou; a sincronização não desfaz. O que
+-- já foi cancelado à mão se reconhece por não trazer o motivo que o sync grava.
+ALTER TABLE reservas
+  ADD COLUMN IF NOT EXISTS cancelada_manualmente BOOLEAN NOT NULL DEFAULT false;
+UPDATE reservas SET cancelada_manualmente = true
+ WHERE ical_importacao_id IS NOT NULL AND status = 'cancelada' AND NOT cancelada_manualmente
+   AND (motivo_cancelamento IS NULL OR motivo_cancelamento NOT LIKE 'Cancelada no calendário%');
+
 -- ultima_tentativa: gravada antes de buscar o feed. Quem trava ou derruba a
 -- rodada vai para o fim da fila, em vez de voltar à frente na rodada seguinte.
 ALTER TABLE ical_importacoes

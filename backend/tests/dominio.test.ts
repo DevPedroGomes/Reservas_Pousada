@@ -247,6 +247,65 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('iCal: decisão manual vale mais que o feed', () => {
+    async function criadaDoFeed() {
+      const { Ical, imp } = await novoCalendario();
+      await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153))));
+      const { rows: [r] } = await pool.query(`SELECT id, version FROM reservas WHERE ical_importacao_id = $1 AND ical_uid = 'a'`, [imp.id]);
+      return { Ical, imp, id: r.id as number, version: r.version as number };
+    }
+
+    it('cancelada à mão não é reativada pelo feed, e fica o aviso', async () => {
+      const { Ical, imp, id, version } = await criadaDoFeed();
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', motivo: 'Hóspede ligou', version })).status, 200);
+      const r = await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153))));
+      assert.equal(r.atualizadas, 0);
+      assert.equal(await statusDoUid(imp.id, 'a'), 'cancelada');
+      assert.match((await avisoDoCalendario(imp.id))!, /à mão/);
+      const movida = await Ical.sincronizarImportacao(imp, feed(ev('a', d(151), d(154))));
+      assert.equal(movida.atualizadas, 0, 'datas novas na OTA também não reativam');
+      assert.equal(await statusDoUid(imp.id, 'a'), 'cancelada');
+    });
+
+    it('cancelada pela própria sincronização volta quando o evento volta', async () => {
+      const { Ical, imp } = await criadaDoFeed();
+      const sem = feed(ev('outro', d(170), d(171)));
+      for (let i = 0; i < 3; i++) await Ical.sincronizarImportacao(imp, sem);
+      assert.equal(await statusDoUid(imp.id, 'a'), 'cancelada');
+      await Ical.sincronizarImportacao(imp, feed(ev('outro', d(170), d(171)), ev('a', d(150), d(153))));
+      assert.equal(await statusDoUid(imp.id, 'a'), 'confirmada');
+    });
+
+    it('reativar à mão devolve a reserva ao controle do feed', async () => {
+      const { Ical, imp, id, version } = await criadaDoFeed();
+      await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', version });
+      const atual = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva.version;
+      assert.equal((await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'confirmada', version: atual })).status, 200);
+      const { rows: [r] } = await pool.query(`SELECT cancelada_manualmente FROM reservas WHERE id = $1`, [id]);
+      assert.equal(r.cancelada_manualmente, false);
+      assert.equal((await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153))))).aviso, null);
+    });
+
+    it('excluída à mão não renasce na sincronização seguinte', async () => {
+      const { Ical, imp, id } = await criadaDoFeed();
+      assert.equal((await admin.req('DELETE', `/api/reservas/${id}`)).status, 200);
+      const r = await Ical.sincronizarImportacao(imp, feed(ev('a', d(150), d(153))));
+      assert.equal(r.criadas, 0);
+      assert.equal((await pool.query(`SELECT 1 FROM reservas WHERE ical_importacao_id = $1 AND deleted_at IS NULL`, [imp.id])).rowCount, 0);
+      assert.match((await avisoDoCalendario(imp.id))!, /à mão/);
+    });
+
+    it('a migration preserva os cancelamentos manuais já feitos', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { imp, id } = await criadaDoFeed();
+      await pool.query(`UPDATE reservas SET status = 'cancelada', cancelada_em = now(), motivo_cancelamento = 'Hóspede desistiu', cancelada_manualmente = false WHERE id = $1`, [id]);
+      await pool.query(readFileSync(new URL('../migrations/030_ical_sincronizacao.sql', import.meta.url), 'utf8'));
+      const { rows: [r] } = await pool.query(`SELECT cancelada_manualmente FROM reservas WHERE id = $1`, [id]);
+      assert.equal(r.cancelada_manualmente, true);
+      assert.ok(imp.id);
+    });
+  });
+
   describe('iCal: data fechada na OTA', () => {
     const bloqueio = async (impId: number, uid: string) =>
       (await pool.query(`SELECT ical_bloqueio FROM reservas WHERE ical_importacao_id = $1 AND ical_uid = $2`, [impId, uid])).rows[0].ical_bloqueio;
