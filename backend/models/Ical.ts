@@ -4,7 +4,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { pool } from '../db/index.js';
-import { buscarIcal, feedCompleto, gerarIcal, IcalRecusado, lerIcal, MENSAGEM_FEED_INCOMPLETO, type EventoIcal } from '../lib/ical.js';
+import { buscarIcal, feedCompleto, gerarIcal, IcalRecusado, lerIcal, MENSAGEM_FEED_INCOMPLETO, mensagemDeFalha, type EventoIcal } from '../lib/ical.js';
 import { hojeLocal } from '../utils/datas.js';
 
 const PG_EXCLUSION_VIOLATION = '23P01';
@@ -124,6 +124,25 @@ function ehBloqueio(resumo: string, canal: string): boolean {
 }
 
 /**
+ * UID repetido derrubaria a sincronização inteira no índice único. Evento igual
+ * conta uma vez; mesmo UID com outras datas ganha chave própria, porque deixar
+ * cair seria abrir para venda uma data que a OTA diz estar ocupada.
+ */
+function semUidRepetido(eventos: EventoIcal[]): EventoIcal[] {
+  const uids = new Set<string>();
+  const iguais = new Set<string>();
+  const saida: EventoIcal[] = [];
+  for (const e of eventos) {
+    const igual = `${e.uid}|${e.inicio}|${e.fim}`;
+    if (iguais.has(igual)) continue;
+    iguais.add(igual);
+    saida.push(uids.has(e.uid) ? { ...e, uid: `${e.uid.slice(0, 240)}#${e.inicio}` } : e);
+    uids.add(e.uid);
+  }
+  return saida;
+}
+
+/**
  * Sincronizações seguidas sem o evento até cancelar a reserva. Antes bastava
  * uma: um feed ruim cancelava tudo e a data ia para venda de novo.
  */
@@ -157,7 +176,7 @@ export async function sincronizarImportacao(
       );
       return resumo;
     }
-    const eventos = lidos.filter((e) => e.fim >= hoje);
+    const eventos = semUidRepetido(lidos).filter((e) => e.fim >= hoje);
     resumo.eventos = eventos.length;
     const { rows: reservasDoFeed } = await pool.query(
       `SELECT id, ical_uid, data_entrada::text AS inicio, data_saida::text AS fim, status, ical_ausencias, cancelada_manualmente, deleted_at
@@ -236,8 +255,9 @@ export async function sincronizarImportacao(
     );
     return resumo;
   } catch (err) {
-    const mensagem = err instanceof Error ? err.message : String(err);
-    await pool.query(`UPDATE ical_importacoes SET ultima_sincronizacao = now(), ultimo_erro = $2 WHERE id = $1`, [imp.id, mensagem.slice(0, 300)]);
+    // O detalhe técnico fica no log; o aviso vai para a tela da pousada.
+    if (!(err instanceof IcalRecusado)) console.error(`[iCal] calendário ${imp.id}:`, err instanceof Error ? err.message : err);
+    await pool.query(`UPDATE ical_importacoes SET ultima_sincronizacao = now(), ultimo_erro = $2 WHERE id = $1`, [imp.id, mensagemDeFalha(err)]);
     throw err;
   }
 }

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
-import { buscarIcal, enderecoInterno, gerarIcal, IcalRecusado, lerIcal, lookupSeguro, PRAZO_BUSCA_MS, validarUrlIcal } from '../lib/ical.js';
+import { buscarIcal, enderecoInterno, gerarIcal, IcalRecusado, lerIcal, lookupSeguro, mensagemDeFalha, PRAZO_BUSCA_MS, validarUrlIcal } from '../lib/ical.js';
 
 // Recorte no formato que o Airbnb publica (linha dobrada, DTSTART de data).
 const AIRBNB = [
@@ -64,6 +64,28 @@ describe('iCal — guarda contra SSRF', () => {
     assert.ok(validarUrlIcal('https://[::1]/x'));
     assert.ok(validarUrlIcal('nada'));
     assert.equal(validarUrlIcal('https://www.airbnb.com.br/calendar/ical/123.ics?s=abc'), null);
+  });
+
+  it('IP literal é recusado em qualquer forma, inclusive mapeado em IPv6', () => {
+    for (const url of [
+      'https://[::ffff:7f00:1]/x.ics', 'https://[::ffff:127.0.0.1]/x.ics', 'https://[::ffff:a9fe:a9fe]/latest/meta-data',
+      'https://2130706433/x.ics', 'https://0x7f.1/x.ics', 'https://8.8.8.8/x.ics', 'https://[2001:4860:4860::8888]/x.ics',
+    ]) {
+      assert.ok(validarUrlIcal(url), url);
+    }
+  });
+
+  it('reconhece interno em IPv4 mapeado, NAT64, 6to4 e faixas reservadas', () => {
+    for (const ip of ['::ffff:7f00:1', '::ffff:a9fe:a9fe', '64:ff9b::7f00:1', '::7f00:1', '2002:7f00:1::', '198.18.0.1', '192.0.2.1', 'ff02::1', 'fec0::1', 'lixo']) {
+      assert.equal(enderecoInterno(ip), true, ip);
+    }
+    assert.equal(enderecoInterno('::ffff:808:808'), false, 'IPv4 público mapeado');
+  });
+
+  it('falha de conexão não devolve detalhe de rede ao cliente', () => {
+    const e = Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:443'), { code: 'ECONNREFUSED' });
+    assert.equal(mensagemDeFalha(e), 'Não foi possível conectar ao calendário.');
+    assert.equal(mensagemDeFalha(new IcalRecusado('O calendário respondeu 404.')), 'O calendário respondeu 404.');
   });
 
   it('nome que resolve para endereço interno é barrado na resolução usada pela conexão', async () => {

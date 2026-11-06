@@ -4,7 +4,7 @@ import QuartoModel from '../models/Quarto.js';
 import {
   atingiuLimiteDeCalendarios, buscarImportacao, criarImportacao, listarCalendarios, MAX_CALENDARIOS_POR_POUSADA, novoLinkDoQuarto, removerImportacao, sincronizarImportacao,
 } from '../models/Ical.js';
-import { validarUrlIcal } from '../lib/ical.js';
+import { mensagemDeFalha, validarUrlIcal } from '../lib/ical.js';
 import { authorize } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { sanitizarString, CANAIS_RESERVA } from '../utils/validation.js';
@@ -64,7 +64,7 @@ router.post('/importacoes', authorize(['admin']), async (req: Request, res: Resp
     }
     AuditoriaModel.log(req.user!.id, 'criar', 'ical_importacao', imp.id, { depois: { quarto, nome, canal } }, req.ip || null).catch(() => {});
     // Primeira sincronização na hora: a pessoa vê se o link funciona.
-    const resumo = await sincronizarImportacao(imp).catch((err: Error) => ({ erro: err.message }));
+    const resumo = await sincronizarImportacao(imp).catch((err: unknown) => ({ erro: mensagemDeFalha(err) }));
     res.status(201).json({ sucesso: true, id: imp.id, resumo });
   } catch (err) {
     next(new AppError('Erro ao adicionar calendário', 500, 'ICS_003'));
@@ -78,7 +78,7 @@ router.post('/importacoes/:id/sincronizar', authorize(['admin', 'recepcao']), as
     try {
       res.json({ sucesso: true, resumo: await sincronizarImportacao(imp) });
     } catch (err) {
-      res.status(502).json({ sucesso: false, codigo: 'ICS_004', mensagem: `Não foi possível ler o calendário: ${(err as Error).message}` });
+      res.status(502).json({ sucesso: false, codigo: 'ICS_004', mensagem: `Não foi possível ler o calendário: ${mensagemDeFalha(err)}` });
     }
   } catch (err) {
     next(new AppError('Erro ao sincronizar', 500, 'ICS_005'));
