@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.pgdev.com.br"
+const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.gomio.com.br"
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const agora = new Date()

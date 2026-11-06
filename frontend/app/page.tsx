@@ -14,7 +14,7 @@ import { DIAS_DE_TRIAL, PLANOS_PUBLICOS } from "../lib/planos-publicos"
  * janela de horas e a FNRH é coletada, não enviada ao governo.
  */
 
-const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.pgdev.com.br"
+const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.gomio.com.br"
 const CONTATO = process.env.NEXT_PUBLIC_CONTATO_EMAIL || ""
 
 export const metadata: Metadata = {

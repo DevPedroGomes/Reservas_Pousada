@@ -16,6 +16,6 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: API e banco respondem
-        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --retry-all-errors --max-time 15 --output /dev/null https://api.diaria.pgdev.com.br/health
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --retry-all-errors --max-time 15 --output /dev/null https://api.diaria.gomio.com.br/health
       - name: Site responde
-        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --retry-all-errors --max-time 15 --output /dev/null https://diaria.pgdev.com.br/
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 --retry-all-errors --max-time 15 --output /dev/null https://diaria.gomio.com.br/

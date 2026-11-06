@@ -195,7 +195,7 @@ jobs:
         shell: bash
         run: |
           esperado="${GITHUB_SHA::12}"
-          url="https://api.diaria.pgdev.com.br/health/live"
+          url="https://api.diaria.gomio.com.br/health/live"
           prazo=$((SECONDS + 900))
           servindo="sem resposta"
           while [ "$SECONDS" -lt "$prazo" ]; do

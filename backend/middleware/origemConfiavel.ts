@@ -7,7 +7,7 @@ const METODOS_DE_LEITURA = new Set(['GET', 'HEAD', 'OPTIONS']);
  * Escrita com cookie só vale vinda de uma origem do próprio app.
  *
  * O cookie de sessão é SameSite=Lax, e isso não protege contra um subdomínio
- * irmão: para o navegador, qualquer outro host de pgdev.com.br é o mesmo site,
+ * irmão: para o navegador, qualquer outro host de gomio.com.br é o mesmo site,
  * então um formulário publicado lá faz POST na API levando o cookie. O CORS
  * também não ajuda aqui: ele esconde a resposta, mas a escrita já aconteceu.
  *

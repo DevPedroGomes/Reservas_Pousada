@@ -21,7 +21,7 @@ VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) �
 GitHub Actions: verificar-producao ──> /health/live serve o sha publicado? (até 15 min; senão, run vermelho)
 ```
 
-- Domínios: `https://diaria.pgdev.com.br` (app) e `https://api.diaria.pgdev.com.br` (API).
+- Domínios: `https://diaria.gomio.com.br` (app) e `https://api.diaria.gomio.com.br` (API).
 - As migrations rodam sozinhas quando a API sobe; se alguma falha, a API não
   sobe (de propósito).
 - Mudou o `.env` da VPS → `docker compose up -d` (recria só o que mudou).
@@ -84,19 +84,19 @@ falhar com a mensagem no log do que nenhum cadastro novo conseguir entrar sem
 ninguém perceber.
 
 1. Crie a conta em <https://resend.com>.
-2. **Domains → Add domain** → `pgdev.com.br` (ou o domínio da marca, quando
+2. **Domains → Add domain** → `gomio.com.br` (ou o domínio da marca, quando
    tiver).
 3. O Resend mostra os registros DNS (DKIM em `resend._domainkey`, MX e SPF
    num subdomínio de envio). Crie todos no seu DNS e clique em **Verify**.
 4. Crie também o DMARC no DNS (se ainda não existe):
-   `_dmarc.pgdev.com.br  TXT  "v=DMARC1; p=none; rua=mailto:seu-email@..."`
+   `_dmarc.gomio.com.br  TXT  "v=DMARC1; p=none; rua=mailto:seu-email@..."`
    (depois de algumas semanas sem problema, suba para `p=quarantine`).
 5. **API Keys → Create API key** → permissão *Sending access*, restrita ao
    domínio → copie.
 6. No `.env`:
    ```
    RESEND_API_KEY=re_...
-   EMAIL_FROM=Diária <noreply@pgdev.com.br>
+   EMAIL_FROM=Diária <noreply@gomio.com.br>
    EMAIL_REPLY_TO=contato@seudominio.com.br
    ```
 7. `docker compose up -d backend` e veja no log:
@@ -137,7 +137,7 @@ preenchido (de propósito, para não ir ao ar com dado inventado).
 
 2. *Actions → "Build & push image (VPS auto-pulls)" → Run workflow* (branch
    `main`). Quando terminar, a VPS puxa a imagem nova.
-3. Confira `https://diaria.pgdev.com.br/privacidade` — nenhum "[a definir]".
+3. Confira `https://diaria.gomio.com.br/privacidade` — nenhum "[a definir]".
 4. **Peça a um advogado para revisar** a política e os termos.
 
 ---
@@ -167,10 +167,10 @@ Garanta, no mínimo:
 ## 5. Monitoramento **[VPS]** — obrigatório
 
 **Uptime** (UptimeRobot, Better Stack ou similar, plano grátis serve):
-- Monitor HTTP(S) em `https://api.diaria.pgdev.com.br/health`, a cada 1–5 min,
+- Monitor HTTP(S) em `https://api.diaria.gomio.com.br/health`, a cada 1–5 min,
   esperando status 200 e a palavra `healthy`. Ele responde **503** quando o
   banco cai — é o alerta que importa.
-- Monitor em `https://diaria.pgdev.com.br`.
+- Monitor em `https://diaria.gomio.com.br`.
 - Alerta de vencimento do certificado.
 - Avisos por e-mail + Telegram/WhatsApp.
 
@@ -203,10 +203,10 @@ permanente à conta Google).
    - Público (*Audience*): **Externo**.
    - E-mail de contato do desenvolvedor → concordar → criar.
 3. **Branding** (Marca):
-   - Página inicial: `https://diaria.pgdev.com.br`
-   - Política de privacidade: `https://diaria.pgdev.com.br/privacidade`
-   - Termos de serviço: `https://diaria.pgdev.com.br/termos`
-   - Domínios autorizados: `pgdev.com.br`
+   - Página inicial: `https://diaria.gomio.com.br`
+   - Política de privacidade: `https://diaria.gomio.com.br/privacidade`
+   - Termos de serviço: `https://diaria.gomio.com.br/termos`
+   - Domínios autorizados: `gomio.com.br`
    - Logo: opcional. **Com logo, o Google exige verificação da marca (alguns
      dias)**; sem logo, pode publicar na hora.
 4. **Data access** (Acesso a dados): os escopos usados são `openid`,
@@ -216,9 +216,9 @@ permanente à conta Google).
    e-mails cadastrados como testadores conseguem entrar.
 6. **Clients → Create client** → tipo **Aplicativo da Web** → nome
    "Diária produção":
-   - Origens JavaScript autorizadas: `https://diaria.pgdev.com.br`
+   - Origens JavaScript autorizadas: `https://diaria.gomio.com.br`
    - URIs de redirecionamento autorizados:
-     `https://api.diaria.pgdev.com.br/api/auth/callback/google`
+     `https://api.diaria.gomio.com.br/api/auth/callback/google`
    - Criar → **copie o Client ID e o Client secret na hora** (o Google pode não
      mostrar o secret de novo; baixe o JSON).
 7. No `.env` **[VPS]**:
@@ -226,7 +226,7 @@ permanente à conta Google).
    GOOGLE_CLIENT_ID=....apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
-8. `docker compose up -d backend` → `https://api.diaria.pgdev.com.br/api/config`
+8. `docker compose up -d backend` → `https://api.diaria.gomio.com.br/api/config`
    deve responder `"google":true` → o botão aparece em `/entrar` e `/cadastro`.
 9. Teste: entrar com uma conta Google nova (vai para o onboarding) e com um
    link de convite (vai para o convite).
@@ -259,7 +259,7 @@ modo live (chaves, preços e webhook são diferentes em cada modo).
    Copie o id de cada preço (`price_...`). Plano sem preço configurado não
    aparece na tela de planos.
 4. **Desenvolvedores → Webhooks → Adicionar destino**:
-   - URL: `https://api.diaria.pgdev.com.br/api/webhooks/stripe`
+   - URL: `https://api.diaria.gomio.com.br/api/webhooks/stripe`
    - Eventos: `checkout.session.completed`, `customer.subscription.created`,
      `customer.subscription.updated`, `customer.subscription.deleted`,
      `invoice.paid`, `invoice.payment_failed`, `charge.refunded`,
@@ -273,7 +273,7 @@ modo live (chaves, preços e webhook são diferentes em cada modo).
    - cancelar assinatura (no fim do período);
    - **trocar de plano**: adicione os três produtos com os seus preços;
    - links de termos e privacidade; link de retorno
-     `https://diaria.pgdev.com.br/assinatura`.
+     `https://diaria.gomio.com.br/assinatura`.
 7. **Configurações → E-mails para clientes**: recibos de pagamento e aviso de
    pagamento com falha. Em **Billing → Recuperação de receita**, deixe as
    novas tentativas automáticas (Smart Retries) ligadas.
@@ -299,7 +299,7 @@ com anúncios no cadastro.
 
 **GA4**
 1. <https://analytics.google.com> → *Administrador → Criar propriedade* →
-   *Fluxo de dados da Web* → `https://diaria.pgdev.com.br`.
+   *Fluxo de dados da Web* → `https://diaria.gomio.com.br`.
 2. **ID da métrica** (`G-XXXXXXX`) → `NEXT_PUBLIC_GA_ID` **[GitHub]** e
    `GA_MEASUREMENT_ID` **[VPS]**.
 3. No fluxo de dados → *Chaves secretas da API do Measurement Protocol* →
@@ -315,7 +315,7 @@ com anúncios no cadastro.
 3. No pixel → *Configurações → API de Conversões → Gerar token de acesso* →
    `META_CAPI_TOKEN` **[VPS]**.
 4. *Configurações do negócio → Segurança da marca → Domínios* → adicione e
-   verifique `pgdev.com.br` (registro TXT no DNS).
+   verifique `gomio.com.br` (registro TXT no DNS).
 
 Depois: **Run workflow** (passo 3) para as `NEXT_PUBLIC_*` entrarem no build,
 e `docker compose up -d backend` para as da VPS.
@@ -333,7 +333,7 @@ Resumo:
    produtos WhatsApp e *Facebook Login for Business* — o cliente vê "Diária"
    no cadastro, e um problema em outro produto não derruba este.
 3. Configuração do **Embedded Signup** → `META_CONFIG_ID`.
-4. **Webhook** do app: `https://api.diaria.pgdev.com.br/api/webhooks/whatsapp`,
+4. **Webhook** do app: `https://api.diaria.gomio.com.br/api/webhooks/whatsapp`,
    token = `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (`openssl rand -hex 24`), campos
    `messages` e `smb_message_echoes`.
 5. `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID`,
@@ -360,7 +360,7 @@ Resumo:
 Cada pousada configura a própria conta em *Configurações → Pix para o sinal*:
 a chave Pix (QR copia e cola, confirmação manual) e, se quiser, a chave de
 API do Asaas (confirmação automática). O webhook é registrado sozinho na conta
-dela, apontando para `https://api.diaria.pgdev.com.br/api/webhooks/pix/asaas/...`.
+dela, apontando para `https://api.diaria.gomio.com.br/api/webhooks/pix/asaas/...`.
 Do seu lado, só garanta que a API está pública em HTTPS (já está).
 
 ---
@@ -379,7 +379,7 @@ Do seu lado, só garanta que a API está pública em HTTPS (já está).
 2. **GitHub**: Variables do passo 3 (e 8) → *Run workflow* → a VPS puxa o
    frontend novo (ou `docker compose pull frontend && docker compose up -d frontend`).
 3. **Teste de ponta a ponta em produção** (com um e-mail seu):
-   - [ ] `https://api.diaria.pgdev.com.br/health` → `healthy`
+   - [ ] `https://api.diaria.gomio.com.br/health` → `healthy`
    - [ ] cadastro por e-mail → e-mail chega → onboarding → pousada criada
    - [ ] "Continuar com Google" (se ligou o passo 6)
    - [ ] convidar alguém da equipe → o convite chega → a pessoa entra
@@ -490,7 +490,7 @@ e o log diz qual foi; as anteriores continuam aplicadas. Espere ver a lista de
 pendentes, `[Fila] pg-boss iniciado` e `Servidor rodando na porta 4000`. Só então:
 
 ```bash
-curl -fsS https://api.diaria.pgdev.com.br/health
+curl -fsS https://api.diaria.gomio.com.br/health
 docker compose up -d frontend
 ```
 
@@ -503,21 +503,21 @@ com um salto deste tamanho, a imagem antiga não é garantida contra o schema no
 
 ```bash
 # A versão é o sha do IMAGE_TAG.
-curl -fsS https://api.diaria.pgdev.com.br/health/live
-curl -fsS https://api.diaria.pgdev.com.br/health
+curl -fsS https://api.diaria.gomio.com.br/health/live
+curl -fsS https://api.diaria.gomio.com.br/health
 
 # Esqueci a senha: o caminho antigo não existe; o novo responde 200 (use um e-mail seu).
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/auth/forget-password
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/auth/request-password-reset \
-  -H 'Content-Type: application/json' -H 'Origin: https://diaria.pgdev.com.br' \
-  -d '{"email":"seu@email.com","redirectTo":"https://diaria.pgdev.com.br/reset-password"}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/auth/forget-password
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/auth/request-password-reset \
+  -H 'Content-Type: application/json' -H 'Origin: https://diaria.gomio.com.br' \
+  -d '{"email":"seu@email.com","redirectTo":"https://diaria.gomio.com.br/reset-password"}'
 
 # Escrita com cookie de outra origem: 403.
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.pgdev.com.br/api/pousadas \
-  -H 'Cookie: a=1' -H 'Origin: https://outro.pgdev.com.br'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.diaria.gomio.com.br/api/pousadas \
+  -H 'Cookie: a=1' -H 'Origin: https://outro.gomio.com.br'
 
 # Cabeçalhos novos do frontend.
-curl -sI https://diaria.pgdev.com.br | grep -iE 'content-security-policy|permissions-policy'
+curl -sI https://diaria.gomio.com.br | grep -iE 'content-security-policy|permissions-policy'
 ```
 
 Depois, o roteiro da seção 11, item 3. Por fim:

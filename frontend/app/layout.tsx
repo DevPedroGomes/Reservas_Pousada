@@ -37,7 +37,7 @@ const dado = localFont({
   preload: false,
 });
 
-const URL_APP = process.env.NEXT_PUBLIC_APP_URL || 'https://diaria.pgdev.com.br';
+const URL_APP = process.env.NEXT_PUBLIC_APP_URL || 'https://diaria.gomio.com.br';
 
 export const metadata: Metadata = {
   metadataBase: new URL(URL_APP),

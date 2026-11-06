@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.pgdev.com.br"
+const URL_APP = process.env.NEXT_PUBLIC_APP_URL || "https://diaria.gomio.com.br"
 
 /** Só as páginas públicas são indexáveis; a área logada e fluxos de token não. */
 export default function robots(): MetadataRoute.Robots {

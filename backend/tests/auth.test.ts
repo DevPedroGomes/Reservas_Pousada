@@ -191,7 +191,7 @@ describe('auth — esqueci a senha, limites e origem', { skip: !temBanco && 'DAT
       const email = 'csrf@teste.com';
       await contaConfirmada(email);
       const dono = await entrar(email);
-      const irmao = new Navegador(base, dono.ip, 'https://evil.pgdev.com.br');
+      const irmao = new Navegador(base, dono.ip, 'https://evil.gomio.com.br');
       irmao.cookies = dono.cookies;
       for (const metodo of ['POST', 'PUT', 'PATCH', 'DELETE']) {
         const r = await irmao.req(metodo, CAMINHO);

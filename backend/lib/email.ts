@@ -17,7 +17,7 @@ const producao = process.env.NODE_ENV === 'production';
 // Remetente e resposta configuráveis: o domínio de envio é da marca, e
 // responder a um e-mail transacional deve cair numa caixa que alguém lê.
 const FROM_EMAIL = process.env.EMAIL_FROM?.trim()
-  || (producao && resendApiKey ? 'Diária <noreply@pgdev.com.br>' : 'Diária <onboarding@resend.dev>');
+  || (producao && resendApiKey ? 'Diária <noreply@gomio.com.br>' : 'Diária <onboarding@resend.dev>');
 const REPLY_TO = process.env.EMAIL_REPLY_TO?.trim() || undefined;
 
 function escapeHtml(str: string): string {

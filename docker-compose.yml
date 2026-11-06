@@ -68,13 +68,13 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       # Endereco canonico da API. E o que o better-auth usa para montar o
       # callback do OAuth — mudar aqui exige a URI nova no Google Console.
-      BETTER_AUTH_URL: https://api.diaria.pgdev.com.br
+      BETTER_AUTH_URL: https://api.diaria.gomio.com.br
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       # Lista: o host antigo continua aceito durante a migracao de dominio.
-      CORS_ORIGIN: https://diaria.pgdev.com.br,https://minhapousada.pgdev.com.br
+      CORS_ORIGIN: https://diaria.gomio.com.br
       # Endereco canonico do app — e o que vai nos links de convite e email.
-      APP_URL: https://diaria.pgdev.com.br
+      APP_URL: https://diaria.gomio.com.br
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       EMAIL_REPLY_TO: ${EMAIL_REPLY_TO:-}
@@ -156,9 +156,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.reservas-api.entrypoints=https"
-      # Dois hosts em paralelo: o novo e o antigo, para a migracao nao ter
-      # janela de queda e continuar tendo caminho de volta.
-      - "traefik.http.routers.reservas-api.rule=Host(`api.diaria.pgdev.com.br`) || Host(`api-pousada.pgdev.com.br`)"
+      - "traefik.http.routers.reservas-api.rule=Host(`api.diaria.gomio.com.br`)"
+      - "traefik.http.routers.reservas-api.service=reservas-api"
+      # Endereços antigos só redirecionam, para links e calendários já distribuídos.
+      - "traefik.http.routers.reservas-api-antigo.entrypoints=https"
+      - "traefik.http.routers.reservas-api-antigo.rule=Host(`api.diaria.pgdev.com.br`) || Host(`api-pousada.pgdev.com.br`)"
+      - "traefik.http.routers.reservas-api-antigo.tls=true"
+      - "traefik.http.routers.reservas-api-antigo.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.reservas-api-antigo.service=reservas-api"
+      - "traefik.http.routers.reservas-api-antigo.middlewares=reservas-api-novo-dominio@docker"
+      - "traefik.http.middlewares.reservas-api-novo-dominio.redirectregex.regex=^https://[^/]+/(.*)"
+      - "traefik.http.middlewares.reservas-api-novo-dominio.redirectregex.replacement=https://api.diaria.gomio.com.br/$${1}"
+      - "traefik.http.middlewares.reservas-api-novo-dominio.redirectregex.permanent=true"
       - "traefik.http.routers.reservas-api.tls=true"
       - "traefik.http.routers.reservas-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.reservas-api.middlewares=reservas-api-security@docker,global-ratelimit@file,strip-server-header@file"
@@ -190,8 +199,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://api.diaria.pgdev.com.br
-        NEXT_PUBLIC_APP_URL: https://diaria.pgdev.com.br
+        NEXT_PUBLIC_API_URL: https://api.diaria.gomio.com.br
+        NEXT_PUBLIC_APP_URL: https://diaria.gomio.com.br
         NEXT_PUBLIC_CONTATO_EMAIL: ${NEXT_PUBLIC_CONTATO_EMAIL:-}
         NEXT_PUBLIC_PRIVACIDADE_EMAIL: ${NEXT_PUBLIC_PRIVACIDADE_EMAIL:-}
         NEXT_PUBLIC_ENCARREGADO_NOME: ${NEXT_PUBLIC_ENCARREGADO_NOME:-}
@@ -219,7 +228,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pousada-frontend.entrypoints=https"
-      - "traefik.http.routers.pousada-frontend.rule=Host(`diaria.pgdev.com.br`) || Host(`minhapousada.pgdev.com.br`)"
+      - "traefik.http.routers.pousada-frontend.rule=Host(`diaria.gomio.com.br`)"
+      - "traefik.http.routers.pousada-frontend.service=pousada-frontend"
+      # Endereços antigos só redirecionam.
+      - "traefik.http.routers.pousada-frontend-antigo.entrypoints=https"
+      - "traefik.http.routers.pousada-frontend-antigo.rule=Host(`diaria.pgdev.com.br`) || Host(`minhapousada.pgdev.com.br`)"
+      - "traefik.http.routers.pousada-frontend-antigo.tls=true"
+      - "traefik.http.routers.pousada-frontend-antigo.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pousada-frontend-antigo.service=pousada-frontend"
+      - "traefik.http.routers.pousada-frontend-antigo.middlewares=pousada-frontend-novo-dominio@docker"
+      - "traefik.http.middlewares.pousada-frontend-novo-dominio.redirectregex.regex=^https://[^/]+/(.*)"
+      - "traefik.http.middlewares.pousada-frontend-novo-dominio.redirectregex.replacement=https://diaria.gomio.com.br/$${1}"
+      - "traefik.http.middlewares.pousada-frontend-novo-dominio.redirectregex.permanent=true"
       - "traefik.http.routers.pousada-frontend.tls=true"
       - "traefik.http.routers.pousada-frontend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.pousada-frontend.middlewares=pousada-frontend-security@docker,global-ratelimit@file,strip-server-header@file"
@@ -237,7 +257,7 @@ services:
       # Meta (facebook). A fonte é servida pelo próprio app (next/font), então
       # fonts.googleapis.com e fonts.gstatic.com não entram. O login com Google é
       # redirecionamento de página inteira: não passa por connect-src nem form-action.
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.diaria.pgdev.com.br https://api-pousada.pgdev.com.br https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.diaria.gomio.com.br https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
       # O app usa a área de transferência (copiar Pix e links), que fica de fora de propósito.
       - "traefik.http.middlewares.pousada-frontend-security.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     healthcheck:

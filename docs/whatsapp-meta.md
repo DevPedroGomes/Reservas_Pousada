@@ -56,10 +56,10 @@ Hóspede escreve ──> Meta ──POST /api/webhooks/whatsapp (assinado)──
    - Copie o **ID do app** → `META_APP_ID`.
    - Copie a **Chave secreta do app** → `META_APP_SECRET` (nunca vai ao navegador;
      é usada para trocar o código e para conferir a assinatura do webhook).
-   - Domínios do app: `diaria.pgdev.com.br`.
-   - URL da Política de Privacidade: `https://diaria.pgdev.com.br/privacidade`.
-   - URL dos Termos: `https://diaria.pgdev.com.br/termos`.
-   - Exclusão de dados: instruções em `https://diaria.pgdev.com.br/privacidade`.
+   - Domínios do app: `diaria.gomio.com.br`.
+   - URL da Política de Privacidade: `https://diaria.gomio.com.br/privacidade`.
+   - URL dos Termos: `https://diaria.gomio.com.br/termos`.
+   - Exclusão de dados: instruções em `https://diaria.gomio.com.br/privacidade`.
    - Ícone e categoria (Negócios e páginas).
 
 ## 3. Liberar o acesso avançado às permissões
@@ -92,9 +92,9 @@ resumo:
 5. Salve e copie o **ID da configuração** → `META_CONFIG_ID`.
 6. **Facebook Login for Business → Configurações**:
    - *Login com o SDK do JavaScript*: **Sim**.
-   - *Domínios permitidos para o SDK do JavaScript*: `https://diaria.pgdev.com.br`
+   - *Domínios permitidos para o SDK do JavaScript*: `https://diaria.gomio.com.br`
      (e o domínio antigo, se ainda estiver no ar).
-   - *URIs de redirecionamento OAuth válidos*: `https://diaria.pgdev.com.br/`.
+   - *URIs de redirecionamento OAuth válidos*: `https://diaria.gomio.com.br/`.
 
 O painel chama o SDK assim (já implementado em
 `frontend/components/whatsapp/WhatsappBusiness.tsx`):
@@ -114,7 +114,7 @@ homologação/produção ou com um túnel HTTPS.
 ## 5. Webhook
 
 1. **WhatsApp → Configuração → Webhook → Editar**:
-   - URL de callback: `https://api.diaria.pgdev.com.br/api/webhooks/whatsapp`
+   - URL de callback: `https://api.diaria.gomio.com.br/api/webhooks/whatsapp`
    - Token de verificação: o valor de `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (invente
      uma string longa e aleatória, ex. `openssl rand -hex 24`).
    - A Meta faz um GET com `hub.challenge`; a API responde se o token bater.
