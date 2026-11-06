@@ -1,10 +1,10 @@
 # WhatsApp Business das pousadas — o que configurar na Meta
 
 Cada pousada conecta o **próprio número** pelo painel (Configurações → WhatsApp
-Business da pousada), num fluxo oficial da Meta chamado *Embedded Signup*. O
-Diária atua como **Tech Provider**: um app nosso, aprovado pela Meta, que recebe
-permissão para operar a conta de WhatsApp de cada pousada. A conta, o número e a
-cobrança das conversas continuam sendo da pousada — a Meta cobra direto dela.
+Business da pousada), num fluxo oficial da Meta chamado *Embedded Signup*. Nesse
+fluxo, a pousada concede ao app do Diária permissão para operar a conta de
+WhatsApp dela. A conta, o número e a cobrança das conversas continuam sendo da
+pousada — a Meta cobra direto dela.
 
 Este documento é o passo a passo do nosso lado. Depois de feito uma vez, o
 onboarding de cada pousada é self-service.
@@ -43,8 +43,8 @@ Hóspede escreve ──> Meta ──POST /api/webhooks/whatsapp (assinado)──
 1. Em <https://business.facebook.com>, use (ou crie) o portfólio empresarial do
    Diária — o CNPJ da empresa que opera o SaaS.
 2. **Central de Segurança → Verificação da empresa**: envie CNPJ e comprovante
-   de endereço/telefone. Sem verificação não há Tech Provider nem acesso
-   avançado às permissões.
+   de endereço/telefone. Sem verificação não há acesso avançado às
+   permissões.
 3. Adicione pelo menos dois administradores (evita ficar trancado fora).
 
 ## 2. Criar o app
@@ -62,10 +62,10 @@ Hóspede escreve ──> Meta ──POST /api/webhooks/whatsapp (assinado)──
    - Exclusão de dados: instruções em `https://diaria.pgdev.com.br/privacidade`.
    - Ícone e categoria (Negócios e páginas).
 
-## 3. Tornar-se Tech Provider
+## 3. Liberar o acesso avançado às permissões
 
-No painel do app: **WhatsApp → Início rápido** (ou "Tornar-se um Tech
-Provider"), e siga os passos da Meta. Em resumo:
+No painel do app: **WhatsApp → Início rápido**, e siga os passos da Meta. Em
+resumo:
 
 1. Verificação da empresa (passo 1) concluída.
 2. **Análise do app (App Review)** pedindo acesso avançado a:
