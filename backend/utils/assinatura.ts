@@ -35,11 +35,12 @@ export type MotivoBloqueio =
   | 'trial_expirado'
   | 'tolerancia_esgotada'
   | 'suspensa'
-  | 'cancelada';
+  | 'cancelada'
+  | 'acima_do_limite';
 
 export type Veredito =
   | { liberado: true; motivo: MotivoLiberado; diasRestantes?: number }
-  | { liberado: false; motivo: MotivoBloqueio };
+  | { liberado: false; motivo: MotivoBloqueio; detalhes?: string[] };
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -118,9 +119,27 @@ export function limitesVigentes(e: Pick<EstadoAssinatura, 'status' | 'plano'>): 
   };
 }
 
+/**
+ * Avaliação completa: o pagamento (avaliarAcesso) e o uso diante do plano.
+ *
+ * A troca de plano no Portal do Stripe não passa pela nossa recusa de downgrade,
+ * então uma conta pode amanhecer acima do limite. Nada é apagado: a operação
+ * para até o dono reduzir o uso ou subir de plano, e configuração e cobrança
+ * continuam abertas para isso. Vale só para plano pago; os limites do trial já
+ * são aplicados na criação.
+ */
+export function avaliarAcessoComUso(e: EstadoAssinatura, uso: UsoAtual, agora: Date = new Date()): Veredito {
+  const base = avaliarAcesso(e, agora);
+  if (!base.liberado || e.status === 'cortesia' || !e.plano) return base;
+  const detalhes = motivosParaNaoCaber(uso, limitesVigentes(e));
+  return detalhes.length > 0 ? { liberado: false, motivo: 'acima_do_limite', detalhes } : base;
+}
+
 /** Mensagem para o usuário final. Nunca expõe estado interno de cobrança. */
-export function mensagemDeBloqueio(motivo: MotivoBloqueio): string {
+export function mensagemDeBloqueio(motivo: MotivoBloqueio, detalhes: string[] = []): string {
   switch (motivo) {
+    case 'acima_do_limite':
+      return `Sua conta está acima do limite do plano${detalhes.length ? `: ${detalhes.join('; ')}` : ''}. Reduza o uso nas configurações ou faça upgrade para voltar a operar. Nenhum dado foi apagado.`;
     case 'trial_expirado':
       return 'Seu período de teste terminou. Escolha um plano para continuar usando.';
     case 'tolerancia_esgotada':

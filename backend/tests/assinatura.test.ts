@@ -144,7 +144,7 @@ describe('limites por plano', () => {
 });
 
 describe('mensagem de bloqueio', () => {
-  const motivos: MotivoBloqueio[] = ['trial_expirado', 'tolerancia_esgotada', 'suspensa', 'cancelada'];
+  const motivos: MotivoBloqueio[] = ['trial_expirado', 'tolerancia_esgotada', 'suspensa', 'cancelada', 'acima_do_limite'];
 
   it('existe para todo motivo, e nenhuma vaza estado interno de cobrança', () => {
     for (const m of motivos) {

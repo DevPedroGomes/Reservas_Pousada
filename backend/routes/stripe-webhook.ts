@@ -55,7 +55,7 @@ export function traduzirStatus(s: Stripe.Subscription.Status): StatusAssinatura 
   }
 }
 
-/** Descobre plano e ciclo pelo id do Price, quando o metadata não veio. */
+/** Plano e ciclo pelo id do Price: o que o Stripe de fato cobra. */
 function pelaPrice(priceId: string | undefined): { plano: CodigoPlano | null; ciclo: Ciclo | null } {
   if (!priceId) return { plano: null, ciclo: null };
   for (const plano of CODIGOS_PLANO) {
@@ -199,12 +199,17 @@ async function aplicarAssinatura(sub: Stripe.Subscription, tx: Executor): Promis
     return;
   }
 
+  // O Price é o que está sendo cobrado. O metadata só é escrito pelo nosso
+  // checkout, então fica velho quando o dono troca de plano no Portal do Stripe.
+  // Ele e o valor já gravado só valem para um Price fora da configuração.
   const meta = sub.metadata ?? {};
   const derivado = pelaPrice(sub.items?.data?.[0]?.price?.id);
-  const plano = (CODIGOS_PLANO as readonly string[]).includes(meta.plano)
-    ? (meta.plano as CodigoPlano)
-    : derivado.plano;
-  const ciclo = meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : derivado.ciclo;
+  const plano = derivado.plano
+    ?? ((CODIGOS_PLANO as readonly string[]).includes(meta.plano) ? (meta.plano as CodigoPlano) : null)
+    ?? (local.plano as CodigoPlano | null);
+  const ciclo = derivado.ciclo
+    ?? (meta.ciclo === 'mensal' || meta.ciclo === 'anual' ? meta.ciclo : null)
+    ?? (local.ciclo as Ciclo | null);
 
   await AssinaturaModel.aplicarDoStripe({
     stripeCustomerId: customerId,

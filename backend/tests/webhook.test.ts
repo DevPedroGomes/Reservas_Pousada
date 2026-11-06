@@ -144,6 +144,45 @@ describe('webhook do Stripe', { skip: !temBanco && 'DATABASE_URL não definida' 
     assert.equal((await statusLocal()).status, 'ativa');
   });
 
+  describe('plano vem do Price, não do metadata', () => {
+    const antes = { ...process.env };
+    before(() => {
+      process.env.STRIPE_PRICE_REDE_ANUAL = 'price_rede_anual';
+      process.env.STRIPE_PRICE_ESSENCIAL_MENSAL = 'price_ess_mensal';
+    });
+    after(() => { process.env = antes; });
+    const comPrice = (priceId: string, metadata: Record<string, string>) => ({
+      ...sub('sub_A', 'active'),
+      metadata,
+      items: { data: [{ current_period_end: 1893456000, price: { id: priceId } }] },
+    }) as unknown as Stripe.Subscription;
+    const local = async () => (await pool.query(`SELECT plano, ciclo FROM assinaturas WHERE stripe_customer_id = 'cus_teste'`)).rows[0];
+
+    it('troca no Portal muda o Price e mantém o metadata antigo: vale o Price', async () => {
+      await processarEvento(
+        evento('evt_portal', 'customer.subscription.updated', { id: 'sub_A' }),
+        leitura({ sub_A: comPrice('price_rede_anual', { plano: 'pousada', ciclo: 'mensal' }) }),
+      );
+      assert.deepEqual(await local(), { plano: 'rede', ciclo: 'anual' });
+    });
+
+    it('Price fora da configuração cai no metadata', async () => {
+      await processarEvento(
+        evento('evt_meta', 'customer.subscription.updated', { id: 'sub_A' }),
+        leitura({ sub_A: comPrice('price_antigo', { plano: 'pousada', ciclo: 'mensal' }) }),
+      );
+      assert.deepEqual(await local(), { plano: 'pousada', ciclo: 'mensal' });
+    });
+
+    it('sem Price conhecido e sem metadata, mantém o plano que já estava gravado', async () => {
+      await processarEvento(
+        evento('evt_nada', 'customer.subscription.updated', { id: 'sub_A' }),
+        leitura({ sub_A: comPrice('price_antigo', {}) }),
+      );
+      assert.deepEqual(await local(), { plano: 'pousada', ciclo: 'mensal' });
+    });
+  });
+
   it('cancelamento de OUTRA assinatura do cliente não derruba a corrente', async () => {
     await processarEvento(
       evento('evt_paralela', 'customer.subscription.deleted', { id: 'sub_B' }),

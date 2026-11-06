@@ -1,14 +1,15 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { db, assinaturas, stripeEvents, userPousadas, type Executor } from '../db/index.js';
+import { db, assinaturas, quartos, stripeEvents, userPousadas, type Executor } from '../db/index.js';
 import { DIAS_DE_TRIAL, type Ciclo, type CodigoPlano } from '../config/planos.js';
 import {
-  avaliarAcesso,
+  avaliarAcessoComUso,
   limitesVigentes,
   temAssinaturaViva,
   type EstadoAssinatura,
   type Limites,
   type PousadaPossuida,
   type StatusAssinatura,
+  type UsoAtual,
   type Veredito,
 } from '../utils/assinatura.js';
 
@@ -138,10 +139,31 @@ export class AssinaturaModel {
     return Boolean(row);
   }
 
+  /** O que a pousada consome hoje dos limites do plano que a cobre. */
+  static async usoDaPousada(pousadaId: number, pagadoraId: number): Promise<UsoAtual> {
+    const [[{ n: quartosAtivos }], [{ n: usuarios }], pousadas] = await Promise.all([
+      db.select({ n: sql<number>`count(*)::int` }).from(quartos).where(and(eq(quartos.pousadaId, pousadaId), eq(quartos.ativo, true))),
+      db.select({ n: sql<number>`count(*)::int` }).from(userPousadas).where(eq(userPousadas.pousadaId, pousadaId)),
+      this.pousadasCobertas(pagadoraId),
+    ]);
+    return { quartos: Number(quartosAtivos) || 0, usuarios: Number(usuarios) || 0, pousadas };
+  }
+
+  /**
+   * A pousada pode operar agora? Pagamento e uso diante do plano. É a decisão de
+   * todos os pontos que entregam produto. null = pousada sem linha de assinatura.
+   */
+  static async vereditoDaPousada(pousadaId: number): Promise<Veredito | null> {
+    const efetiva = await this.efetiva(pousadaId);
+    if (!efetiva) return null;
+    return avaliarAcessoComUso(this.paraEstado(efetiva.row), await this.usoDaPousada(pousadaId, efetiva.pagadoraId));
+  }
+
   static async situacao(pousadaId: number): Promise<{
     estado: EstadoAssinatura;
     veredito: Veredito;
     limites: Limites;
+    quartos: number;
     usuarios: number;
     pousadasDoDono: number;
     ciclo: string | null;
@@ -155,17 +177,15 @@ export class AssinaturaModel {
     const { row, pagadoraId } = efetiva;
 
     const estado = this.paraEstado(row);
-    const [{ n: usuarios }] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(userPousadas)
-      .where(eq(userPousadas.pousadaId, pousadaId));
+    const uso = await this.usoDaPousada(pousadaId, pagadoraId);
 
     return {
       estado,
-      veredito: avaliarAcesso(estado),
+      veredito: avaliarAcessoComUso(estado, uso),
       limites: limitesVigentes(estado),
-      usuarios: Number(usuarios) || 0,
-      pousadasDoDono: await this.pousadasCobertas(pagadoraId),
+      quartos: uso.quartos,
+      usuarios: uso.usuarios,
+      pousadasDoDono: uso.pousadas,
       cobertaPor: pagadoraId !== pousadaId ? pagadoraId : null,
       ciclo: row.ciclo,
       assinaturaViva: temAssinaturaViva(row),

@@ -74,6 +74,8 @@ function textoBloqueado(s: SituacaoAssinatura): string {
       return "Sua assinatura está suspensa. Entre em contato com o suporte."
     case "cancelada":
       return "Sua assinatura foi cancelada. Escolha um plano para voltar a usar."
+    case "acima_do_limite":
+      return "Sua conta está acima do limite do plano. Reduza quartos, usuários ou pousadas, ou faça upgrade. Nenhum dado foi apagado."
     default:
       return "Sua assinatura precisa de atenção."
   }
