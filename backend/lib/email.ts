@@ -229,6 +229,22 @@ export async function enviarAtendimentoSolicitado(para: string[], d: { pousada: 
   for (const email of para) await enfileirarEmail(email, `WhatsApp: ${d.nome || '+' + d.contato} quer falar com a equipe`, html);
 }
 
+/** Aviso à equipe: mudou para onde vai o dinheiro dos Pix. Só com valores mascarados. */
+export async function enviarChavePixAlterada(para: string[], d: { pousada: string; quem: string; chaveDepois: string | null; asaasDepois: string | null; chaveMudou: boolean; asaasMudou: boolean }): Promise<void> {
+  const linha = (rotulo: string, valor: string | null) =>
+    `<p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>${rotulo}:</strong> ${escapeHtml(valor ?? 'removida')}</p>`;
+  const html = baseTemplate(`
+    ${titulo('A configuração de Pix foi alterada')}
+    ${p(`<strong>${escapeHtml(d.quem)}</strong> alterou o recebimento por Pix da <strong>${escapeHtml(d.pousada)}</strong>.`)}
+    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0;">
+      ${d.chaveMudou ? linha('Chave Pix', d.chaveDepois) : ''}
+      ${d.asaasMudou ? linha('Chave do Asaas', d.asaasDepois) : ''}
+    </div>
+    ${pequeno('Se ninguém da pousada fez esta alteração, troque a senha do proprietário e confira a chave em Configurações agora: os próximos Pix usam esta configuração.')}
+  `, 'Pix alterado');
+  for (const email of para) await enfileirarEmail(email, `Pix alterado na ${d.pousada}`, html);
+}
+
 /**
  * Aviso à equipe: um Pix foi pago com a reserva já encerrada. Ou a reserva
  * voltou a valer, ou o dinheiro precisa ser devolvido ao hóspede.

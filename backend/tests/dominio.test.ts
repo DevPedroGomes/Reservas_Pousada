@@ -151,6 +151,50 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     });
   });
 
+  describe('chave Pix e chave Asaas', () => {
+    const CORPO = { tipo_chave: 'telefone', chave: '48988887777', nome: 'Pousada Dominio', cidade: 'Floripa' };
+    const ASAAS = '$aact_hmlg_000MzkwODA2MWY2OGM3MWRlMDU2NWM3MzJlNzZmNGZhZGY6OmFkZmM';
+
+    it('admin não troca a chave Pix nem a do Asaas', async () => {
+      const antes = (await dono.req('GET', `/api/pousadas/${pousada}/pix`)).json.pix;
+      assert.equal((await admin.req('PUT', `/api/pousadas/${pousada}/pix`, CORPO)).status, 403);
+      assert.equal((await admin.req('PUT', `/api/pousadas/${pousada}/pix`, { ...CORPO, asaas_chave: ASAAS })).status, 403);
+      assert.equal((await admin.req('PUT', `/api/pousadas/${pousada}/pix`, { ...CORPO, remover_asaas: true })).status, 403);
+      assert.deepEqual((await dono.req('GET', `/api/pousadas/${pousada}/pix`)).json.pix, antes);
+    });
+
+    it('o dono troca, a equipe recebe o aviso e a auditoria guarda só o valor mascarado', async () => {
+      const { GatewayRecusou: _g, usarGatewayDeTeste } = await import('../lib/gatewayPix.js');
+      usarGatewayDeTeste(() => ({
+        exigeDocumento: true,
+        async criarCobranca() { throw new Error('não usado'); },
+        async consultar() { throw new Error('não usado'); },
+        async cancelarCobranca() {},
+        async registrarWebhook() {},
+      }));
+      try {
+        let r: { status: number; json: any } | undefined;
+        const emails = await emailsDe(async () => { r = await dono.req('PUT', `/api/pousadas/${pousada}/pix`, { ...CORPO, asaas_chave: ASAAS }); });
+        assert.equal(r!.status, 200, JSON.stringify(r!.json));
+        const aviso = emails.filter((e) => /Pix/.test(e.assunto) && /alterad/i.test(e.assunto));
+        assert.ok(aviso.some((e) => e.para === 'dono@dominio.com'), JSON.stringify(emails));
+        const { rows: [aud] } = await pool.query(`SELECT details FROM auditoria WHERE action = 'config_pix' ORDER BY id DESC LIMIT 1`);
+        const texto = JSON.stringify(aud.details);
+        assert.ok(!texto.includes('+5548988887777'), `chave inteira na auditoria: ${texto}`);
+        assert.ok(!texto.includes('MzkwODA2'), `chave do Asaas na auditoria: ${texto}`);
+        assert.match(aud.details.chaveDepois, /7777$/);
+        assert.match(aud.details.asaasDepois, /\*+.{4}$/);
+
+        // Salvar sem mudar nada não avisa.
+        const denovo = await emailsDe(async () => { await dono.req('PUT', `/api/pousadas/${pousada}/pix`, CORPO); });
+        assert.equal(denovo.filter((e) => /alterad/i.test(e.assunto)).length, 0, JSON.stringify(denovo));
+      } finally {
+        usarGatewayDeTeste(null);
+        await dono.req('PUT', `/api/pousadas/${pousada}/pix`, { tipo_chave: 'telefone', chave: '48999990000', nome: 'Pousada Dominio', cidade: 'Floripa', remover_asaas: true });
+      }
+    });
+  });
+
   describe('confirmada vencida sem check-in', () => {
     const inicio = d(-40);
     const fim = d(-30);

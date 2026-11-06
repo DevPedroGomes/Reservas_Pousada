@@ -67,6 +67,11 @@ async function credencial(pousadaId: number) {
   return c ? { provedor: c.provedor as 'asaas', token: decifrarSegredo(c.token_cifrado), webhookToken: c.webhook_token as string } : null;
 }
 
+/** Chave do Asaas em uso, só para comparar e mascarar: nunca sai da API. */
+export async function chaveAsaasAtual(pousadaId: number): Promise<string | null> {
+  return (await credencial(pousadaId))?.token ?? null;
+}
+
 function baseApi(): string {
   return (process.env.API_PUBLIC_URL || process.env.BETTER_AUTH_URL || 'http://localhost:4000').replace(/\/$/, '');
 }
