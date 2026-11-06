@@ -699,7 +699,7 @@
     /* O sol se põe: o papel vira terracota, e a noite da pousada é o fim do dia dela. */
     .dia-sol {
       animation: por-do-sol linear both;
-      animation-range: contain 58% contain 90%;
+      animation-range: contain 60% contain 72%;
       animation-timeline: --dia;
       background: var(--realce);
       display: block;
@@ -732,9 +732,10 @@
       width: clamp(24rem, 36vw, 36rem);
     }
 
-    .momento:nth-of-type(n + 5) :is(.momento-hora, h3, .momento-texto) {
+    /* A troca é curta e vale para todo o trilho: nenhum texto fica no meio do caminho. */
+    .momento :is(.momento-hora, h3, .momento-texto) {
       animation: fica-claro linear both;
-      animation-range: contain 58% contain 88%;
+      animation-range: contain 60% contain 72%;
       animation-timeline: --dia;
     }
 

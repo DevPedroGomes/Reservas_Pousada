@@ -5,6 +5,12 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 - Frontend: https://diaria.pgdev.com.br
 - API: https://api.diaria.pgdev.com.br
 
+| The door opens on scroll | The real occupancy map behind it | A day at the front desk |
+|---|---|---|
+| ![Painted door asking "Tem vaga?"](docs/imagens/porta.webp) | ![The occupancy map refusing a double booking](docs/imagens/mapa-recusa.webp) | ![Horizontal timeline of a day at the front desk](docs/imagens/dia-na-recepcao.webp) |
+
+The landing page animates with native CSS scroll-driven animations only: no animation library and no scroll listeners. Browsers without support, and visitors who ask for reduced motion, get the same content as a static page.
+
 ## Features
 
 - **Occupancy map**: rooms × days grid (half-day columns so same-day turnover sits side by side), click an empty slot to book.
