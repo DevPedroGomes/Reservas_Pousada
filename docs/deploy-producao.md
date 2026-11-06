@@ -52,12 +52,12 @@ Gere na sua máquina e cole no `.env`:
 ```bash
 openssl rand -base64 32   # BETTER_AUTH_SECRET
 openssl rand -hex 32      # CPF_ENCRYPTION_KEY (64 caracteres hex)
-openssl rand -base64 24   # POSTGRES_PASSWORD (se ainda não existe)
+openssl rand -hex 24      # POSTGRES_PASSWORD (se ainda não existe)
 ```
 
 | Variável | Observação |
 |---|---|
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | o banco precisa existir na `central-db` |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | o banco precisa existir na `central-db`; a senha entra na `DATABASE_URL`, por isso hex: `/`, `+` e `=` do base64 quebram a URL |
 | `BETTER_AUTH_SECRET` | assina as sessões; trocar desloga todo mundo |
 | `CPF_ENCRYPTION_KEY` | cifra CPF, documentos, tokens de integração e mensagens do WhatsApp |
 | `APP_TIMEZONE` | `America/Sao_Paulo` |
