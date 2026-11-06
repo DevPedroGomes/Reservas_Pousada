@@ -135,6 +135,22 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
   const avisoDoCalendario = async (impId: number) =>
     (await pool.query(`SELECT ultimo_erro FROM ical_importacoes WHERE id = $1`, [impId])).rows[0].ultimo_erro as string | null;
 
+  describe('conflito do EXCLUDE', () => {
+    it('reativar em datas já ocupadas responde 409, não 500', async () => {
+      const quarto = novoQuarto();
+      const r = await recep.req('POST', '/api/reservas', { nome: 'Vai Voltar', telefone: '48950000001', quarto, data_entrada: d(90), data_saida: d(92) });
+      const id = r.json.reserva.id;
+      const cancelou = await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'cancelada', version: r.json.reserva.version });
+      assert.equal(cancelou.status, 200, JSON.stringify(cancelou.json));
+      await novaReserva({ quarto, data_entrada: d(90), data_saida: d(92) });
+      const version = (await recep.req('GET', `/api/reservas/${id}`)).json.reserva.version;
+      const volta = await recep.req('PATCH', `/api/reservas/${id}/status`, { status: 'confirmada', version });
+      assert.equal(volta.status, 409, JSON.stringify(volta.json));
+      assert.equal(volta.json.codigo, 'RES_002');
+      assert.equal(volta.json.conflitos.length, 1);
+    });
+  });
+
   describe('iCal: feed vazio e evento ausente', () => {
     it('feed sem eventos não cancela nada e grava aviso', async () => {
       const { Ical, imp } = await novoCalendario();
