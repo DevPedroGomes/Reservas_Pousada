@@ -309,8 +309,10 @@ app.get('/api/config', (_req, res) => {
   res.json({ sucesso: true, google: googleConfigurado });
 });
 
+// `version` é o commit da imagem (APP_VERSION, gravado no build): é o que o CI
+// confere para saber se a produção está servindo o que foi publicado.
 app.get('/health/live', (req, res) => {
-  res.json({ status: 'alive', timestamp: new Date().toISOString() });
+  res.json({ status: 'alive', version: process.env.APP_VERSION || 'desconhecida', timestamp: new Date().toISOString() });
 });
 
 // Readiness: a API consegue servir de verdade (inclui o banco). É o que o
