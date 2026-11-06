@@ -459,8 +459,10 @@
       position: absolute;
     }
 
+    /* visibility fica em animação separada: no mesmo keyframe, tiraria o
+       transform e o opacity do compositor e a rolagem passaria pela thread principal. */
     .fachada {
-      animation: atravessa linear both;
+      animation: atravessa linear both, some linear both;
       animation-range: contain 14% contain 32%;
       animation-timeline: --cena;
       inset: 0;
@@ -498,7 +500,7 @@
     }
 
     .porta-texto {
-      animation: sai-texto linear both;
+      animation: sai-texto linear both, some linear both;
       animation-range: contain 2% contain 8%;
       animation-timeline: --cena;
     }
@@ -576,13 +578,17 @@
     }
 
     @keyframes sai-texto {
-      to { opacity: 0; transform: translateY(0.75rem); visibility: hidden; }
+      to { opacity: 0; transform: translateY(0.75rem); }
+    }
+
+    @keyframes some {
+      to { visibility: hidden; }
     }
 
     @keyframes atravessa {
-      0% { transform: scale(1); opacity: 1; visibility: visible; }
+      0% { transform: scale(1); opacity: 1; }
       85% { opacity: 1; }
-      100% { transform: scale(2.6); opacity: 0; visibility: hidden; }
+      100% { transform: scale(2.6); opacity: 0; }
     }
 
     @keyframes entra-interior {
