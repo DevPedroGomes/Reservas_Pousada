@@ -171,6 +171,13 @@ jobs:
           export APP_VERSION="${IMAGE_TAG}"
           docker compose build
           docker compose push backend frontend
+          # Dois pushes seguidos podem terminar fora de ordem. O latest é o que a VPS
+          # consome, então só o topo da main pode movê-lo; a tag por sha fica de qualquer jeito.
+          topo="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "${GITHUB_SHA}" != "${topo}" ]; then
+            echo "Publicado só como ${IMAGE_TAG}: a main já está em ${topo::12}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           for servico in backend frontend; do
             imagem="ghcr.io/devpedrogomes/reservas_pousada/${servico}"
             docker tag "${imagem}:${IMAGE_TAG}" "${imagem}:latest"
@@ -190,10 +197,20 @@ jobs:
     concurrency:
       group: verificar-producao-${{ github.repository }}
       cancel-in-progress: true
+    permissions:
+      contents: read
     steps:
       - name: Esperar a API servir o commit publicado (ate 15 min)
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Commit superado não vai ao ar: quem responde é o run do topo da main.
+          topo="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" -q .sha)"
+          if [ "${GITHUB_SHA}" != "${topo}" ]; then
+            echo "Conferência dispensada: a main já está em ${topo::12}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           esperado="${GITHUB_SHA::12}"
           url="https://api.diaria.gomio.com.br/health/live"
           prazo=$((SECONDS + 900))
