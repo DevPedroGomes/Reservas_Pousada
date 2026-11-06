@@ -293,8 +293,8 @@ async function baixar(cliente: PoolClient, cobrancaId: number, valorCentavos: nu
   const estornar = encerrada && !reativou;
   const { rows: [pg] } = await cliente.query(
     `INSERT INTO pagamentos (pousada_id, reserva_id, valor_centavos, forma, tipo, recebido_em, observacao, criado_por)
-     VALUES ($1, $2, $3, 'pix', $4, current_date, $5, $6) RETURNING id`,
-    [c.pousada_id, c.reserva_id, valorCentavos, r?.status === 'pre_reserva' ? 'sinal' : 'pagamento',
+     VALUES ($1, $2, $3, 'pix', $4, $5, $6, $7) RETURNING id`,
+    [c.pousada_id, c.reserva_id, valorCentavos, r?.status === 'pre_reserva' ? 'sinal' : 'pagamento', hojeLocal(),
       estornar ? `${origem} — reserva encerrada: estornar ao hóspede` : origem, userId],
   );
   await cliente.query(
