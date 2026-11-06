@@ -200,6 +200,7 @@ describe('billing — acesso', { skip: !temBanco && 'DATABASE_URL não definida'
       before(async () => {
         (await import('../lib/metaWhatsapp.js')).usarClienteMetaDeTeste({
           async trocarCodigo() { return 'token'; },
+          async numerosDaWaba() { return ['20000001', '20000002', '20000003', '20000004']; },
           async assinarWebhooks() {},
           async registrarNumero() {},
           async dadosDoNumero() { return { numero: null, nome: null }; },

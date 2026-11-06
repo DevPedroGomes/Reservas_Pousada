@@ -79,24 +79,34 @@ export async function conectar(pousadaId: number, d: { code: string; wabaId: str
     throw new WhatsappRecusado('Este WhatsApp já foi usado em outra pousada do Diária. Assine um plano para conectá-lo aqui.', 409);
   }
   const m = meta();
+  // Em coexistência o número segue no celular: não há registro nem PIN.
+  const pin = d.coexistencia ? null : String(randomInt(100000, 1000000));
   let token: string;
+  let assinou = false;
   try {
     token = await m.trocarCodigo(d.code);
+    // Os ids vêm do navegador: só a Meta diz se este número é mesmo desta conta.
+    const numeros = await m.numerosDaWaba(d.wabaId, token);
+    if (!numeros.includes(d.phoneNumberId)) throw new WhatsappRecusado('Este número não pertence à conta do WhatsApp informada. Conecte de novo e escolha o número certo.');
     await m.assinarWebhooks(d.wabaId, token);
-    if (!d.coexistencia) await m.registrarNumero(d.phoneNumberId, token, String(randomInt(100000, 1000000)));
+    assinou = true;
+    if (pin) await m.registrarNumero(d.phoneNumberId, token, pin);
   } catch (err) {
+    if (err instanceof WhatsappRecusado) throw err;
     // O detalhe da Meta fica no log; pode citar token ou identificadores internos.
     console.error('[WhatsApp] conexão recusada pela Meta:', (err as Error).message);
+    // Sem conta gravada, a assinatura deixaria a Meta mandando eventos para ninguém.
+    if (assinou) await m.desassinarWebhooks(d.wabaId, token!).catch((e: Error) => console.warn('[WhatsApp] desassinar webhooks:', e.message));
     throw new WhatsappRecusado('A Meta recusou a conexão. Confira o número escolhido e tente de novo.', 502);
   }
   const numero = await m.dadosDoNumero(d.phoneNumberId, token).catch(() => ({ numero: null, nome: null }));
   await pool.query(
-    `INSERT INTO whatsapp_contas (pousada_id, waba_id, phone_number_id, numero_exibicao, nome_verificado, token_cifrado, coexistencia)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO whatsapp_contas (pousada_id, waba_id, phone_number_id, numero_exibicao, nome_verificado, token_cifrado, coexistencia, pin_cifrado)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (pousada_id) DO UPDATE SET waba_id = EXCLUDED.waba_id, phone_number_id = EXCLUDED.phone_number_id,
        numero_exibicao = EXCLUDED.numero_exibicao, nome_verificado = EXCLUDED.nome_verificado, token_cifrado = EXCLUDED.token_cifrado,
-       coexistencia = EXCLUDED.coexistencia, modelos_criados = false, atualizado_em = now()`,
-    [pousadaId, d.wabaId, d.phoneNumberId, numero.numero, numero.nome, cifrarSegredo(token), d.coexistencia],
+       coexistencia = EXCLUDED.coexistencia, pin_cifrado = EXCLUDED.pin_cifrado, modelos_criados = false, atualizado_em = now()`,
+    [pousadaId, d.wabaId, d.phoneNumberId, numero.numero, numero.nome, cifrarSegredo(token), d.coexistencia, pin ? cifrarSegredo(pin) : null],
   );
   await pool.query(`INSERT INTO whatsapp_wabas_usadas (waba_id, pousada_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [d.wabaId, pousadaId]);
   // Modelos para mensagens iniciadas pela pousada (lembrete, confirmação). A

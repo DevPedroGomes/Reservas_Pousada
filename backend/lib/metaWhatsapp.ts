@@ -48,6 +48,7 @@ async function chamar(fetchImpl: Fetch, url: string, token: string | null, init:
 
 export interface ClienteMeta {
   trocarCodigo(code: string): Promise<string>;
+  numerosDaWaba(wabaId: string, token: string): Promise<string[]>;
   assinarWebhooks(wabaId: string, token: string): Promise<void>;
   desassinarWebhooks(wabaId: string, token: string): Promise<void>;
   registrarNumero(phoneNumberId: string, token: string, pin: string): Promise<void>;
@@ -64,6 +65,10 @@ export function clienteMeta(fetchImpl: Fetch = fetch): ClienteMeta {
       const j = await chamar(fetchImpl, `${GRAPH()}/oauth/access_token?${q}`, null);
       if (!j.access_token) throw new MetaRecusou('Meta não devolveu o token da conta.');
       return j.access_token as string;
+    },
+    async numerosDaWaba(wabaId, token) {
+      const j = await chamar(fetchImpl, `${GRAPH()}/${wabaId}/phone_numbers?fields=id&limit=100`, token);
+      return ((j.data ?? []) as { id: unknown }[]).map((n) => String(n.id));
     },
     async assinarWebhooks(wabaId, token) {
       await chamar(fetchImpl, `${GRAPH()}/${wabaId}/subscribed_apps`, token, { method: 'POST' });

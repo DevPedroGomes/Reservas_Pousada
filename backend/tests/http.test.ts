@@ -1023,6 +1023,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const { usarClienteMetaDeTeste } = await import('../lib/metaWhatsapp.js');
       usarClienteMetaDeTeste({
         async trocarCodigo(code) { if (code !== 'codigo-ok') throw new Error('código expirado'); return 'token-da-pousada'; },
+        async numerosDaWaba() { return [NUMERO]; },
         async assinarWebhooks() {},
         async desassinarWebhooks(waba) { desassinadas.push(waba); },
         async registrarNumero() {},
