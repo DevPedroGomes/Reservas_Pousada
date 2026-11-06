@@ -40,11 +40,14 @@ export async function calendarioExportado(token: string, dominio?: string): Prom
   );
   if (!q) return null;
   // Do mês passado em diante: a OTA só precisa do que ainda bloqueia data.
+  // Pré-reserva de canal público fica de fora até confirmar: quem preenche o
+  // formulário não pode fechar a venda da pousada em todas as OTAs.
   const { rows } = await pool.query(
     `SELECT id, data_entrada::text AS inicio, data_saida::text AS fim
        FROM reservas
       WHERE pousada_id = $1 AND quarto = $2 AND deleted_at IS NULL
         AND status IN ('pre_reserva', 'confirmada', 'hospedada')
+        AND NOT (status = 'pre_reserva' AND canal IN ('site', 'whatsapp'))
         AND data_saida >= (current_date - 30)
       ORDER BY data_entrada`,
     [q.pousada_id, q.numero],

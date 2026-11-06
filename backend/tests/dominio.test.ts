@@ -786,4 +786,145 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       assert.match(r.json.hospedes[0].revisaoMotivo, /documento/i);
     });
   });
+
+  // -------------------------------------------------------------------------
+  describe('pedidos públicos em massa', () => {
+    const visitante = () => new Cliente(base, `203.0.113.${ipSeq++}`);
+    const espera = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+    let telefoneSeq = 1000;
+    let pousadaPequena = 0;
+    let diaSeq = 300;
+    const pedido = (quarto: number, extra: Record<string, unknown> = {}) => {
+      diaSeq += 2;
+      return { quarto, entrada: d(diaSeq), saida: d(diaSeq + 1), adultos: 1, criancas: 0, nome: 'Robo Pedido Silva', telefone: `4899${String(1000000 + telefoneSeq++)}`, aceite: true, ...extra };
+    };
+
+    /** Pousada com o motor ligado, para os contadores deste bloco começarem do zero. */
+    async function pousadaComMotor(slug: string, quartos: number): Promise<number> {
+      const { rows: [p] } = await pool.query(
+        `INSERT INTO pousadas (nome, slug, num_quartos, configuracoes) VALUES ($1, $1, $2, '{"motor": {"ativo": true, "prazo_horas": 12, "sinal_percentual": 0}}') RETURNING id`,
+        [slug, quartos],
+      );
+      await pool.query(`DELETE FROM quartos WHERE pousada_id = $1`, [p.id]);
+      await pool.query(
+        `INSERT INTO quartos (pousada_id, numero, nome, preco_base_centavos, capacidade) SELECT $1, g, 'Q' || g, 10000, 4 FROM generate_series(1, $2::int) g`,
+        [p.id, quartos],
+      );
+      return p.id;
+    }
+
+    before(async () => {
+      pousadaPequena = await pousadaComMotor('pequena', 6);
+    });
+
+    it('limite por pousada: robô não fecha o estoque inteiro', async () => {
+      const aceitos = [];
+      for (let q = 1; q <= 3; q++) aceitos.push(await visitante().req('POST', '/api/publico/pequena/reservas', pedido(q)));
+      assert.deepEqual(aceitos.map((r) => r.status), [201, 201, 201]);
+      const barrado = await visitante().req('POST', '/api/publico/pequena/reservas', pedido(4));
+      assert.equal(barrado.status, 409, JSON.stringify(barrado.json));
+      assert.match(barrado.json.mensagem, /pedidos/i);
+      assert.equal((await pool.query(`SELECT 1 FROM reservas WHERE pousada_id = $1 AND status = 'pre_reserva'`, [pousadaPequena])).rowCount, 3, 'metade dos quartos');
+    });
+
+    it('confirmar um pedido abre vaga para outro', async () => {
+      await pool.query(`UPDATE reservas SET status = 'confirmada', expira_em = NULL WHERE id = (SELECT min(id) FROM reservas WHERE pousada_id = $1 AND status = 'pre_reserva')`, [pousadaPequena]);
+      assert.equal((await visitante().req('POST', '/api/publico/pequena/reservas', pedido(5))).status, 201);
+    });
+
+    it('limite por e-mail: o mesmo endereço não abre pedidos sem fim', async () => {
+      await pousadaComMotor('por-email', 30);
+      const email = 'insistente@example.com';
+      for (let q = 1; q <= 3; q++) {
+        assert.equal((await visitante().req('POST', '/api/publico/por-email/reservas', pedido(q, { email }))).status, 201);
+      }
+      const barrado = await visitante().req('POST', '/api/publico/por-email/reservas', pedido(4, { email: 'INSISTENTE@example.com' }));
+      assert.equal(barrado.status, 409, JSON.stringify(barrado.json));
+    });
+
+    it('recibo ao hóspede tem limite por endereço, mesmo somando pousadas e +etiquetas', async () => {
+      await pousadaComMotor('recibo-a', 30);
+      await pousadaComMotor('recibo-b', 30);
+      const vitima = 'caixa.de.alguem@example.com';
+      const emails = await emailsDe(async () => {
+        for (const [i, slug] of ['recibo-a', 'recibo-a', 'recibo-b', 'recibo-b', 'recibo-b'].entries()) {
+          const r = await visitante().req('POST', `/api/publico/${slug}/reservas`, pedido(i + 1, { email: vitima.replace('@', `+${i}@`) }));
+          assert.equal(r.status, 201, JSON.stringify(r.json));
+        }
+        await espera(100);
+      });
+      const recibos = emails.filter((e) => e.para.startsWith('caixa.de.alguem'));
+      assert.equal(recibos.length, 3, JSON.stringify(emails));
+    });
+
+    it('pré-reserva do site não fecha o calendário da OTA; a confirmada, sim', async () => {
+      const Ical = await import('../models/Ical.js');
+      const id = await pousadaComMotor('exporta', 4);
+      const { rows: [{ ical_token: token }] } = await pool.query(`SELECT ical_token FROM quartos WHERE pousada_id = $1 AND numero = 1`, [id]);
+      const r = await visitante().req('POST', '/api/publico/exporta/reservas', pedido(1));
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      const reservaId = r.json.pedido.id;
+      assert.ok(!(await Ical.calendarioExportado(token))!.includes(`reserva-${reservaId}@`));
+      await pool.query(`UPDATE reservas SET status = 'confirmada', expira_em = NULL WHERE id = $1`, [reservaId]);
+      assert.ok((await Ical.calendarioExportado(token))!.includes(`reserva-${reservaId}@`));
+      // Pré-reserva lançada pela equipe é decisão de gente: continua saindo.
+      const { rows: [equipe] } = await pool.query(
+        `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status, expira_em, canal) VALUES ($1, 'Da Equipe', 1, $2, $3, 'pre_reserva', now() + interval '1 day', 'telefone') RETURNING id`,
+        [id, d(600), d(602)],
+      );
+      assert.ok((await Ical.calendarioExportado(token))!.includes(`reserva-${equipe.id}@`));
+    });
+
+    describe('Turnstile', () => {
+      let chamadas: { url: string; corpo: string }[] = [];
+      let resposta: () => Response;
+      const original = globalThis.fetch;
+
+      before(async () => {
+        await pousadaComMotor('turnstile', 30);
+        process.env.TURNSTILE_SECRET_KEY = 'segredo-turnstile';
+        mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
+          if (!String(url).includes('challenges.cloudflare.com')) return original(url, init);
+          chamadas.push({ url: String(url), corpo: String(init?.body) });
+          return resposta();
+        });
+      });
+
+      after(() => {
+        delete process.env.TURNSTILE_SECRET_KEY;
+        (globalThis.fetch as unknown as { mock: { restore(): void } }).mock.restore();
+      });
+
+      const enviar = (extra: Record<string, unknown> = {}) => visitante().req('POST', '/api/publico/turnstile/reservas', pedido(1, extra));
+
+      it('com a chave presente, pedido sem token é recusado sem consultar', async () => {
+        chamadas = [];
+        assert.equal((await enviar()).status, 400);
+        assert.equal(chamadas.length, 0);
+      });
+
+      it('token recusado pela Cloudflare é recusado aqui', async () => {
+        resposta = () => new Response(JSON.stringify({ success: false }));
+        assert.equal((await enviar({ turnstile_token: 'ruim' })).status, 400);
+      });
+
+      it('token aceito passa, e a consulta leva o segredo e o token', async () => {
+        chamadas = [];
+        resposta = () => new Response(JSON.stringify({ success: true }));
+        assert.equal((await enviar({ turnstile_token: 'bom' })).status, 201);
+        assert.match(chamadas[0].corpo, /secret=segredo-turnstile/);
+        assert.match(chamadas[0].corpo, /response=bom/);
+      });
+
+      it('Cloudflare fora do ar não derruba as vendas: os outros limites seguem valendo', async () => {
+        const erro = mock.method(console, 'error', () => {});
+        resposta = () => { throw new Error('fora do ar'); };
+        try {
+          assert.equal((await enviar({ turnstile_token: 'qualquer' })).status, 201);
+        } finally {
+          erro.mock.restore();
+        }
+      });
+    });
+  });
 });

@@ -1,10 +1,46 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { cn } from "../../lib/utils"
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "")
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+
+interface ApiTurnstile {
+  render(alvo: HTMLElement, opcoes: Record<string, unknown>): string
+  remove(id: string): void
+}
+
+/** Desafio Cloudflare do pedido público; só aparece com a chave configurada. */
+function VerificacaoTurnstile({ siteKey, onToken }: { siteKey: string; onToken: (token: string) => void }) {
+  const alvo = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const api = () => (window as unknown as { turnstile?: ApiTurnstile }).turnstile
+    let id: string | undefined
+    const desenhar = () => {
+      if (alvo.current && api()) id = api()!.render(alvo.current, { sitekey: siteKey, callback: onToken, "expired-callback": () => onToken("") })
+    }
+    let script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SCRIPT}"]`)
+    if (api()) {
+      desenhar()
+    } else {
+      if (!script) {
+        script = document.createElement("script")
+        script.src = TURNSTILE_SCRIPT
+        script.async = true
+        document.head.appendChild(script)
+      }
+      script.addEventListener("load", desenhar, { once: true })
+    }
+    return () => {
+      script?.removeEventListener("load", desenhar)
+      if (id) api()?.remove(id)
+    }
+  }, [siteKey, onToken])
+  return <div ref={alvo} />
+}
 
 export interface PousadaPublica {
   nome: string
@@ -88,6 +124,9 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
   const [pix, setPix] = useState<PixDoPedido | null>(null)
   const [pixPago, setPixPago] = useState(false)
   const [pixEstorno, setPixEstorno] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState("")
+  // O token vale uma vez: pedido recusado desenha o desafio de novo.
+  const [desafio, setDesafio] = useState(0)
   const [copiado, setCopiado] = useState(false)
 
   // Pix automático: acompanha o pagamento e mostra a confirmação na hora.
@@ -130,11 +169,16 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       const r = await fetch(`${API}/api/publico/${slug}/reservas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...dados, quarto: escolhido.numero, entrada: busca.entrada, saida: busca.saida, adultos: busca.adultos, criancas: busca.criancas }),
+        body: JSON.stringify({
+          ...dados, quarto: escolhido.numero, entrada: busca.entrada, saida: busca.saida, adultos: busca.adultos, criancas: busca.criancas,
+          ...(turnstileToken ? { turnstile_token: turnstileToken } : {}),
+        }),
       })
       const d = await r.json()
       if (!d.sucesso) {
         setErro(d.mensagem)
+        setTurnstileToken("")
+        setDesafio((n) => n + 1)
         if (r.status === 409) { setEscolhido(null); setLivres(null) }
         return
       }
@@ -317,12 +361,13 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
             <input type="checkbox" required checked={dados.aceite} onChange={(e) => setDados((x) => ({ ...x, aceite: e.target.checked }))} className="mt-1 h-4 w-4 accent-primary" />
             <span>Concordo que a {pousada.nome} use meus dados para tratar esta reserva.</span>
           </label>
+          {TURNSTILE_SITE_KEY && <VerificacaoTurnstile key={desafio} siteKey={TURNSTILE_SITE_KEY} onToken={setTurnstileToken} />}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
             <p className="text-sm">
               {escolhido.nome} · {br(busca.entrada)} a {br(busca.saida)} · <strong>{reais(escolhido.totalCentavos)}</strong>
               {pousada.sinalPercentual > 0 && <span className="block text-xs text-muted-foreground">Sinal de {pousada.sinalPercentual}% ({reais(Math.round(escolhido.totalCentavos * pousada.sinalPercentual / 100))}) para confirmar.</span>}
             </p>
-            <button type="submit" disabled={ocupado} className="h-11 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+            <button type="submit" disabled={ocupado || Boolean(TURNSTILE_SITE_KEY && !turnstileToken)} className="h-11 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               {ocupado ? "Enviando..." : "Pedir reserva"}
             </button>
           </div>
