@@ -229,7 +229,7 @@ export async function enviarAtendimentoSolicitado(para: string[], d: { pousada: 
   for (const email of para) await enfileirarEmail(email, `WhatsApp: ${d.nome || '+' + d.contato} quer falar com a equipe`, html);
 }
 
-/** Aviso à equipe: mudou para onde vai o dinheiro dos Pix. Só com valores mascarados. */
+/** Aviso à pousada: mudou para onde vai o dinheiro dos Pix. Só com valores mascarados. */
 export async function enviarChavePixAlterada(para: string[], d: { pousada: string; quem: string; chaveDepois: string | null; asaasDepois: string | null; chaveMudou: boolean; asaasMudou: boolean }): Promise<void> {
   const linha = (rotulo: string, valor: string | null) =>
     `<p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>${rotulo}:</strong> ${escapeHtml(valor ?? 'removida')}</p>`;
@@ -246,7 +246,7 @@ export async function enviarChavePixAlterada(para: string[], d: { pousada: strin
 }
 
 /**
- * Aviso à equipe: um Pix foi pago com a reserva já encerrada. Ou a reserva
+ * Aviso à pousada: um Pix foi pago com a reserva já encerrada. Ou a reserva
  * voltou a valer, ou o dinheiro precisa ser devolvido ao hóspede.
  */
 export async function enviarPixTardio(para: string[], d: { pousada: string; reservaId: number; hospede: string; valor: string; reativou: boolean; link: string }): Promise<void> {

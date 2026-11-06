@@ -9,9 +9,9 @@
  * ainda está fazendo check-out tarde. Cada finalização vira registro na
  * auditoria (sem usuário: foi o sistema).
  *
- * Só finaliza quem fez check-in. Confirmada vencida pode ser hóspede que não
- * veio: finalizar virava receita de estadia que não houve. Ela fica em revisão,
- * visível na agenda, até a recepção decidir. A exceção é a data fechada na OTA,
+ * Só finaliza reserva com check-in. Confirmada vencida pode ser no-show:
+ * finalizar virava receita de estadia que não houve. Ela fica em revisão,
+ * visível na agenda, até a decisão manual. A exceção é a data fechada na OTA,
  * que não é estadia nem receita e não tem o que revisar.
  */
 import { pool } from '../db/index.js';

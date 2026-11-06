@@ -160,7 +160,7 @@ export function enderecoInterno(ip: string): boolean {
 }
 
 /**
- * O que pode voltar ao cliente e ao aviso do calendário. Recusa nossa tem texto
+ * O que pode voltar na resposta da API e no aviso do calendário. Recusa nossa tem texto
  * pensado para isso; erro de conexão traz IP e porta do que o servidor alcança.
  */
 export function mensagemDeFalha(err: unknown): string {
@@ -204,7 +204,7 @@ export function validarUrlIcal(texto: string): string | null {
 
 /**
  * `timeout` do socket só mede silêncio: um servidor que pinga um byte por vez
- * nunca dispara. Quem limita a busca inteira é o `sinal`, que atravessa os
+ * nunca dispara. O limite da busca inteira é o `sinal`, que atravessa os
  * redirecionamentos.
  */
 export async function buscarIcal(endereco: string, opcoes: { saltos?: number; sinal?: AbortSignal } = {}): Promise<string> {

@@ -45,7 +45,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
     return c;
   }
 
-  /** Reserva criada pela recepção; devolve o id. */
+  /** Reserva criada pelo perfil recepcao; devolve o id. */
   async function novaReserva(extra: Record<string, unknown> = {}): Promise<number> {
     const r = await recep.req('POST', '/api/reservas', {
       nome: 'Teste Dominio', telefone: `4896${String(1000000 + ipSeq++).slice(-7)}`, quarto: novoQuarto(),
@@ -213,7 +213,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
 
       const ag = await recep.req('GET', '/api/reservas/agenda');
       const item = ag.json.emRevisao.find((x: { id: number }) => x.id === r.id);
-      assert.ok(item, 'a recepção enxerga no painel');
+      assert.ok(item, 'a reserva aparece no painel');
       assert.match(item.revisaoMotivo, /check-in/);
 
       const rel = await dono.req('GET', `/api/relatorios?inicio=${inicio}&fim=${fim}`);
@@ -221,7 +221,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       assert.equal(rel.json.relatorio.noitesVendidas, receitaAntes.json.relatorio.noitesVendidas);
       assert.ok(!rel.json.relatorio.aReceber.some((x: { id: number }) => x.id === r.id));
 
-      // A recepção decide: não compareceu. Sai da revisão.
+      // Marcada como no-show: sai da revisão.
       const ns = await recep.req('PATCH', `/api/reservas/${r.id}/status`, { status: 'no_show', version: r.version });
       assert.equal(ns.status, 200, JSON.stringify(ns.json));
       const ag2 = await recep.req('GET', '/api/reservas/agenda');
@@ -769,11 +769,11 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
         `SELECT r.nome, r.observacoes, h.id AS hospede, h.telefone, h.documento_hash, h.revisao_motivo, h.revisao_hospede_id
            FROM reservas r JOIN hospedes h ON h.id = r.hospede_id WHERE r.id = $1`, [r.json.pedido.id]);
       assert.notEqual(reserva.hospede, h.id, 'cadastro separado');
-      assert.equal(reserva.documento_hash, null, 'o documento continua só no cadastro de quem é dono dele');
+      assert.equal(reserva.documento_hash, null, 'o documento continua só no cadastro original');
       assert.equal(reserva.telefone, '5548991110000');
       assert.equal(reserva.revisao_hospede_id, h.id);
       assert.match(reserva.revisao_motivo, /documento/i);
-      assert.match(reserva.observacoes, /confira/i, 'a recepção vê o alerta na reserva');
+      assert.match(reserva.observacoes, /confira/i, 'o alerta fica nas observações da reserva');
     });
 
     it('atendente virtual: minhas_reservas não devolve as reservas da vítima a quem usou o CPF dela', async () => {
@@ -934,7 +934,7 @@ describe('regras de negócio', { skip: !temBanco && 'DATABASE_URL não definida'
       assert.ok(!(await Ical.calendarioExportado(token))!.includes(`reserva-${reservaId}@`));
       await pool.query(`UPDATE reservas SET status = 'confirmada', expira_em = NULL WHERE id = $1`, [reservaId]);
       assert.ok((await Ical.calendarioExportado(token))!.includes(`reserva-${reservaId}@`));
-      // Pré-reserva lançada pela equipe é decisão de gente: continua saindo.
+      // Pré-reserva de canal interno continua saindo.
       const { rows: [equipe] } = await pool.query(
         `INSERT INTO reservas (pousada_id, nome, quarto, data_entrada, data_saida, status, expira_em, canal) VALUES ($1, 'Da Equipe', 1, $2, $3, 'pre_reserva', now() + interval '1 day', 'telefone') RETURNING id`,
         [id, d(600), d(602)],

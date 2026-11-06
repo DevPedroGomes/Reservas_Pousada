@@ -40,8 +40,8 @@ export async function calendarioExportado(token: string, dominio?: string): Prom
   );
   if (!q) return null;
   // Do mês passado em diante: a OTA só precisa do que ainda bloqueia data.
-  // Pré-reserva de canal público fica de fora até confirmar: quem preenche o
-  // formulário não pode fechar a venda da pousada em todas as OTAs.
+  // Pré-reserva de canal público fica de fora até confirmar: um
+  // formulário público não pode fechar a venda da pousada em todas as OTAs.
   const { rows } = await pool.query(
     `SELECT id, data_entrada::text AS inicio, data_saida::text AS fim
        FROM reservas
@@ -192,7 +192,7 @@ export async function sincronizarImportacao(
     for (const e of eventos as EventoIcal[]) {
       vistos.add(e.uid);
       const atual = porUid.get(e.uid);
-      // Uma pessoa cancelou ou excluiu aqui: o feed não desfaz, só avisa.
+      // Cancelada ou excluída à mão: o feed não desfaz, só avisa.
       if (atual ? atual.status === 'cancelada' && atual.cancelada_manualmente : excluidas.has(e.uid)) {
         decididasAMao.push(`${br(e.inicio)} a ${br(e.fim)}`);
         continue;

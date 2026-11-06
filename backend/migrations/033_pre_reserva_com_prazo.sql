@@ -2,7 +2,7 @@
 --
 -- Sem expira_em, o job de expiração não enxerga a pré-reserva e ela segura o
 -- quarto para sempre. As antigas ganham 48h a partir de agora, o mesmo prazo
--- padrão de quem cria pela recepção.
+-- padrão de POST /api/reservas.
 
 UPDATE reservas SET expira_em = now() + interval '48 hours'
  WHERE status = 'pre_reserva' AND expira_em IS NULL;

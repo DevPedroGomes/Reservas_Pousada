@@ -323,7 +323,7 @@ async function baixar(cliente: PoolClient, cobrancaId: number, valorCentavos: nu
   return { jaPaga: false, confirmou, reativou, estornar };
 }
 
-/** Avisa a equipe do Pix tardio. Falha de e-mail não desfaz a baixa já gravada. */
+/** Avisa a pousada do Pix tardio. Falha de e-mail não desfaz a baixa já gravada. */
 async function avisarPixTardio(cobrancaId: number, valorCentavos: number, reativou: boolean): Promise<void> {
   try {
     const { rows: [c] } = await pool.query(
@@ -362,7 +362,7 @@ export interface CobrancaEncerrada {
 
 /**
  * Anula no gateway o que foi encerrado aqui, para o hóspede não conseguir mais
- * pagar. Fora da transação e sem derrubar quem chamou: se falhar, a cobrança
+ * pagar. Fora da transação e sem propagar erro: se falhar, a cobrança
  * segue viva no gateway e um pagamento tardio cai na regra de `baixar`.
  */
 export async function cancelarNoGateway(cobrancas: CobrancaEncerrada[]): Promise<void> {

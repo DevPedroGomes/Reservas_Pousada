@@ -76,12 +76,12 @@ export interface ReservaComCriador extends Omit<Reserva, 'cpf' | 'cpfHash' | 'ic
 /**
  * Carimbos de cada transição: quando entrou, saiu, foi cancelada. Voltar um
  * passo (desfazer check-out, reativar) limpa o carimbo correspondente.
- * Só as rotas passam por aqui: é a decisão de uma pessoa, e cancelar marca isso
+ * Só as rotas passam por aqui: é decisão manual, e cancelar marca isso
  * para a sincronização de calendário não desfazer.
  */
 export function camposDaTransicao(status: string, extra: { motivo?: string | null; expiraEm?: Date | null } = {}) {
   const agora = new Date();
-  // A recepção decidiu: a reserva sai da revisão. Se continuar vencida e sem
+  // Decisão manual: a reserva sai da revisão. Se continuar vencida e sem
   // check-in, o job a marca de novo.
   const semRevisao = { revisaoEm: null, revisaoMotivo: null };
   switch (status) {
@@ -343,7 +343,7 @@ export class ReservaModel {
    */
   static async criar(reserva: NewReserva & { hospedeId: number }): Promise<ReservaComCriador> {
     // Duplo clique: mesmo hóspede, quarto e datas nos últimos 30s devolve a existente.
-    // Só a que ainda vale: quem cancelou e refez o pedido quer uma reserva nova.
+    // Só a que ainda vale: pedido refeito depois de cancelar é reserva nova.
     const [duplicate] = await db
       .select({ id: reservas.id })
       .from(reservas)
@@ -584,7 +584,7 @@ export class ReservaModel {
         .where(and(...base, gt(reservas.dataEntrada, dia), sql`${reservas.dataEntrada} <= ${ate}`))
         .orderBy(reservas.dataEntrada, reservas.quarto)
         .limit(50),
-      // Saída vencida sem check-in: a recepção decide o que houve.
+      // Saída vencida sem check-in: aguarda decisão manual.
       db.select({ ...campos, revisaoMotivo: reservas.revisaoMotivo })
         .from(reservas)
         .leftJoin(hospedes, eq(reservas.hospedeId, hospedes.id))

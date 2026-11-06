@@ -22,7 +22,7 @@ import { hojeLocal } from '../utils/datas.js';
 
 export const MAX_LINHAS = 2000;
 
-/** Prazo da pré-reserva importada: o mesmo padrão de quem cria pela recepção. */
+/** Prazo da pré-reserva importada: o mesmo padrão de POST /api/reservas. */
 const PRAZO_PRE_RESERVA_HORAS = 48;
 
 async function emTransacao<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {

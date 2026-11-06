@@ -349,7 +349,7 @@ router.get('/:id/pix', requirePousadaOwner, async (req: Request, res: Response) 
   res.json({ sucesso: true, pix: await situacaoPix(parseInt(param(req, 'id'))) });
 });
 
-// Só o dono: a chave decide para onde vai o dinheiro da pousada.
+// Exige isOwner: a chave decide para onde vai o dinheiro da pousada.
 router.put('/:id/pix', requirePousadaOwner, requireOwner, async (req: Request, res: Response) => {
   try {
     const id = parseInt(param(req, 'id'));

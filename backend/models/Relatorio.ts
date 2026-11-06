@@ -3,7 +3,7 @@
  *
  * Conta só negócio fechado: confirmada, hospedada e finalizada. Pré-reserva
  * ainda pode cair e cancelada/no-show não ocuparam o quarto. Confirmada em
- * revisão (saída vencida sem check-in) fica de fora até a recepção decidir.
+ * revisão (saída vencida sem check-in) fica de fora até a decisão manual.
  *
  * - Receita de hospedagem por competência: cada noite vale valor/noites da
  *   reserva; entra a noite que cai no período (estadia que atravessa o mês

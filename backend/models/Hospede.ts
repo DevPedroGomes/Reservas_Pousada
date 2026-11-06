@@ -149,7 +149,7 @@ const MOTIVO_DOCUMENTO_DE_OUTRO = 'Documento informado no pedido já pertence a 
 const mesmoNome = (a?: string | null, b?: string | null) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 
 /**
- * O contato do pedido público é de outra pessoa? O telefone é o que dá acesso
+ * O contato do pedido público difere do cadastro? O telefone é o que dá acesso
  * às reservas pelo WhatsApp: cadastro sem telefone só o recebe com o mesmo nome.
  */
 function contatoDiverge(atual: Hospede, d: DadosHospede): boolean {
@@ -171,10 +171,10 @@ function camposVazios(atual: Hospede, d: DadosHospede): DadosHospede {
 
 export interface OpcoesResolver {
   /**
-   * `publico`: site, atendente virtual e ficha de pré-check-in, onde quem
-   * digita não foi identificado. O que vem daí nunca troca o que já existe.
+   * `publico`: site, atendente virtual e ficha de pré-check-in, em que o remetente
+   * não foi identificado. O que vem daí nunca troca o que já existe.
    */
-  origem?: 'equipe' | 'publico';
+  origem?: 'painel' | 'publico';
 }
 
 export class HospedeModel {
@@ -214,11 +214,11 @@ export class HospedeModel {
    * mesmo nome + telefone; senão, um cadastro novo. Contato informado agora
    * completa o cadastro existente (nunca apaga o que já havia).
    *
-   * Vindo da equipe, o contato informado substitui o do cadastro. Vindo de canal
+   * Vindo do painel, o contato informado substitui o do cadastro. Vindo de canal
    * público, só preenche o que está vazio; e se o documento é de um cadastro com
-   * outro contato, nasce um cadastro separado, sem o documento, para a recepção
-   * conferir. Sem isso, um CPF alheio bastava para tomar o telefone da pessoa e,
-   * com ele, as reservas dela no atendente virtual.
+   * outro contato, nasce um cadastro separado, sem o documento, sinalizado para
+   * conferência. Sem isso, um CPF alheio bastava para trocar o telefone do cadastro e,
+   * com ele, ler as reservas no atendente virtual.
    */
   static async resolver(pousadaId: number, dados: DadosHospede, hospedeId?: number | null, opcoes: OpcoesResolver = {}): Promise<HospedeDecifrado> {
     const tipo = dados.tipoDocumento ?? 'cpf';

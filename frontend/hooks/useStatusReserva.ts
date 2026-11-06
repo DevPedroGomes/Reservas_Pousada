@@ -11,7 +11,7 @@ export function useStatusReserva() {
   const mudarStatus = useCallback(async (
     id: number,
     status: StatusReserva,
-    /** Versão que a tela está vendo: alterada por outra pessoa, o servidor recusa (409). */
+    /** Versão que a tela está vendo: alterada em outra sessão, o servidor recusa (409). */
     version: number | undefined,
     extra: { motivo?: string; prazo_horas?: number } = {},
   ): Promise<{ sucesso: boolean; mensagem: string }> => {

@@ -145,7 +145,7 @@ export const reservas = pgTable('reservas', {
   icalAusencias: integer('ical_ausencias').notNull().default(0),
   // Data fechada na OTA, não hóspede (migration 030).
   icalBloqueio: boolean('ical_bloqueio').notNull().default(false),
-  // Uma pessoa cancelou: a sincronização não reativa (migration 030).
+  // Cancelamento manual: a sincronização não reativa (migration 030).
   canceladaManualmente: boolean('cancelada_manualmente').notNull().default(false),
   // Confirmada que passou da saída sem check-in (migration 034).
   revisaoEm: timestamp('revisao_em', { withTimezone: true }),
