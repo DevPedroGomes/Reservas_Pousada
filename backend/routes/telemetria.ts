@@ -27,8 +27,9 @@ router.post('/erro', limite, (req: Request, res: Response) => {
   const registro = {
     mensagem,
     stack: cortar(corpo.stack, 4000),
-    // Só o caminho: query string pode carregar token (convite, reset de senha).
-    pagina: cortar(corpo.pagina, 300)?.split('?')[0],
+    // Só o caminho, e sem o token que /checkin/<token> e /convite/<token> levam.
+    // A query string também pode carregar token (reset de senha).
+    pagina: cortar(corpo.pagina, 300)?.split('?')[0].replace(/^\/(checkin|convite)\/[^/]+/, '/$1/:token'),
     navegador: cortar(req.get('user-agent'), 300),
     requestId: req.id,
   };

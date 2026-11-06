@@ -113,6 +113,17 @@ describe('logs de requisição', { skip: !temBanco && 'DATABASE_URL não definid
     });
   }
 
+  it('erro do navegador não leva o token da página', async () => {
+    const linhas = await linhasDoLog(() => fetch(`${base}/api/telemetria/erro`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mensagem: 'quebrou', pagina: `/checkin/${SEGREDO}?x=1` }),
+    }));
+    const texto = linhas.join('\n');
+    assert.doesNotMatch(texto, new RegExp(SEGREDO));
+    assert.match(texto, /\/checkin\/:token/);
+  });
+
   it('o tratador de erro registra o template', async () => {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const erro = mock.method(console, 'error', () => {});
