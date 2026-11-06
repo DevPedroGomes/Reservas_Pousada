@@ -1365,6 +1365,86 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       assert.equal(r.status, 402);
     });
 
+    describe('checkout não cria assinatura duplicada', () => {
+      let dono: Cliente;
+      let pousada: number;
+      let vivas: { id: string; status: string; customer: string; metadata: object; cancel_at_period_end: boolean; items: { data: unknown[] } }[];
+      let abertas: { id: string; url: string; metadata: Record<string, string> }[];
+      let expiradas: string[];
+      let criadas: Record<string, any>[];
+      let falhaAoExpirar: boolean;
+
+      before(async () => {
+        process.env.STRIPE_PRICE_POUSADA_MENSAL = 'price_pm';
+        process.env.STRIPE_PRICE_REDE_MENSAL = 'price_rm';
+        (await import('../lib/stripe.js')).usarStripeDeTeste({
+          customers: { create: async () => ({ id: 'cus_dup' }) },
+          subscriptions: { list: async () => ({ data: vivas }) },
+          checkout: { sessions: {
+            list: async () => ({ data: abertas }),
+            expire: async (id: string) => {
+              if (falhaAoExpirar) throw new Error('Stripe fora do ar');
+              expiradas.push(id);
+              abertas = abertas.filter((s) => s.id !== id);
+            },
+            create: async (params: Record<string, any>) => {
+              criadas.push(params);
+              const s = { id: `cs_${criadas.length}`, url: `https://checkout/${criadas.length}`, metadata: params.metadata };
+              abertas.push(s);
+              return s;
+            },
+          } },
+        } as never);
+        dono = await novoUsuario('dono.checkout@teste.com', 'Dono Checkout');
+        dono.pousada = pousada = await criarPousada(dono, 'Pousada Checkout');
+      });
+      after(async () => { (await import('../lib/stripe.js')).usarStripeDeTeste(null); });
+      const reiniciar = () => { vivas = []; abertas = []; expiradas = []; criadas = []; falhaAoExpirar = false; };
+
+      it('expira as sessões abertas antes de criar outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: { chave: 'outra' } }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 200, JSON.stringify(r.json));
+        assert.deepEqual(expiradas, ['cs_velha']);
+        assert.equal(criadas.length, 1);
+        assert.equal(r.json.url, 'https://checkout/1');
+      });
+
+      it('duplo clique reaproveita a mesma sessão em vez de expirá-la', async () => {
+        reiniciar();
+        const r1 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        const r2 = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r2.json.url, r1.json.url);
+        assert.equal(criadas.length, 1);
+        assert.deepEqual(expiradas, []);
+      });
+
+      it('falha ao expirar a sessão antiga não abre outra', async () => {
+        reiniciar();
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        falhaAoExpirar = true;
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'rede', ciclo: 'mensal' });
+        assert.equal(r.status, 502);
+        assert.equal(criadas.length, 0);
+      });
+
+      it('assinatura viva no Stripe que o banco ainda não conhece impede o checkout e é aplicada', async () => {
+        reiniciar();
+        vivas = [{
+          id: 'sub_webhook_atrasado', status: 'active', customer: 'cus_dup', metadata: {}, cancel_at_period_end: false,
+          items: { data: [{ current_period_end: 1893456000, price: { id: 'price_rm' } }] },
+        }];
+        abertas = [{ id: 'cs_velha', url: 'https://checkout/velha', metadata: {} }];
+        const r = await dono.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' });
+        assert.equal(r.status, 409);
+        assert.equal(r.json.codigo, 'BILLING_JA_ASSINA');
+        assert.equal(criadas.length, 0);
+        const { rows: [a] } = await pool.query(`SELECT status, plano, stripe_subscription_id FROM assinaturas WHERE pousada_id = $1`, [pousada]);
+        assert.deepEqual([a.status, a.plano, a.stripe_subscription_id], ['ativa', 'rede', 'sub_webhook_atrasado']);
+      });
+    });
+
     it('só o dono abre checkout', async () => {
       assert.equal((await recep.req('POST', '/api/billing/checkout', { plano: 'pousada', ciclo: 'mensal' })).status, 403);
     });

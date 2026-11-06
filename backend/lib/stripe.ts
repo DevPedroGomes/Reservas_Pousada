@@ -23,7 +23,14 @@ export function billingHabilitado(): boolean {
   return process.env.BILLING_ENABLED === 'true' && Boolean(process.env.STRIPE_SECRET_KEY?.trim());
 }
 
+// Testes trocam o cliente por um falso (sem rede).
+let clienteDeTeste: Stripe | null = null;
+export function usarStripeDeTeste(falso: Stripe | null): void {
+  clienteDeTeste = falso;
+}
+
 export function stripe(): Stripe {
+  if (clienteDeTeste) return clienteDeTeste;
   if (cliente) return cliente;
 
   const chave = process.env.STRIPE_SECRET_KEY?.trim();
