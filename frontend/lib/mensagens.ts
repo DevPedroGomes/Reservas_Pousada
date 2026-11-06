@@ -28,7 +28,7 @@ export const MODELOS: { modelo: Modelo; rotulo: string; padrao: string }[] = [
   {
     modelo: "agradecimento",
     rotulo: "Agradecer a estadia",
-    padrao: "Olá, {nome}! Obrigado por se hospedar na {pousada}. Foi um prazer receber você — volte sempre!",
+    padrao: "Olá, {nome}! Obrigado por se hospedar na {pousada}. Foi um prazer receber você, volte sempre!",
   },
 ]
 

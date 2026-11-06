@@ -1,13 +1,13 @@
 import Link from "next/link"
+import { SimboloPorta } from "../landing/MarcaDiaria"
 
 export function PaginaLegal({ titulo, vigencia, children }: { titulo: string; vigencia: string; children: React.ReactNode }) {
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border/40 bg-white">
+      <header className="border-b border-border/40 bg-card">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <SimboloPorta className="h-8 w-8" />
             <span className="text-sm font-semibold">Diária</span>
           </Link>
           <nav className="flex gap-4 text-sm text-muted-foreground">

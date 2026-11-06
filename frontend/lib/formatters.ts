@@ -125,7 +125,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   const pg = log.details?.pagamento
   if (pg && (log.action === "lancar_pagamento" || log.action === "remover_pagamento")) {
     const centavos = pg.valorCentavos ?? pg.valor_centavos ?? 0
-    const resumo = [rotuloTipo(pg.tipo ?? ""), rotuloForma(pg.forma ?? ""), reais(centavos)].filter(Boolean).join(" · ")
+    const resumo = [rotuloTipo(pg.tipo ?? ""), rotuloForma(pg.forma ?? ""), reais(centavos)].filter(Boolean).join(", ")
     return `${log.action === "lancar_pagamento" ? "Pagamento lançado" : "Pagamento removido"}: ${resumo}`
   }
   const cs = log.details?.consumo

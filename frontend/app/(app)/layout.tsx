@@ -66,7 +66,7 @@ function Moldura({ children }: { children: React.ReactNode }) {
         {message && (
           <div className={cn(
             "rounded-lg border px-4 py-3 text-sm",
-            message.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800",
+            message.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive",
           )}>
             {message.text}
           </div>

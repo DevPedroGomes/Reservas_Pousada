@@ -79,7 +79,7 @@ export function ReservationTable({
                     <div className="font-medium">{reserva.nome}</div>
                     {reserva.telefone && <div className="text-xs text-muted-foreground">{formatarTelefone(reserva.telefone)}</div>}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{reserva.documento || <span className="text-amber-700 text-xs">pendente</span>}</TableCell>
+                  <TableCell className="text-muted-foreground">{reserva.documento || <span className="text-warning text-xs">pendente</span>}</TableCell>
                   <TableCell>{reserva.quarto}</TableCell>
                   <TableCell>{formatarData(reserva.data_entrada)}</TableCell>
                   <TableCell>{formatarData(reserva.data_saida)}</TableCell>

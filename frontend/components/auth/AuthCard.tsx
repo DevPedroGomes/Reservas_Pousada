@@ -68,7 +68,7 @@ export function AuthCard({
             className={`p-3 rounded-lg text-sm font-medium ${
               message.type === "error"
                 ? "bg-destructive/10 text-destructive border border-destructive/20"
-                : "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                : "bg-success/10 text-success border border-success/30"
             }`}
           >
             {message.text}
@@ -110,7 +110,7 @@ export function AuthCard({
             <span className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-white px-2 text-muted-foreground">ou</span>
+            <span className="bg-card px-2 text-muted-foreground">ou</span>
           </div>
         </div>
 

@@ -40,7 +40,7 @@ function resumo(t: Tarifa, quartos: Quarto[]): string {
   partes.push(t.dataInicio ? `de ${formatarData(t.dataInicio)} a ${formatarData(t.dataFim ?? t.dataInicio)}` : "o ano todo")
   if (t.diasSemana?.length) partes.push(`noites de ${t.diasSemana.map((d) => DIAS[d].toLowerCase()).join(", ")}`)
   partes.push(t.quarto ? quartos.find((q) => q.numero === t.quarto)?.nome ?? `quarto ${t.quarto}` : "todos os quartos")
-  return partes.join(" · ")
+  return partes.join(", ")
 }
 
 /**
@@ -115,7 +115,7 @@ export function Tarifario({ quartos, podeEditar }: { quartos: Quarto[]; podeEdit
       </CardHeader>
       <CardContent className="space-y-4">
         {mensagem && (
-          <div className={cn("rounded-lg border px-3 py-2 text-sm", mensagem.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800")}>
+          <div className={cn("rounded-lg border px-3 py-2 text-sm", mensagem.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive")}>
             {mensagem.text}
           </div>
         )}
@@ -194,7 +194,7 @@ export function Tarifario({ quartos, podeEditar }: { quartos: Quarto[]; podeEdit
                 {podeEditar && (
                   <span className="flex shrink-0 gap-1">
                     <Button variant="ghost" size="sm" onClick={() => abrir(t)}>Editar</Button>
-                    <Button variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => void remover(t)}>Remover</Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => void remover(t)}>Remover</Button>
                   </span>
                 )}
               </li>

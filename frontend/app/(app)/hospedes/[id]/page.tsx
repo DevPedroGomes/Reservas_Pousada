@@ -74,7 +74,7 @@ export default function FichaDoHospede() {
           <Link href="/hospedes" className="text-xs text-muted-foreground hover:underline">← Hóspedes</Link>
           <h1 className="text-2xl font-semibold tracking-tight">{hospede.nome}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {estadias.length} estadia{estadias.length === 1 ? "" : "s"} · {formatarValor(total)}
+            {estadias.length} estadia{estadias.length === 1 ? "" : "s"}, {formatarValor(total)}
           </p>
         </div>
         <div className="flex gap-2">
@@ -172,7 +172,7 @@ export default function FichaDoHospede() {
                   <TableCell>{h.adultos + h.criancas}</TableCell>
                   <TableCell>{rotuloCanal(h.canal)}</TableCell>
                   <TableCell><Badge variant={getStatusBadgeVariant(h.status)}>{getStatusLabel(h.status)}</Badge></TableCell>
-                  <TableCell className="text-right tabular-nums">{h.valor ? formatarValor(Number(h.valor)) : "-"}</TableCell>
+                  <TableCell className="text-right num">{h.valor ? formatarValor(Number(h.valor)) : "-"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

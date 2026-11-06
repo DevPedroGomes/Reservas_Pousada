@@ -6,7 +6,7 @@ export interface LabelProps extends React.LabelHTMLAttributes<HTMLLabelElement> 
 const Label = React.forwardRef<HTMLLabelElement, LabelProps>(({ className, ...props }, ref) => (
   <label
     ref={ref}
-    className={cn('text-sm font-semibold text-slate-900 leading-tight', className)}
+    className={cn('text-sm font-medium text-foreground leading-tight', className)}
     {...props}
   />
 ));

@@ -18,11 +18,11 @@ async function carregar(slug: string): Promise<{ pousada: PousadaPublica; quarto
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
   const dados = await carregar(slug)
-  if (!dados) return { title: "Reservas — Diária", robots: { index: false } }
+  if (!dados) return { title: "Reservas | Diária", robots: { index: false } }
   const { pousada } = dados
   const local = [pousada.cidade, pousada.estado].filter(Boolean).join(" - ")
   return {
-    title: `Reservas — ${pousada.nome}${local ? ` (${local})` : ""}`,
+    title: `Reservas: ${pousada.nome}${local ? ` (${local})` : ""}`,
     description: pousada.descricao?.slice(0, 160) || `Veja quartos e disponibilidade e faça sua reserva na ${pousada.nome}.`,
     alternates: { canonical: `/r/${pousada.slug}` },
   }

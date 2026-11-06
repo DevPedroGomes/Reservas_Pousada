@@ -153,7 +153,7 @@ export function ReservationForm({
         <CardContent className="pt-5">
           <form className="space-y-5" onSubmit={handleSubmit}>
             {isEditing && initialData?.ical_importacao_id && (
-              <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              <p className="rounded-lg border border-primary/25 bg-accent px-3 py-2 text-sm text-accent-foreground">
                 Reserva importada do calendário da OTA: datas e cancelamento seguem o que vier de lá.
                 Complete o hóspede (nome e WhatsApp) quando receber os dados.
               </p>
@@ -180,9 +180,9 @@ export function ReservationForm({
                 >
                   {quartos.map((q) => (
                     <option key={q.numero} value={q.numero}>
-                      {q.nome === `Quarto ${q.numero}` ? q.nome : `${q.numero} · ${q.nome}`}
+                      {q.nome === `Quarto ${q.numero}` ? q.nome : `${q.numero}, ${q.nome}`}
                       {q.capacidade ? ` (até ${q.capacidade})` : ""}
-                      {q.ativo ? "" : " — inativo"}
+                      {q.ativo ? "" : ", inativo"}
                     </option>
                   ))}
                 </Select>
@@ -246,7 +246,7 @@ export function ReservationForm({
               </div>
             </div>
             {quartoEscolhido && pessoas > quartoEscolhido.capacidade && (
-              <p className="-mt-2 text-xs text-amber-700">
+              <p className="-mt-2 text-xs text-warning">
                 {quartoEscolhido.nome} comporta até {quartoEscolhido.capacidade} pessoa{quartoEscolhido.capacidade > 1 ? "s" : ""}; esta reserva tem {pessoas}.
               </p>
             )}
@@ -299,7 +299,7 @@ export function ReservationForm({
                 ) : (
                   <label
                     htmlFor="pago"
-                    className="flex cursor-pointer items-center gap-3 h-10 rounded-lg border border-border bg-white px-3"
+                    className="flex cursor-pointer items-center gap-3 h-10 rounded-lg border border-border bg-card px-3"
                   >
                     <input
                       id="pago"
@@ -413,14 +413,14 @@ function SugestaoDeValor({ cotacao, valorAtual, onUsar }: {
       ) : (
         <p className="text-muted-foreground" title={composicao}>
           Tarifário: <span className="font-medium text-foreground">{reais(cotacao.totalCentavos ?? 0)}</span> por {noites} noite{noites > 1 ? "s" : ""}
-          {porValor.size > 1 || [...porValor.keys()][0]?.includes("(") ? ` — ${composicao}` : ""}
+          {porValor.size > 1 || [...porValor.keys()][0]?.includes("(") ? `, ${composicao}` : ""}
           {!igual && cotacao.totalCentavos !== null && (
             <button type="button" className="ml-1 underline hover:text-foreground" onClick={() => onUsar(cotacao.totalCentavos! / 100)}>usar</button>
           )}
         </p>
       )}
       {!cotacao.atendeMinimo && (
-        <p className="text-amber-700">Mínimo de {cotacao.minimoNoites} noites neste período.</p>
+        <p className="text-warning">Mínimo de {cotacao.minimoNoites} noites neste período.</p>
       )}
     </div>
   )
@@ -433,7 +433,7 @@ function LinhaDoTempo({ reserva }: { reserva: Reserva }) {
     reserva.check_in_em ? `Check-in em ${formatarDataHora(reserva.check_in_em)}` : null,
     reserva.check_out_em ? `Check-out em ${formatarDataHora(reserva.check_out_em)}` : null,
     reserva.status === "cancelada" && reserva.cancelada_em
-      ? `Cancelada em ${formatarDataHora(reserva.cancelada_em)}${reserva.motivo_cancelamento ? ` — ${reserva.motivo_cancelamento}` : ""}`
+      ? `Cancelada em ${formatarDataHora(reserva.cancelada_em)}${reserva.motivo_cancelamento ? `, ${reserva.motivo_cancelamento}` : ""}`
       : null,
   ].filter(Boolean)
   if (itens.length === 0) return null

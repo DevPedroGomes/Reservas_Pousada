@@ -88,18 +88,18 @@ export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onM
           ].map(([rotulo, v]) => (
             <div key={rotulo as string} className="rounded-lg bg-muted/40 px-3 py-2">
               <dt className="text-xs text-muted-foreground">{rotulo}</dt>
-              <dd className="font-semibold tabular-nums">{reais(v as number)}</dd>
+              <dd className="font-semibold num">{reais(v as number)}</dd>
             </div>
           ))}
           <div
             data-testid="saldo"
             className={cn(
               "rounded-lg px-3 py-2",
-              saldo > 0 ? "bg-amber-50 text-amber-800" : saldo < 0 ? "bg-sky-50 text-sky-800" : "bg-emerald-50 text-emerald-800",
+              saldo > 0 ? "bg-warning/10 text-warning" : saldo < 0 ? "bg-accent text-accent-foreground" : "bg-success/10 text-success",
             )}
           >
             <dt className="text-xs">{saldo < 0 ? "Crédito do hóspede" : "Saldo"}</dt>
-            <dd className="font-semibold tabular-nums">{saldo === 0 ? "Quitado" : reais(Math.abs(saldo))}</dd>
+            <dd className="font-semibold num">{saldo === 0 ? "Quitado" : reais(Math.abs(saldo))}</dd>
           </div>
         </dl>
 
@@ -113,11 +113,11 @@ export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onM
                 <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                   <span className="min-w-0">
                     <span className="font-medium">{rotuloTipo(p.tipo)}</span>
-                    <span className="text-muted-foreground"> · {rotuloForma(p.forma)} · {formatarData(p.recebido_em)}</span>
+                    <span className="text-muted-foreground">, {rotuloForma(p.forma)}, {formatarData(p.recebido_em)}</span>
                     {p.observacao && <span className="block truncate text-xs text-muted-foreground">{p.observacao}</span>}
                   </span>
                   <span className="flex items-center gap-2">
-                    <span className={cn("tabular-nums font-medium", p.valor_centavos < 0 && "text-rose-700")}>{reais(p.valor_centavos)}</span>
+                    <span className={cn("num font-medium", p.valor_centavos < 0 && "text-destructive")}>{reais(p.valor_centavos)}</span>
                     {podeApagarPagamento && (
                       <button type="button" onClick={() => void remover("pagamento", p.id, `o pagamento de ${reais(p.valor_centavos)}`)} className="text-xs text-muted-foreground hover:text-destructive">
                         remover
@@ -181,10 +181,10 @@ export function ContaDaReserva({ reservaId, podeLancar, podeApagarPagamento, onM
                 <li key={x.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
                   <span>
                     <span className="font-medium">{x.descricao}</span>
-                    <span className="text-muted-foreground"> · {x.quantidade} × {reais(x.valor_unitario_centavos)} · {formatarData(x.lancado_em)}</span>
+                    <span className="text-muted-foreground">, {x.quantidade} × {reais(x.valor_unitario_centavos)}, {formatarData(x.lancado_em)}</span>
                   </span>
                   <span className="flex items-center gap-2">
-                    <span className="tabular-nums font-medium">{reais(x.quantidade * x.valor_unitario_centavos)}</span>
+                    <span className="num font-medium">{reais(x.quantidade * x.valor_unitario_centavos)}</span>
                     {podeLancar && (
                       <button type="button" onClick={() => void remover("consumo", x.id, `"${x.descricao}"`)} className="text-xs text-muted-foreground hover:text-destructive">
                         remover

@@ -15,19 +15,19 @@ interface StatCardProps {
 function StatCard({ title, value, description, icon, variant = "default", className }: StatCardProps) {
   const accentColors = {
     default: "text-primary",
-    success: "text-emerald-600",
-    warning: "text-amber-600",
-    info: "text-sky-600",
+    success: "text-success",
+    warning: "text-warning",
+    info: "text-accent-foreground",
   }
 
   return (
     <Card className={cn("stat-card", className)}>
       <CardContent className="space-y-0">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{title}</span>
+          <span className="text-xs font-medium text-muted-foreground">{title}</span>
           {icon && <span className={cn("opacity-50", accentColors[variant])}>{icon}</span>}
         </div>
-        <div className={cn("text-2xl font-bold tracking-tight", accentColors[variant])}>{value}</div>
+        <div className={cn("num text-2xl font-medium tracking-tight", variant === "default" ? "text-foreground" : accentColors[variant])}>{value}</div>
         {description && (
           <p className="text-xs text-muted-foreground mt-1">{description}</p>
         )}

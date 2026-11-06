@@ -36,7 +36,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background p-4">
-          <div className="rounded-lg border border-border/70 bg-white p-8 shadow-sm max-w-md w-full text-center space-y-4">
+          <div className="rounded-lg border border-border/70 bg-card p-8 shadow-sm max-w-md w-full text-center space-y-4">
             <div className="text-4xl">&#x26A0;</div>
             <h2 className="text-lg font-semibold text-foreground">
               Algo deu errado

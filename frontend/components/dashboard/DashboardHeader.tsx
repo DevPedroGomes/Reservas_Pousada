@@ -7,6 +7,7 @@ import { Button } from "../ui/button"
 import { cn } from "../../lib/utils"
 import type { Usuario, Pousada, UserPousada } from "../../lib/types"
 import { BotaoInstalar } from "../pwa/Pwa"
+import { SimboloPorta } from "../landing/MarcaDiaria"
 
 interface DashboardHeaderProps {
   user: Usuario | null
@@ -87,18 +88,17 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/50 bg-white/80 backdrop-blur-md">
+    <header className="sticky top-3 z-40 px-3 sm:px-4">
       {/* Celular: duas linhas (marca + ações; menu embaixo). Do md em diante, uma. */}
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2 sm:px-6 md:h-14 md:flex-nowrap md:py-0">
+      <div className="mx-auto flex max-w-[88rem] flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-caixa border border-border bg-background/95 px-3 py-2 md:h-14 md:flex-nowrap md:rounded-full md:py-0 md:pl-3 md:pr-2">
         <div className="relative flex items-center gap-3" ref={switcherRef}>
           <button
             onClick={() => setSwitcherOpen(!switcherOpen)}
             className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
             aria-label="Trocar de pousada"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="Diária" className="h-8 w-8 rounded-lg object-cover" />
-            <span className="text-sm font-semibold hidden sm:block max-w-[14rem] truncate">{pousada?.nome || "Diária"}</span>
+            <SimboloPorta className="h-8 w-8" />
+            <span className="font-display text-sm font-semibold hidden sm:block max-w-[14rem] truncate">{pousada?.nome || "Diária"}</span>
             {(hasMultiple || user?.is_owner) && (
               <svg className={cn("h-4 w-4 text-muted-foreground transition-transform", switcherOpen && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -107,10 +107,10 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
           </button>
 
           {switcherOpen && (
-            <div className="absolute left-0 top-full mt-2 w-72 rounded-lg border border-border bg-white shadow-lg z-50">
+            <div className="absolute left-0 top-full mt-2 w-72 rounded-nucleo border border-border bg-card shadow-lg z-50">
               <div className="p-2">
                 <div className="flex items-center justify-between px-2 py-1.5">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Suas pousadas</p>
+                  <p className="text-xs font-medium text-muted-foreground">Suas pousadas</p>
                   {switching && (
                     <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   )}
@@ -133,7 +133,7 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
                       <p className="truncate font-medium">{p.nome}</p>
                       <p className="text-xs text-muted-foreground">
                         {p.isOwner ? "Proprietário" : p.role === "admin" ? "Administração" : p.role === "recepcao" ? "Recepção" : "Auditoria"}
-                        {p.cidade && ` · ${p.cidade}`}
+                        {p.cidade && `, ${p.cidade}`}
                       </p>
                     </div>
                     {p.id === pousada?.id && (
@@ -164,17 +164,17 @@ export function DashboardHeader({ user, pousada, pousadas, onLogout, onTrocarPou
               aria-current={ativo(item.href) ? "page" : undefined}
               title={item.label}
               className={cn(
-                "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+                "flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition-colors duration-300 ease-saida",
                 ativo(item.href)
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                  ? "bg-accent text-accent-foreground font-medium"
+                  : "text-muted-foreground hover:text-accent-foreground hover:bg-accent",
               )}
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
               </svg>
-              {/* Abaixo de xl, só os ícones (title mostra o nome): cabe sem quebrar linha. */}
-              <span className="sr-only xl:not-sr-only">{item.label}</span>
+              {/* Em tela menor, só o item atual mostra o nome; os outros têm title e leitor de tela. */}
+              <span className={cn(!ativo(item.href) && "sr-only min-[1400px]:not-sr-only")}>{item.label}</span>
             </Link>
           ))}
         </nav>

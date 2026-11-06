@@ -67,8 +67,8 @@ export default function Hospedes() {
       </div>
 
       {erro && (
-        <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-800">{erro}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">{erro}</p>
           <Button variant="outline" size="sm" onClick={() => void carregar(busca, pagina)}>Tentar novamente</Button>
         </div>
       )}
@@ -103,12 +103,12 @@ export default function Hospedes() {
                       <Link href={`/hospedes/${h.id}`} className="font-medium hover:underline">{h.nome}</Link>
                     </TableCell>
                     <TableCell>
-                      {zap ? <a href={zap} target="_blank" rel="noreferrer" className="text-emerald-700 hover:underline">{formatarTelefone(h.telefone)}</a> : "-"}
+                      {zap ? <a href={zap} target="_blank" rel="noreferrer" className="text-success hover:underline">{formatarTelefone(h.telefone)}</a> : "-"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{h.documento || "-"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{h.estadias ?? 0}</TableCell>
+                    <TableCell className="text-right num">{h.estadias ?? 0}</TableCell>
                     <TableCell>{h.ultima_estadia ? formatarData(h.ultima_estadia) : "-"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatarValor(h.total_gasto ?? 0)}</TableCell>
+                    <TableCell className="text-right num">{formatarValor(h.total_gasto ?? 0)}</TableCell>
                   </TableRow>
                 )
               })}

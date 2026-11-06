@@ -89,7 +89,7 @@ export function SecaoHospede({ form, onChange, isEditing }: Props) {
             required
           />
           {aberto && sugestoes.length > 0 && (
-            <ul role="listbox" className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-white shadow-lg">
+            <ul role="listbox" className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-lg">
               {sugestoes.map((h) => (
                 <li key={h.id}>
                   <button
@@ -102,7 +102,7 @@ export function SecaoHospede({ form, onChange, isEditing }: Props) {
                     <span className="truncate font-medium">{h.nome}</span>
                     <span className="text-xs text-muted-foreground whitespace-nowrap">
                       {[formatarTelefone(h.telefone), h.documento, h.estadias ? `${h.estadias} estadia${h.estadias > 1 ? "s" : ""}` : null]
-                        .filter(Boolean).join(" · ")}
+                        .filter(Boolean).join(", ")}
                     </span>
                   </button>
                 </li>
@@ -112,7 +112,7 @@ export function SecaoHospede({ form, onChange, isEditing }: Props) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="telefone" className="text-xs">
-            WhatsApp {whatsapp && <a href={whatsapp} target="_blank" rel="noreferrer" className="ml-1 text-emerald-700 underline">abrir conversa</a>}
+            WhatsApp {whatsapp && <a href={whatsapp} target="_blank" rel="noreferrer" className="ml-1 text-success underline">abrir conversa</a>}
           </Label>
           <Input
             id="telefone"
@@ -150,7 +150,7 @@ export function SecaoHospede({ form, onChange, isEditing }: Props) {
           />
           <p className="text-xs text-muted-foreground">
             {documentoCadastrado && !form.documento
-              ? "Já está no cadastro — preencha só para corrigir."
+              ? "Já está no cadastro, preencha só para corrigir."
               : "Pode ficar para depois; é exigido no check-in."}
           </p>
         </div>

@@ -110,7 +110,7 @@ export function Calendarios() {
       </CardHeader>
       <CardContent className="space-y-6">
         {mensagem && (
-          <div className={cn("rounded-lg border px-3 py-2 text-sm", mensagem.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800")}>
+          <div className={cn("rounded-lg border px-3 py-2 text-sm", mensagem.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive")}>
             {mensagem.text}
           </div>
         )}
@@ -119,7 +119,7 @@ export function Calendarios() {
           <h3 className="text-sm font-semibold">1. Link de cada quarto (cole na OTA)</h3>
           <p className="text-xs text-muted-foreground">
             Airbnb: Calendário → Disponibilidade → Conectar calendários → Importar. Booking: Calendário → Sincronizar calendários → Importar.
-            O link só mostra “Reservado” — nenhum dado de hóspede sai daqui.
+            O link só mostra “Reservado”, nenhum dado de hóspede sai daqui.
           </p>
           <ul className="divide-y divide-border rounded-lg border border-border">
             {exportar.map((l) => (
@@ -147,13 +147,13 @@ export function Calendarios() {
                     <span className="font-medium">{i.nome}</span>
                     <span className="text-muted-foreground"> → {exportar.find((l) => l.quarto === i.quarto)?.nome ?? `quarto ${i.quarto}`}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {i.ultimaSincronizacao ? `Lido em ${formatarDataHora(i.ultimaSincronizacao)} · ${i.eventos ?? 0} evento(s)` : "Ainda não lido"}
+                      {i.ultimaSincronizacao ? `Lido em ${formatarDataHora(i.ultimaSincronizacao)}, ${i.eventos ?? 0} evento(s)` : "Ainda não lido"}
                     </span>
-                    {i.aviso && <span className="block text-xs text-amber-700">{i.aviso}</span>}
+                    {i.aviso && <span className="block text-xs text-warning">{i.aviso}</span>}
                   </span>
                   <span className="flex shrink-0 gap-1">
                     <Button variant="outline" size="sm" disabled={ocupado} onClick={() => void sincronizar(i)}>Sincronizar</Button>
-                    <Button variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => void remover(i)}>Desligar</Button>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => void remover(i)}>Desligar</Button>
                   </span>
                 </li>
               ))}

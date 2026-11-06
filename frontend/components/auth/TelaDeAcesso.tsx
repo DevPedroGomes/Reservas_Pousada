@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { AuthCard } from "./AuthCard"
 import { useAuth } from "../../hooks/useAuth"
 import { API_URL } from "../../lib/api"
+import { SimboloPorta } from "../landing/MarcaDiaria"
 
 /** Destino depois do login: convite pendente, a página que pediu login, ou o painel. */
 function destino(params: URLSearchParams): string {
@@ -64,8 +65,7 @@ export function TelaDeAcesso({ modo }: { modo: "entrar" | "cadastro" }) {
   return (
     <main className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-10">
       <Link href="/" className="mb-6 flex items-center gap-2.5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="" className="h-9 w-9 rounded-lg object-cover" />
+            <SimboloPorta className="h-9 w-9" />
         <span className="text-lg font-semibold">Diária</span>
       </Link>
 

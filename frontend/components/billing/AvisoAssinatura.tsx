@@ -41,16 +41,16 @@ export function AvisoAssinatura({ situacao, billingHabilitado }: Props) {
       className={cn(
         "rounded-lg border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3",
         urgente
-          ? "border-rose-200/80 bg-rose-50/80"
+          ? "border-destructive/30 bg-destructive/10"
           : atencao
-          ? "border-amber-200/80 bg-amber-50/80"
-          : "border-sky-200/80 bg-sky-50/80",
+          ? "border-warning/30 bg-warning/10"
+          : "border-primary/25 bg-accent",
       )}
     >
       <p
         className={cn(
           "text-sm",
-          urgente ? "text-rose-800" : atencao ? "text-amber-800" : "text-sky-800",
+          urgente ? "text-destructive" : atencao ? "text-warning" : "text-accent-foreground",
         )}
       >
         {texto}

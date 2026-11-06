@@ -138,8 +138,8 @@ function Conversas() {
                     </span>
                     <span className="block truncate text-sm text-muted-foreground">{c.ultima}</span>
                     <span className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                      {c.equipeAte && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-900">com a equipe</span>}
-                      {c.optout && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-700">pediu para parar</span>}
+                      {c.equipeAte && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">com a equipe</span>}
+                      {c.optout && <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">pediu para parar</span>}
                     </span>
                   </button>
                 </li>
@@ -165,7 +165,7 @@ function Conversas() {
                 <div key={m.id} className={cn("flex", m.direcao === "entrada" ? "justify-start" : "justify-end")}>
                   <div className={cn(
                     "max-w-[85%] whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm shadow-sm",
-                    m.direcao === "entrada" ? "bg-white" : m.direcao === "equipe" ? "bg-emerald-100" : m.direcao === "sistema" ? "bg-zinc-100 text-zinc-700" : "bg-sky-50",
+                    m.direcao === "entrada" ? "bg-card" : m.direcao === "equipe" ? "bg-success/15" : m.direcao === "sistema" ? "bg-muted text-muted-foreground" : "bg-accent",
                   )}>
                     {ROTULO[m.direcao] && <span className="mb-0.5 block text-[11px] font-medium text-muted-foreground">{ROTULO[m.direcao]}</span>}
                     {m.texto}
@@ -176,7 +176,7 @@ function Conversas() {
               <div ref={fim} />
             </div>
             <form onSubmit={responder} className="space-y-2 border-t border-border p-3">
-              {erro && <p className="text-sm text-rose-700">{erro}</p>}
+              {erro && <p className="text-sm text-destructive">{erro}</p>}
               {atual && !atual.janelaAberta ? (
                 <p className="text-sm text-muted-foreground">
                   Passaram 24 horas desde a última mensagem do hóspede: a Meta só deixa responder quando ele escrever de novo.

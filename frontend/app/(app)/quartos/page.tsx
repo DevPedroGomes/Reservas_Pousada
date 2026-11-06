@@ -66,7 +66,7 @@ export default function Quartos() {
       </div>
 
       {q.mensagem && (
-        <div className={cn("rounded-lg border px-3 py-2 text-sm", q.mensagem.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800")}>
+        <div className={cn("rounded-lg border px-3 py-2 text-sm", q.mensagem.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive")}>
           {q.mensagem.text}
         </div>
       )}
@@ -112,16 +112,16 @@ export default function Quartos() {
                 <TableRow key={x.id} className={cn(!x.ativo && "opacity-60")}>
                   <TableCell className="font-medium">{x.numero}</TableCell>
                   <TableCell>{x.nome}</TableCell>
-                  <TableCell className="text-muted-foreground">{x.tipo || "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{x.tipo || "-"}</TableCell>
                   <TableCell className="text-right">{x.capacidade}</TableCell>
-                  <TableCell className="text-right">{x.preco_base === null ? "—" : x.preco_base.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</TableCell>
+                  <TableCell className="text-right">{x.preco_base === null ? "-" : x.preco_base.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</TableCell>
                   <TableCell>{x.ativo ? "Ativo" : "Desativado"}</TableCell>
                   {podeEditar && (
                     <TableCell className="text-right whitespace-nowrap">
                       <Button variant="ghost" size="sm" onClick={() => abrir(x)}>Editar</Button>
                       <Button variant="ghost" size="sm" onClick={() => void alternar(x)}>{x.ativo ? "Desativar" : "Reativar"}</Button>
                       <Button
-                        variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700"
+                        variant="ghost" size="sm" className="text-destructive hover:text-destructive"
                         onClick={() => { if (window.confirm(`Remover o quarto ${x.numero}? Com histórico de reservas ele será apenas desativado.`)) void q.remover(x.id).then(() => auth.refreshPousadas({ silencioso: true })) }}
                       >
                         Remover

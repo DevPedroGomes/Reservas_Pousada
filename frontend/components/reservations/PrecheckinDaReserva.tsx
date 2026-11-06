@@ -75,16 +75,16 @@ export function PrecheckinDaReserva({ reservaId, enviadoEm, hospede, telefone, p
   function imprimir() {
     if (!ficha) return
     const f = ficha.ficha
-    const tabela = linhas(f).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v || "—")}</td></tr>`).join("")
-    const acomp = f.acompanhantes.map((a) => `<tr><td>${esc(a.nome)}</td><td>${esc(formatarData(a.dataNascimento))}</td><td>${esc(a.documento ? `${rotulo(DOCUMENTOS, a.tipoDocumento)} ${a.documento}` : "—")}</td><td>${esc(a.parentesco || "—")}</td></tr>`).join("")
+    const tabela = linhas(f).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v || "-")}</td></tr>`).join("")
+    const acomp = f.acompanhantes.map((a) => `<tr><td>${esc(a.nome)}</td><td>${esc(formatarData(a.dataNascimento))}</td><td>${esc(a.documento ? `${rotulo(DOCUMENTOS, a.tipoDocumento)} ${a.documento}` : "-")}</td><td>${esc(a.parentesco || "-")}</td></tr>`).join("")
     const w = window.open("", "_blank")
     if (!w) return
-    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de hóspede — ${esc(f.titular.nome)}</title>
+    w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Ficha de hóspede: ${esc(f.titular.nome)}</title>
       <style>body{font-family:system-ui,sans-serif;margin:32px;color:#111}h1{font-size:18px;margin:0}p{margin:4px 0 16px;color:#555;font-size:13px}
       table{border-collapse:collapse;width:100%;margin-bottom:20px;font-size:13px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{width:30%;background:#f6f6f6}
       .ass{margin-top:48px;border-top:1px solid #333;width:60%;padding-top:4px;font-size:12px}</style></head><body>
       <h1>Ficha Nacional de Registro de Hóspedes</h1>
-      <p>${esc(pousada)} · ${esc(quarto)} · ${esc(formatarData(entrada))} a ${esc(formatarData(saida))} · enviada em ${esc(formatarDataHora(ficha.enviadoEm))}</p>
+      <p>${esc(pousada)}, ${esc(quarto)}, ${esc(formatarData(entrada))} a ${esc(formatarData(saida))}, enviada em ${esc(formatarDataHora(ficha.enviadoEm))}</p>
       <table>${tabela}</table>
       ${f.acompanhantes.length ? `<h1>Acompanhantes</h1><table style="margin-top:8px"><tr><th>Nome</th><th>Nascimento</th><th>Documento</th><th>Parentesco</th></tr>${acomp}</table>` : ""}
       <div class="ass">Assinatura do hóspede</div>
@@ -99,7 +99,7 @@ export function PrecheckinDaReserva({ reservaId, enviadoEm, hospede, telefone, p
         <CardDescription>
           {enviadoEm
             ? `Ficha recebida em ${formatarDataHora(enviadoEm)}.`
-            : "O hóspede preenche a ficha (dados da FNRH) pelo link antes de chegar — sem fila no balcão."}
+            : "O hóspede preenche a ficha (dados da FNRH) pelo link antes de chegar, sem fila no balcão."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -119,7 +119,7 @@ export function PrecheckinDaReserva({ reservaId, enviadoEm, hospede, telefone, p
               {linhas(ficha.ficha).map(([k, v]) => (
                 <div key={k} className="contents">
                   <dt className="text-muted-foreground">{k}</dt>
-                  <dd>{v || "—"}</dd>
+                  <dd>{v || "-"}</dd>
                 </div>
               ))}
             </dl>
@@ -128,7 +128,7 @@ export function PrecheckinDaReserva({ reservaId, enviadoEm, hospede, telefone, p
                 <p className="font-medium">Acompanhantes</p>
                 <ul className="list-disc pl-5">
                   {ficha.ficha.acompanhantes.map((a, i) => (
-                    <li key={i}>{a.nome} · {formatarData(a.dataNascimento)}{a.documento ? ` · ${rotulo(DOCUMENTOS, a.tipoDocumento)} ${a.documento}` : ""}{a.parentesco ? ` · ${a.parentesco}` : ""}</li>
+                    <li key={i}>{a.nome}, {formatarData(a.dataNascimento)}{a.documento ? `, ${rotulo(DOCUMENTOS, a.tipoDocumento)} ${a.documento}` : ""}{a.parentesco ? `, ${a.parentesco}` : ""}</li>
                   ))}
                 </ul>
               </div>
