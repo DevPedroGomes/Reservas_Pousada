@@ -8,7 +8,7 @@
 
 export const CATEGORIAS_CUSTO = ['taxa_stripe', 'custo_ia', 'custo_email'] as const;
 export type CategoriaCusto = (typeof CATEGORIAS_CUSTO)[number];
-export type Categoria = 'receita_assinatura' | CategoriaCusto;
+export type Categoria = 'receita_assinatura' | 'estorno_assinatura' | CategoriaCusto;
 
 export interface Lancamento {
   categoria: Categoria;
@@ -50,6 +50,8 @@ export function calcularMargem(lancamentos: Lancamento[], infraCentavos = 0): Ma
     if (l.estimado) contemEstimativa = true;
     if (l.categoria === 'receita_assinatura') {
       receitaCentavos += l.valorCentavos;
+    } else if (l.categoria === 'estorno_assinatura') {
+      receitaCentavos -= l.valorCentavos;
     } else {
       custoPorCategoria[l.categoria] += l.valorCentavos;
     }

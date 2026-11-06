@@ -258,7 +258,8 @@ modo live (chaves, preços e webhook são diferentes em cada modo).
    - URL: `https://api.diaria.pgdev.com.br/api/webhooks/stripe`
    - Eventos: `checkout.session.completed`, `customer.subscription.created`,
      `customer.subscription.updated`, `customer.subscription.deleted`,
-     `invoice.paid`, `invoice.payment_failed`
+     `invoice.paid`, `invoice.payment_failed`, `charge.refunded`,
+     `charge.dispute.created`, `charge.dispute.closed`
    - Copie o **segredo de assinatura** (`whsec_...`) → `STRIPE_WEBHOOK_SECRET`.
 5. **Desenvolvedores → Chaves de API** → chave secreta (`sk_test_...` /
    `sk_live_...`) → `STRIPE_SECRET_KEY`.

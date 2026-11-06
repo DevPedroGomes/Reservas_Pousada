@@ -31,6 +31,8 @@ export interface EstadoAssinatura {
   /** Primeira falha de cobrança ainda não regularizada. */
   inadimplenteDesde: Date | null;
   cancelaNoFim: boolean;
+  /** Contestação de pagamento aberta ou perdida. */
+  emDisputa: boolean;
 }
 
 export type MotivoLiberado = 'cortesia' | 'ativa' | 'trial' | 'tolerancia';
@@ -39,7 +41,8 @@ export type MotivoBloqueio =
   | 'tolerancia_esgotada'
   | 'suspensa'
   | 'cancelada'
-  | 'acima_do_limite';
+  | 'acima_do_limite'
+  | 'disputa';
 
 export type Veredito =
   | { liberado: true; motivo: MotivoLiberado; diasRestantes?: number }
@@ -61,6 +64,8 @@ function diasAte(alvo: Date, agora: Date): number {
  * gerar a fatura, mesmo que a cobrança falhe.
  */
 export function avaliarAcesso(e: EstadoAssinatura, agora: Date = new Date()): Veredito {
+  if (e.emDisputa && e.status !== 'cortesia') return { liberado: false, motivo: 'disputa' };
+
   switch (e.status) {
     case 'cortesia':
       return { liberado: true, motivo: 'cortesia' };
@@ -145,6 +150,8 @@ export function avaliarAcessoComUso(e: EstadoAssinatura, uso: UsoAtual, agora: D
 /** Mensagem para o usuário final. Nunca expõe estado interno de cobrança. */
 export function mensagemDeBloqueio(motivo: MotivoBloqueio, detalhes: string[] = []): string {
   switch (motivo) {
+    case 'disputa':
+      return 'Há uma contestação de pagamento nesta assinatura. Fale com o suporte para regularizar o acesso.';
     case 'acima_do_limite':
       return `Sua conta está acima do limite do plano${detalhes.length ? `: ${detalhes.join('; ')}` : ''}. Reduza o uso nas configurações ou faça upgrade para voltar a operar. Nenhum dado foi apagado.`;
     case 'trial_expirado':

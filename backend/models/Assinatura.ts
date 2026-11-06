@@ -80,6 +80,7 @@ export class AssinaturaModel {
         periodoTerminaEm: assinaturas.periodoTerminaEm,
         inadimplenteDesde: assinaturas.inadimplenteDesde,
         cancelaNoFim: assinaturas.cancelaNoFim,
+        disputaStatus: assinaturas.disputaStatus,
         cobertaPor: assinaturas.cobertaPorPousadaId,
       })
       .from(userPousadas)
@@ -119,6 +120,7 @@ export class AssinaturaModel {
     periodoTerminaEm: Date | null;
     inadimplenteDesde: Date | null;
     cancelaNoFim: boolean;
+    disputaStatus: string | null;
   }): EstadoAssinatura {
     return {
       status: row.status as StatusAssinatura,
@@ -127,6 +129,7 @@ export class AssinaturaModel {
       periodoTerminaEm: row.periodoTerminaEm,
       inadimplenteDesde: row.inadimplenteDesde,
       cancelaNoFim: row.cancelaNoFim,
+      emDisputa: row.disputaStatus !== null,
     };
   }
 
@@ -243,6 +246,22 @@ export class AssinaturaModel {
       })
       .where(eq(assinaturas.stripeCustomerId, params.stripeCustomerId));
     return (r.rowCount ?? 0) > 0;
+  }
+
+  /** Abre, encerra ou marca como perdida a contestação de pagamento do customer. */
+  static async definirDisputa(stripeCustomerId: string, disputaStatus: 'aberta' | 'perdida' | null, executor: Executor = db) {
+    await executor
+      .update(assinaturas)
+      .set({ disputaStatus, updatedAt: new Date() })
+      .where(eq(assinaturas.stripeCustomerId, stripeCustomerId));
+  }
+
+  /** Nova fatura paga regulariza uma contestação perdida, nunca uma ainda em aberto. */
+  static async regularizarDisputaPerdida(stripeCustomerId: string, executor: Executor = db) {
+    await executor
+      .update(assinaturas)
+      .set({ disputaStatus: null, updatedAt: new Date() })
+      .where(and(eq(assinaturas.stripeCustomerId, stripeCustomerId), eq(assinaturas.disputaStatus, 'perdida')));
   }
 
   /**

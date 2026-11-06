@@ -26,7 +26,7 @@ const DIA = 24 * 60 * 60 * 1000;
 const emDias = (n: number) => new Date(AGORA.getTime() + n * DIA);
 
 function estado(over: Partial<EstadoAssinatura> = {}): EstadoAssinatura {
-  return { status: 'trial', plano: null, trialTerminaEm: null, periodoTerminaEm: null, inadimplenteDesde: null, cancelaNoFim: false, ...over };
+  return { status: 'trial', plano: null, trialTerminaEm: null, periodoTerminaEm: null, inadimplenteDesde: null, cancelaNoFim: false, emDisputa: false, ...over };
 }
 
 describe('acesso — trial', () => {
@@ -141,6 +141,14 @@ describe('acesso — cancelamento', () => {
   });
 });
 
+describe('acesso — contestação de pagamento', () => {
+  it('bloqueia mesmo com a assinatura ativa', () => {
+    const v = avaliarAcesso(estado({ status: 'ativa', plano: 'pousada', emDisputa: true }), AGORA);
+    assert.equal(v.liberado, false);
+    assert.equal(!v.liberado && v.motivo, 'disputa');
+  });
+});
+
 describe('limites por plano', () => {
   it('cada plano carrega os próprios limites', () => {
     for (const p of ['essencial', 'pousada', 'rede'] as const) {
@@ -171,7 +179,7 @@ describe('limites por plano', () => {
 });
 
 describe('mensagem de bloqueio', () => {
-  const motivos: MotivoBloqueio[] = ['trial_expirado', 'tolerancia_esgotada', 'suspensa', 'cancelada', 'acima_do_limite'];
+  const motivos: MotivoBloqueio[] = ['trial_expirado', 'tolerancia_esgotada', 'suspensa', 'cancelada', 'acima_do_limite', 'disputa'];
 
   it('existe para todo motivo, e nenhuma vaza estado interno de cobrança', () => {
     for (const m of motivos) {

@@ -6,7 +6,7 @@
  *   perdido para sempre, porque o reenvio era tratado como duplicado);
  * - eventos fora de ordem sobrescrevendo o estado com dado velho.
  */
-import { after, before, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type Stripe from 'stripe';
 import { prepararBanco, temBanco } from './helpers/banco.js';
@@ -43,6 +43,7 @@ describe('webhook do Stripe', { skip: !temBanco && 'DATABASE_URL não definida' 
         return s;
       },
       taxaDaFatura: async () => ({ centavos: 620, estimado: false }),
+      cobranca: async (id: string) => ({ id, customer: 'cus_est' }) as unknown as Stripe.Charge,
     };
   }
 
@@ -212,6 +213,85 @@ describe('webhook do Stripe', { skip: !temBanco && 'DATABASE_URL não definida' 
     const s = await statusLocal();
     assert.equal(s.status, 'ativa');
     assert.equal(s.stripe_subscription_id, 'sub_A');
+  });
+
+  describe('estornos e contestações', () => {
+    const estado = { sub_E: sub('sub_E', 'active', 'cus_est') };
+    const lancamentos = async () => (await pool.query(
+      `SELECT categoria, valor_centavos, referencia_externa FROM financeiro_lancamentos WHERE pousada_id = 2 ORDER BY id`,
+    )).rows.map((r) => [r.categoria, r.valor_centavos, r.referencia_externa]);
+    const disputa = async () => (await pool.query(`SELECT disputa_status FROM assinaturas WHERE pousada_id = 2`)).rows[0].disputa_status;
+    const contestacao = (status: string) => ({ id: 'dp_1', charge: 'ch_2', amount: 14900, currency: 'brl', status });
+
+    before(async () => {
+      await pool.query(`INSERT INTO pousadas (id, nome, slug, num_quartos) VALUES (2, 'E', 'e', 5)`);
+      await pool.query(`INSERT INTO assinaturas (pousada_id, status, plano, stripe_customer_id, stripe_subscription_id) VALUES (2, 'ativa', 'pousada', 'cus_est', 'sub_E')`);
+    });
+    beforeEach(async () => {
+      await pool.query(`DELETE FROM financeiro_lancamentos WHERE pousada_id = 2; UPDATE assinaturas SET disputa_status = NULL WHERE pousada_id = 2`);
+    });
+
+    it('charge.refunded lança o total estornado e não soma de novo em reembolso parcial seguinte', async () => {
+      const cobranca = (estornado: number) => ({ id: 'ch_1', customer: 'cus_est', amount_refunded: estornado, currency: 'brl' });
+      await processarEvento({ ...evento('evt_r1', 'charge.refunded', cobranca(5000)), created: 1790000000 } as Stripe.Event, leitura(estado));
+      assert.deepEqual(await lancamentos(), [['estorno_assinatura', 5000, 'ch_1']]);
+      await processarEvento({ ...evento('evt_r2', 'charge.refunded', cobranca(14900)), created: 1790000000 } as Stripe.Event, leitura(estado));
+      assert.deepEqual(await lancamentos(), [['estorno_assinatura', 14900, 'ch_1']]);
+      // Fora de ordem: o acumulado menor não reduz o que já foi registrado.
+      await processarEvento({ ...evento('evt_r0', 'charge.refunded', cobranca(5000)), created: 1790000000 } as Stripe.Event, leitura(estado));
+      assert.deepEqual(await lancamentos(), [['estorno_assinatura', 14900, 'ch_1']]);
+    });
+
+    it('charge.refunded reaplica o estado da assinatura', async () => {
+      await processarEvento(
+        evento('evt_r3', 'charge.refunded', { id: 'ch_3', customer: 'cus_est', amount_refunded: 100, currency: 'brl' }),
+        leitura({ sub_E: sub('sub_E', 'canceled', 'cus_est') }),
+      );
+      assert.equal((await pool.query(`SELECT status FROM assinaturas WHERE pousada_id = 2`)).rows[0].status, 'cancelada');
+      await processarEvento(evento('evt_r4', 'customer.subscription.updated', { id: 'sub_E' }), leitura(estado));
+    });
+
+    it('contestação aberta lança o estorno e bloqueia; outro evento da assinatura não libera', async () => {
+      await processarEvento(evento('evt_d1', 'charge.dispute.created', contestacao('needs_response')), leitura(estado));
+      assert.deepEqual(await lancamentos(), [['estorno_assinatura', 14900, 'dp_1']]);
+      assert.equal(await disputa(), 'aberta');
+      await processarEvento(evento('evt_d2', 'customer.subscription.updated', { id: 'sub_E' }), leitura(estado));
+      assert.equal(await disputa(), 'aberta');
+
+      const AssinaturaModel = (await import('../models/Assinatura.js')).default;
+      const v = await AssinaturaModel.vereditoDaPousada(2);
+      assert.equal(v!.liberado, false);
+      assert.equal(!v!.liberado && v!.motivo, 'disputa');
+    });
+
+    it('contestação ganha devolve a receita e o acesso, deixando o rastro', async () => {
+      await processarEvento(evento('evt_d3', 'charge.dispute.created', contestacao('needs_response')), leitura(estado));
+      await processarEvento(evento('evt_d4', 'charge.dispute.closed', contestacao('won')), leitura(estado));
+      assert.deepEqual(await lancamentos(), [['estorno_assinatura', 14900, 'dp_1'], ['receita_assinatura', 14900, 'dp_1']]);
+      assert.equal(await disputa(), null);
+    });
+
+    it('contestação perdida segue bloqueada até uma nova fatura ser paga', async () => {
+      await processarEvento(evento('evt_d5', 'charge.dispute.created', contestacao('needs_response')), leitura(estado));
+      await processarEvento(evento('evt_d6', 'charge.dispute.closed', contestacao('lost')), leitura(estado));
+      assert.equal(await disputa(), 'perdida');
+      const fatura = { id: 'in_d', customer: 'cus_est', amount_paid: 14900, currency: 'brl', created: 1790000000, parent: { subscription_details: { subscription: 'sub_E' } } };
+      await processarEvento(evento('evt_d7', 'invoice.paid', fatura), leitura(estado));
+      assert.equal(await disputa(), null);
+    });
+
+    it('fatura paga não encerra uma contestação ainda em aberto', async () => {
+      await processarEvento(evento('evt_d8', 'charge.dispute.created', contestacao('needs_response')), leitura(estado));
+      const fatura = { id: 'in_e', customer: 'cus_est', amount_paid: 14900, currency: 'brl', created: 1790000000, parent: { subscription_details: { subscription: 'sub_E' } } };
+      await processarEvento(evento('evt_d9', 'invoice.paid', fatura), leitura(estado));
+      assert.equal(await disputa(), 'aberta');
+    });
+
+    it('consulta prévia do banco (warning_*) não move dinheiro: nem lançamento, nem bloqueio', async () => {
+      await processarEvento(evento('evt_d10', 'charge.dispute.created', contestacao('warning_needs_response')), leitura(estado));
+      assert.deepEqual(await lancamentos(), []);
+      assert.equal(await disputa(), null);
+    });
   });
 
   it('cancelamento da assinatura corrente é aplicado', async () => {
