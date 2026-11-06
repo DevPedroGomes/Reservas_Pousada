@@ -34,6 +34,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
+        # Commit gravado na imagem, servido em /health/live. Só no build: em
+        # `environment`, mesmo sem valor, o compose sobrescreve com vazio na VPS
+        # (onde a variável não existe) e apaga o que a imagem traz.
         APP_VERSION: ${APP_VERSION:-}
     container_name: reservas-backend
     restart: unless-stopped
@@ -52,9 +55,6 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      # Sem valor de propósito: a versão vem gravada na imagem. `${APP_VERSION:-}`
-      # sobrescreveria com vazio na VPS, onde a variável não existe.
-      APP_VERSION:
       # Endereço público da API nas URLs de webhook Pix e calendário iCal. Vazio
       # = BETTER_AUTH_URL.
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
