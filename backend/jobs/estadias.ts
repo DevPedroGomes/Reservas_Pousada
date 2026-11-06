@@ -10,6 +10,7 @@
  * auditoria (sem usuário: foi o sistema).
  */
 import { pool } from '../db/index.js';
+import { cancelarNoGateway, type CobrancaEncerrada } from '../models/Pix.js';
 import { hojeLocal } from '../utils/datas.js';
 
 export async function finalizarEstadiasVencidas(hoje: string = hojeLocal()): Promise<number> {
@@ -50,6 +51,8 @@ export async function finalizarEstadiasVencidas(hoje: string = hojeLocal()): Pro
  */
 export async function expirarPreReservas(): Promise<number> {
   const cliente = await pool.connect();
+  let encerradas: CobrancaEncerrada[] = [];
+  let expiradas = 0;
   try {
     await cliente.query('BEGIN');
     const { rows } = await cliente.query<{ id: number }>(
@@ -67,17 +70,22 @@ export async function expirarPreReservas(): Promise<number> {
         [rows.map((r) => r.id)],
       );
       // O Pix do sinal dessas pré-reservas deixa de valer.
-      await cliente.query(
-        `UPDATE cobrancas_pix SET status = 'expirada' WHERE reserva_id = ANY($1::int[]) AND status = 'pendente'`,
+      const cobrancas = await cliente.query<CobrancaEncerrada>(
+        `UPDATE cobrancas_pix SET status = 'expirada' WHERE reserva_id = ANY($1::int[]) AND status = 'pendente'
+         RETURNING pousada_id, provedor, provedor_id`,
         [rows.map((r) => r.id)],
       );
+      encerradas = cobrancas.rows;
     }
     await cliente.query('COMMIT');
-    return rows.length;
+    expiradas = rows.length;
   } catch (err) {
     await cliente.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     cliente.release();
   }
+  // Depois do commit e sem conexão presa: é chamada de rede.
+  await cancelarNoGateway(encerradas);
+  return expiradas;
 }

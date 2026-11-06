@@ -11,12 +11,15 @@ import QuartoModel from '../models/Quarto.js';
 import HospedeModel, { HospedeRecusado, lerDadosHospede, validarDadosHospede } from '../models/Hospede.js';
 import ContaReservaModel, { centavos, lerConsumo, lerPagamento } from '../models/ContaReserva.js';
 import { importarPlanilha, MAX_LINHAS } from '../models/ImportacaoPlanilha.js';
-import { gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, saldoDaReserva, valorSugerido } from '../models/Pix.js';
+import { encerrarCobrancas, gerarCobranca, listarCobrancas, marcarRecebida, PixIndisponivel, saldoDaReserva, valorSugerido } from '../models/Pix.js';
 import { fichaDaReserva, linkDaReserva } from '../models/Precheckin.js';
 import { hojeLocal } from '../utils/datas.js';
 import { param } from '../utils/http.js';
 
 const router = Router();
+
+/** Status em que a reserva deixa de valer: as cobranças Pix abertas são anuladas. */
+const STATUS_ENCERRADOS = ['cancelada', 'no_show'];
 
 /**
  * Prefix CSV field with a leading apostrophe when the first char could trigger
@@ -408,7 +411,11 @@ router.post('/:id/pix/:cobrancaId/recebida', authorize(['admin', 'recepcao']), a
     const reserva = await reservaDaRota(req, res);
     if (!reserva) return;
     const r = await marcarRecebida(reserva.pousadaId, reserva.id, Number(param(req, 'cobrancaId')), req.user!.id);
-    res.json({ sucesso: true, confirmou: r.confirmou, mensagem: r.confirmou ? 'Pix recebido e reserva confirmada.' : 'Pix recebido.' });
+    const mensagem = r.estornar
+      ? 'Pix registrado, mas a reserva está encerrada e não pôde voltar: estorne o valor ao hóspede.'
+      : r.reativou ? 'Pix recebido e reserva reativada.'
+      : r.confirmou ? 'Pix recebido e reserva confirmada.' : 'Pix recebido.';
+    res.json({ sucesso: true, confirmou: r.confirmou, reativou: r.reativou, estornoPendente: r.estornar, mensagem });
   } catch (err) {
     if (err instanceof PixIndisponivel) return res.status(err.status).json({ sucesso: false, mensagem: err.message });
     next(new AppError('Erro ao baixar o Pix', 500, 'PIX_003'));
@@ -693,6 +700,10 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    if (statusNovo !== reservaAntes.status && STATUS_ENCERRADOS.includes(statusNovo)) {
+      await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
+    }
+
     res.json({
       sucesso: true,
       mensagem: 'Reserva atualizada com sucesso',
@@ -764,6 +775,8 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
 
+    if (STATUS_ENCERRADOS.includes(status)) await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
+
     res.json({
       sucesso: true,
       mensagem: `Reserva marcada como ${ROTULO_STATUS[status as keyof typeof ROTULO_STATUS]}`,
@@ -820,6 +833,8 @@ router.delete('/:id', authorize(['admin']), async (req: Request, res: Response, 
     if (resultado.changes === 0) {
       return res.status(404).json({ sucesso: false, codigo: 'RES_001', mensagem: 'Reserva não encontrada' });
     }
+
+    await encerrarCobrancas(req.user!.pousadaId!, parseInt(id));
 
     res.json({
       sucesso: true,

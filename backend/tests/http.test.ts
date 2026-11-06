@@ -848,6 +848,7 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
           return { id: 'pay_abc123', copiaECola: `00020101021226-asaas-${d.referencia}`, expiraEm: d.expiraEm };
         },
         async consultar(idPg) { consultas.push(idPg); return { status: situacao, valorCentavos: 25000, referencia: null }; },
+        async cancelarCobranca() {},
         async registrarWebhook(w) { webhooks.push(w); },
       }));
       try {

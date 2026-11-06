@@ -229,6 +229,29 @@ export async function enviarAtendimentoSolicitado(para: string[], d: { pousada: 
   for (const email of para) await enfileirarEmail(email, `WhatsApp: ${d.nome || '+' + d.contato} quer falar com a equipe`, html);
 }
 
+/**
+ * Aviso à equipe: um Pix foi pago com a reserva já encerrada. Ou a reserva
+ * voltou a valer, ou o dinheiro precisa ser devolvido ao hóspede.
+ */
+export async function enviarPixTardio(para: string[], d: { pousada: string; reservaId: number; hospede: string; valor: string; reativou: boolean; link: string }): Promise<void> {
+  const html = d.reativou
+    ? baseTemplate(`
+      ${titulo('Pix pago depois do prazo: reserva reativada')}
+      ${p(`<strong>${escapeHtml(d.hospede)}</strong> pagou ${escapeHtml(d.valor)} por Pix depois que a reserva #${d.reservaId} da <strong>${escapeHtml(d.pousada)}</strong> foi encerrada. O quarto estava livre, então a reserva voltou como confirmada.`)}
+      ${ctaButton(d.link, 'Abrir a reserva')}
+    `, 'Reserva reativada pelo Pix')
+    : baseTemplate(`
+      ${titulo('Pix pago com a reserva encerrada: estorne ao hóspede')}
+      ${p(`<strong>${escapeHtml(d.hospede)}</strong> pagou ${escapeHtml(d.valor)} por Pix, mas a reserva #${d.reservaId} da <strong>${escapeHtml(d.pousada)}</strong> está encerrada e não pôde voltar a valer.`)}
+      ${p('O valor foi registrado na conta da reserva e está marcado para estorno. Devolva ao hóspede pelo banco ou pelo gateway e lance o estorno na conta.')}
+      ${ctaButton(d.link, 'Abrir a reserva')}
+    `, 'Pix a estornar');
+  const assunto = d.reativou
+    ? `Pix tardio: reserva #${d.reservaId} reativada — ${d.pousada}`
+    : `Pix a estornar: reserva #${d.reservaId} encerrada — ${d.pousada}`;
+  for (const email of para) await enfileirarEmail(email, assunto, html);
+}
+
 // ==========================================
 // Fila
 // ==========================================

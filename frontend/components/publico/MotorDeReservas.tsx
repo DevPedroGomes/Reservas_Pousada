@@ -87,6 +87,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
   const [pedido, setPedido] = useState<Pedido | null>(null)
   const [pix, setPix] = useState<PixDoPedido | null>(null)
   const [pixPago, setPixPago] = useState(false)
+  const [pixEstorno, setPixEstorno] = useState(false)
   const [copiado, setCopiado] = useState(false)
 
   // Pix automático: acompanha o pagamento e mostra a confirmação na hora.
@@ -96,7 +97,7 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
       try {
         const r = await fetch(`${API}/api/publico/pix/${pix.token}`)
         const d = await r.json()
-        if (d.sucesso && d.status === "paga") setPixPago(true)
+        if (d.sucesso && d.status === "paga") { setPixEstorno(Boolean(d.estorno)); setPixPago(true) }
       } catch { /* tenta de novo no próximo ciclo */ }
     }, 5000)
     return () => clearInterval(t)
@@ -171,8 +172,12 @@ export function MotorDeReservas({ slug, pousada, quartos }: { slug: string; pous
         {pix && (
           pixPago ? (
             <section className="rounded-2xl border border-emerald-300 bg-emerald-100 p-6 text-emerald-900">
-              <h2 className="text-lg font-semibold">Pagamento confirmado!</h2>
-              <p className="text-sm">Recebemos o Pix de {reais(pix.valorCentavos)}. Sua reserva está confirmada.</p>
+              <h2 className="text-lg font-semibold">{pixEstorno ? "Pagamento recebido" : "Pagamento confirmado!"}</h2>
+              <p className="text-sm">
+                {pixEstorno
+                  ? <>Recebemos o Pix de {reais(pix.valorCentavos)}, mas o prazo da reserva já tinha acabado e o quarto não está mais disponível. A {pousada.nome} vai devolver o valor.</>
+                  : <>Recebemos o Pix de {reais(pix.valorCentavos)}. Sua reserva está confirmada.</>}
+              </p>
             </section>
           ) : (
             <section className="space-y-3 rounded-2xl border border-border bg-white p-6">
