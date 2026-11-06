@@ -141,7 +141,7 @@ export function MapaOcupacao({ inicio, dias, hoje, quartos, reservas, podeCriar,
               const conteudo = (
                 <>
                   <span className="truncate">{r.nome}</span>
-                  {!r.pago && r.status !== "finalizada" && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-label="a pagar" />}
+                  {!r.pago && r.status !== "finalizada" && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-warning" role="img" aria-label="a pagar" />}
                 </>
               )
               if (estatico) return <span key={r.id} className={classe} style={posicao}>{conteudo}</span>

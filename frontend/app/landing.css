@@ -974,8 +974,8 @@
     }
 
     @keyframes nome-sobe {
-      from { opacity: 0.2; transform: translateY(35%); }
-      to { opacity: 1; transform: none; }
+      from { transform: translateY(35%); }
+      to { transform: none; }
     }
   }
 }

@@ -8,7 +8,7 @@ import { Medicao } from '../components/medicao/Medicao';
 import { RegistrarPwa } from '../components/pwa/Pwa';
 
 const display = Space_Grotesk({ subsets: ['latin'], variable: '--font-display', weight: ['500', '600', '700'], display: 'swap' });
-const texto = IBM_Plex_Sans({ subsets: ['latin'], variable: '--font-sans', weight: ['400', '500', '600'], display: 'swap' });
+const texto = IBM_Plex_Sans({ subsets: ['latin'], variable: '--font-sans', weight: ['400', '500', '600'], display: 'swap', preload: false });
 const dado = IBM_Plex_Mono({ subsets: ['latin'], variable: '--font-mono', weight: ['400', '500'], display: 'swap', preload: false });
 
 const URL_APP = process.env.NEXT_PUBLIC_APP_URL || 'https://diaria.pgdev.com.br';
