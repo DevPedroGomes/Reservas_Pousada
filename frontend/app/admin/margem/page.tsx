@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table"
 import { cn } from "../../../lib/utils"
 import { formatarPreco } from "../../../hooks/useAssinatura"
+import { SimboloPorta } from "../../../components/landing/MarcaDiaria"
 
 interface Margem {
   receitaCentavos: number
@@ -104,11 +105,11 @@ export default function MargemPage() {
 
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border/50 bg-white/80 backdrop-blur-md">
+      <header className="border-b border-border/50 bg-card/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 h-14">
           <div className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
-            <span className="text-sm font-semibold">Diária · Margem</span>
+            <SimboloPorta className="h-8 w-8" />
+            <span className="text-sm font-semibold">Diária, Margem</span>
           </div>
           <Link href="/painel"><Button variant="ghost" size="sm">Voltar ao painel</Button></Link>
         </div>
@@ -122,7 +123,7 @@ export default function MargemPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setCompetencia(mesAnterior(competencia))}>←</Button>
-            <span className="text-sm font-medium tabular-nums w-20 text-center">{competencia}</span>
+            <span className="text-sm font-medium num w-20 text-center">{competencia}</span>
             <Button
               variant="outline" size="sm"
               disabled={competencia >= mesAtual()}
@@ -132,8 +133,8 @@ export default function MargemPage() {
         </div>
 
         {relatorio?.avisos?.map((a) => (
-          <div key={a} className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-4 py-3">
-            <p className="text-sm text-amber-800">{a}</p>
+          <div key={a} className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
+            <p className="text-sm text-warning">{a}</p>
           </div>
         ))}
 
@@ -174,7 +175,7 @@ export default function MargemPage() {
                     const negativa = l.margem.margemCentavos < 0
                     const alerta = l.ciclosNegativos >= 2
                     return (
-                      <TableRow key={l.pousadaId} className={cn(alerta && "bg-rose-50/50")}>
+                      <TableRow key={l.pousadaId} className={cn(alerta && "bg-destructive/10")}>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
                             {l.nome}
@@ -182,18 +183,18 @@ export default function MargemPage() {
                           </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{l.plano ?? l.status}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatarPreco(l.margem.receitaCentavos)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                        <TableCell className="text-right num">{formatarPreco(l.margem.receitaCentavos)}</TableCell>
+                        <TableCell className="text-right num text-muted-foreground">
                           {formatarPreco(l.margem.custoPorCategoria.taxa_stripe)}
                           {l.margem.contemEstimativa && <span className="ml-1 text-xs" title="Contém estimativa">~</span>}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{formatarPreco(l.margem.infraCentavos)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{formatarPreco(l.margem.custoPorCategoria.custo_ia)}</TableCell>
-                        <TableCell className={cn("text-right tabular-nums font-medium", negativa ? "text-rose-700" : "text-emerald-700")}>
+                        <TableCell className="text-right num text-muted-foreground">{formatarPreco(l.margem.infraCentavos)}</TableCell>
+                        <TableCell className="text-right num text-muted-foreground">{formatarPreco(l.margem.custoPorCategoria.custo_ia)}</TableCell>
+                        <TableCell className={cn("text-right num font-medium", negativa ? "text-destructive" : "text-success")}>
                           {formatarPreco(l.margem.margemCentavos)}
                         </TableCell>
-                        <TableCell className={cn("text-right tabular-nums", negativa && "text-rose-700")}>
-                          {l.margem.margemPercentual === null ? "—" : `${l.margem.margemPercentual}%`}
+                        <TableCell className={cn("text-right num", negativa && "text-destructive")}>
+                          {l.margem.margemPercentual === null ? "-" : `${l.margem.margemPercentual}%`}
                         </TableCell>
                         <TableCell>
                           <Button
@@ -242,13 +243,13 @@ function Aquisicao() {
     return () => { vivo = false }
   }, [dias])
 
-  const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : "—")
+  const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : "-")
 
   return (
     <Card className="p-0 overflow-hidden">
       <div className="flex items-center justify-between gap-3 p-4">
         <h2 className="text-base font-semibold">Aquisição por canal</h2>
-        <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-lg border border-border bg-white px-2 py-1 text-sm" aria-label="Período">
+        <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-lg border border-border bg-card px-2 py-1 text-sm" aria-label="Período">
           <option value={30}>Últimos 30 dias</option>
           <option value={90}>Últimos 90 dias</option>
           <option value={365}>Últimos 12 meses</option>
@@ -273,7 +274,7 @@ function Aquisicao() {
             {canais.map((c) => (
               <TableRow key={`${c.fonte}|${c.campanha}`}>
                 <TableCell className="font-medium">{c.fonte}</TableCell>
-                <TableCell className="text-muted-foreground">{c.campanha || "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{c.campanha || "-"}</TableCell>
                 <TableCell className="text-right">{c.cadastros}</TableCell>
                 <TableCell className="text-right">{c.criaram_pousada}</TableCell>
                 <TableCell className="text-right">{c.pagantes}</TableCell>
@@ -293,7 +294,7 @@ function Resumo({ titulo, valor, destaque, sufixo }: { titulo: string; valor: nu
     <Card>
       <CardHeader className="pb-2">
         <CardDescription>{titulo}</CardDescription>
-        <CardTitle className={cn("text-2xl tabular-nums", destaque && (negativo ? "text-rose-700" : "text-emerald-700"))}>
+        <CardTitle className={cn("text-2xl num", destaque && (negativo ? "text-destructive" : "text-success"))}>
           {formatarPreco(valor)}
           {sufixo && <span className="text-sm font-normal text-muted-foreground ml-2">{sufixo}</span>}
         </CardTitle>
@@ -331,9 +332,9 @@ function Lancamentos({ pousadaId, competencia }: { pousadaId: number; competenci
                 <span className="text-muted-foreground">
                   {String(i.categoria)}
                   {i.estimado ? " (estimado)" : ""}
-                  {i.referencia_externa ? ` · ${String(i.referencia_externa)}` : ""}
+                  {i.referencia_externa ? `, ${String(i.referencia_externa)}` : ""}
                 </span>
-                <span className="tabular-nums">{formatarPreco(Number(i.valor_centavos) || 0)}</span>
+                <span className="num">{formatarPreco(Number(i.valor_centavos) || 0)}</span>
               </div>
             ))}
           </div>

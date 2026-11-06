@@ -46,8 +46,8 @@ export default function Painel() {
       </div>
 
       {erro && (
-        <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-800">{erro}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">{erro}</p>
           <Button variant="outline" size="sm" onClick={() => void carregar()}>Tentar novamente</Button>
         </div>
       )}

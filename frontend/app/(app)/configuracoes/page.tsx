@@ -24,7 +24,7 @@ function Aviso({ m }: { m: Message | null }) {
   return (
     <div className={cn(
       "rounded-lg border px-3 py-2 text-sm",
-      m.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800",
+      m.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive",
     )}>
       {m.text}
     </div>
@@ -153,7 +153,7 @@ function Equipe() {
                         aria-label={`Papel de ${m.nome}`}
                         value={m.role}
                         onChange={(e) => void equipe.trocarPapel(m.id, e.target.value)}
-                        className="rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+                        className="rounded-lg border border-border bg-card px-2 py-1.5 text-sm"
                       >
                         {Object.entries(PAPEIS)
                           .filter(([k]) => souDono || k !== "admin")
@@ -162,7 +162,7 @@ function Equipe() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-rose-600 hover:text-rose-700"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => { if (window.confirm(`Remover ${m.nome} da equipe? O acesso termina na hora.`)) void equipe.remover(m.id) }}
                       >
                         Remover
@@ -188,7 +188,7 @@ function Equipe() {
             className="flex flex-col sm:flex-row gap-2"
           >
             <Input type="email" placeholder="email@exemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" className="flex-1" />
-            <select value={papel} onChange={(e) => setPapel(e.target.value)} aria-label="Papel do convidado" className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+            <select value={papel} onChange={(e) => setPapel(e.target.value)} aria-label="Papel do convidado" className="rounded-lg border border-border bg-card px-3 py-2 text-sm">
               {Object.entries(PAPEIS).filter(([k]) => souDono || k !== "admin").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <Button type="submit" disabled={convites.loading}>{convites.loading ? "Enviando..." : "Convidar"}</Button>
@@ -201,8 +201,8 @@ function Equipe() {
                   <div>
                     <p className="text-sm font-medium">{c.email}</p>
                     <p className="text-xs text-muted-foreground">
-                      {PAPEIS[c.role] ?? c.role} ·{" "}
-                      <span className={cn("font-medium", c.status === "pending" ? "text-amber-600" : c.status === "accepted" ? "text-emerald-600" : "text-rose-600")}>
+                      {PAPEIS[c.role] ?? c.role},{" "}
+                      <span className={cn("font-medium", c.status === "pending" ? "text-warning" : c.status === "accepted" ? "text-success" : "text-destructive")}>
                         {c.status === "pending" ? "Pendente" : c.status === "accepted" ? "Aceito" : c.status === "expired" ? "Expirado" : "Revogado"}
                       </span>
                     </p>
@@ -211,7 +211,7 @@ function Equipe() {
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => void convites.reenviarConvite(p.id, c.id)}>Reenviar</Button>
                       {c.status === "pending" && (
-                        <Button variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => void convites.revogarConvite(p.id, c.id)}>Revogar</Button>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => void convites.revogarConvite(p.id, c.id)}>Revogar</Button>
                       )}
                     </div>
                   )}
@@ -308,7 +308,7 @@ function ReservasPeloSite() {
       <CardHeader>
         <CardTitle>Reservas pelo site</CardTitle>
         <CardDescription>
-          Uma página da sua pousada onde o hóspede vê os quartos livres com o preço do tarifário e pede a reserva — sem comissão.
+          Uma página da sua pousada onde o hóspede vê os quartos livres com o preço do tarifário e pede a reserva, sem comissão.
           O pedido entra como pré-reserva e você confirma pelo WhatsApp. Coloque o link no Instagram, no Google e no WhatsApp Business.
         </CardDescription>
       </CardHeader>
@@ -402,7 +402,7 @@ function PixDaPousada() {
       <CardHeader>
         <CardTitle>Pix para o sinal</CardTitle>
         <CardDescription>
-          Com a chave Pix, o sistema gera o QR Code e o “copia e cola” com o valor certo para cada reserva — o hóspede paga
+          Com a chave Pix, o sistema gera o QR Code e o “copia e cola” com o valor certo para cada reserva, o hóspede paga
           em qualquer banco e você clica em “Recebi o Pix”. Ligando sua conta Asaas, o pagamento confirma a reserva sozinho.
           O dinheiro vai direto para a sua conta.
         </CardDescription>
@@ -416,7 +416,7 @@ function PixDaPousada() {
           <div className="grid gap-4 sm:grid-cols-[10rem_1fr]">
             <div className="space-y-1.5">
               <Label htmlFor="pix-tipo">Tipo de chave</Label>
-              <select id="pix-tipo" value={form.tipo_chave} onChange={(e) => setForm((f) => ({ ...f, tipo_chave: e.target.value }))} className="flex h-10 w-full rounded-lg border border-border bg-white px-2 text-sm">
+              <select id="pix-tipo" value={form.tipo_chave} onChange={(e) => setForm((f) => ({ ...f, tipo_chave: e.target.value }))} className="flex h-10 w-full rounded-lg border border-border bg-card px-2 text-sm">
                 <option value="telefone">Celular</option>
                 <option value="cpf">CPF</option>
                 <option value="cnpj">CNPJ</option>
@@ -443,7 +443,7 @@ function PixDaPousada() {
           <div className="space-y-2 rounded-lg border border-border p-3">
             <p className="text-sm font-medium">
               Confirmação automática (Asaas){" "}
-              {sit?.automatico ? <span className="text-emerald-700">· conectado</span> : <span className="text-muted-foreground">· opcional</span>}
+              {sit?.automatico ? <span className="text-success">conectado</span> : <span className="text-muted-foreground">· opcional</span>}
             </p>
             <p className="text-xs text-muted-foreground">
               No Asaas: Integrações → Chave de API. O Asaas exige o CPF de quem paga; sem CPF, vale o Pix pela chave acima.
@@ -452,20 +452,20 @@ function PixDaPousada() {
               id="pix-asaas"
               type="password"
               autoComplete="off"
-              placeholder={sit?.automatico ? "Conectado — cole outra chave para trocar" : "$aact_..."}
+              placeholder={sit?.automatico ? "Conectado, cole outra chave para trocar" : "$aact_..."}
               value={form.asaas_chave}
               onChange={(e) => setForm((f) => ({ ...f, asaas_chave: e.target.value }))}
               aria-label="Chave de API do Asaas"
             />
             {sit?.webhook && !sit.webhook.registrado && (
-              <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-900 space-y-1">
+              <div className="rounded-md bg-warning/10 p-2 text-xs text-warning space-y-1">
                 <p>Cadastre o webhook no Asaas (Integrações → Webhooks), eventos de cobrança:</p>
                 <p className="break-all">URL: <code>{sit.webhook.url}</code></p>
                 <p className="break-all">Token de autenticação: <code>{sit.webhook.token}</code></p>
               </div>
             )}
             {sit?.automatico && (
-              <button type="button" className="text-xs text-rose-700 underline" onClick={(e) => { if (window.confirm("Desligar o Asaas? O Pix volta a ser só pela chave.")) void salvar(e as unknown as React.FormEvent, { remover_asaas: true, asaas_chave: "" }) }}>
+              <button type="button" className="text-xs text-destructive underline" onClick={(e) => { if (window.confirm("Desligar o Asaas? O Pix volta a ser só pela chave.")) void salvar(e as unknown as React.FormEvent, { remover_asaas: true, asaas_chave: "" }) }}>
                 Desligar Asaas
               </button>
             )}
@@ -581,7 +581,7 @@ function RetencaoDeHospedes() {
           disabled={!podeEditar}
           value={atual}
           onChange={(e) => void mudar(Number(e.target.value))}
-          className="rounded-lg border border-border bg-white px-3 py-2 text-sm"
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm"
         >
           <option value={0}>Não anonimizar automaticamente</option>
           <option value={12}>Anonimizar após 12 meses</option>
@@ -644,9 +644,9 @@ function SuaConta() {
         <Aviso m={msg} />
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void exportar()}>Exportar meus dados</Button>
-          <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirConta()}>Excluir minha conta</Button>
+          <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => void excluirConta()}>Excluir minha conta</Button>
           {auth.user?.is_owner && (
-            <Button variant="outline" className="text-rose-600 hover:text-rose-700" onClick={() => void excluirPousada()}>Excluir esta pousada</Button>
+            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => void excluirPousada()}>Excluir esta pousada</Button>
           )}
         </div>
       </CardContent>

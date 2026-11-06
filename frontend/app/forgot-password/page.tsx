@@ -47,16 +47,16 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-500 text-2xl font-semibold text-white shadow-lg shadow-indigo-500/30">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">
               RP
             </div>
           </div>
-          <Badge variant="outline" className="uppercase tracking-[0.14em] text-[10px]">
+          <Badge variant="outline" className="text-xs">
             Recuperar acesso
           </Badge>
         </div>
 
-        <Card className="shadow-lg border-slate-200/80">
+        <Card className="shadow-lg border-border">
           <CardHeader>
             <CardTitle className="text-2xl font-bold">
               {sent ? 'Email enviado' : 'Esqueceu a senha?'}
@@ -72,8 +72,8 @@ export default function ForgotPasswordPage() {
               <div className={cn(
                 'rounded-xl border px-4 py-3 text-sm',
                 message.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                  : 'border-rose-200 bg-rose-50 text-rose-700'
+                  ? 'border-success/30 bg-success/10 text-success'
+                  : 'border-destructive/30 bg-destructive/10 text-destructive'
               )}>
                 {message.text}
               </div>
@@ -92,7 +92,7 @@ export default function ForgotPasswordPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="h-11 border-2 focus:ring-4 focus:ring-indigo-500/15"
+                    className="h-11 border-2 focus:ring-4 focus:ring-primary/15"
                   />
                 </div>
                 <Button type="submit" className="w-full h-11 font-semibold" disabled={loading}>

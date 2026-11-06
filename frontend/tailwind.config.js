@@ -16,6 +16,11 @@ module.exports = {
       }
     },
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace']
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -47,15 +52,20 @@ module.exports = {
           foreground: 'hsl(var(--card-foreground))'
         },
         success: {
-          DEFAULT: '#10b981',
-          foreground: '#ecfdf3'
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))'
         },
         warning: {
-          DEFAULT: '#facc15',
-          foreground: '#fefce8'
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))'
         }
       },
+      transitionTimingFunction: {
+        saida: 'cubic-bezier(0.16, 1, 0.3, 1)'
+      },
       borderRadius: {
+        caixa: 'var(--radius-caixa)',
+        nucleo: 'var(--radius-nucleo)',
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'

@@ -43,9 +43,9 @@ function periodos(hoje: string) {
 
 function Indicador({ titulo, valor, detalhe }: { titulo: string; valor: string; detalhe?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-white px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{titulo}</div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums">{valor}</div>
+    <div className="rounded-xl border border-border bg-card px-4 py-3">
+      <div className="text-xs font-medium text-muted-foreground">{titulo}</div>
+      <div className="num mt-1 text-2xl font-medium">{valor}</div>
       {detalhe && <div className="text-xs text-muted-foreground">{detalhe}</div>}
     </div>
   )
@@ -78,7 +78,7 @@ export default function Relatorios() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Relatórios</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {formatarData(periodo.inicio)} a {formatarData(periodo.fim)} · conta reservas confirmadas, hospedadas e finalizadas
+            {formatarData(periodo.inicio)} a {formatarData(periodo.fim)}, conta reservas confirmadas, hospedadas e finalizadas
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -92,7 +92,7 @@ export default function Relatorios() {
         </div>
       </div>
 
-      {erro && <p className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 text-sm text-rose-800">{erro}</p>}
+      {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{erro}</p>}
 
       {rel && (
         <>
@@ -100,15 +100,15 @@ export default function Relatorios() {
             <Indicador
               titulo="Ocupação"
               valor={`${rel.ocupacao.toLocaleString("pt-BR")}%`}
-              detalhe={`${rel.noitesVendidas} de ${rel.noitesDisponiveis} noites (${rel.quartosConsiderados} quartos)${rel.noitesBloqueadas ? ` · ${rel.noitesBloqueadas} bloqueada(s) fora da conta` : ""}`}
+              detalhe={`${rel.noitesVendidas} de ${rel.noitesDisponiveis} noites (${rel.quartosConsiderados} quartos)${rel.noitesBloqueadas ? `, ${rel.noitesBloqueadas} bloqueada(s) fora da conta` : ""}`}
             />
             <Indicador
               titulo="Diária média (ADR)"
               valor={reais(rel.adrCentavos)}
-              detalhe={`Receita ÷ ${rel.noitesComValor} noite(s) com valor${rel.noitesSemValor ? ` · ${rel.noitesSemValor} sem valor (OTA) à parte` : ""}`}
+              detalhe={`Receita ÷ ${rel.noitesComValor} noite(s) com valor${rel.noitesSemValor ? `, ${rel.noitesSemValor} sem valor (OTA) à parte` : ""}`}
             />
             <Indicador titulo="RevPAR" valor={reais(rel.revparCentavos)} detalhe="Receita ÷ noites disponíveis com valor conhecido" />
-            <Indicador titulo="Receita de hospedagem" valor={reais(rel.receitaHospedagemCentavos)} detalhe={`${rel.reservas} reserva(s) no período${rel.consumosCentavos ? ` · consumos ${reais(rel.consumosCentavos)}` : ""}`} />
+            <Indicador titulo="Receita de hospedagem" valor={reais(rel.receitaHospedagemCentavos)} detalhe={`${rel.reservas} reserva(s) no período${rel.consumosCentavos ? `, consumos ${reais(rel.consumosCentavos)}` : ""}`} />
             <Indicador titulo="Recebido no período" valor={reais(rel.recebidoCentavos)} detalhe="Pagamentos lançados nessas datas" />
             <Indicador titulo="A receber (hoje)" valor={reais(rel.aReceberCentavos)} detalhe={`${rel.aReceberTotal} reserva(s) com saldo`} />
           </div>
@@ -120,7 +120,7 @@ export default function Relatorios() {
                 {rel.ocupacaoPorDia.map((d) => (
                   <div key={d.dia} className="group relative flex h-full min-w-[6px] flex-1 flex-col justify-end" title={`${formatarData(d.dia)}: ${d.percentual}% (${d.ocupados} quarto${d.ocupados === 1 ? "" : "s"})`}>
                     <div
-                      className={cn("rounded-t-sm", d.dia === hoje ? "bg-primary" : d.percentual >= 80 ? "bg-emerald-500" : "bg-primary/40")}
+                      className={cn("rounded-t-sm", d.dia === hoje ? "bg-primary" : d.percentual >= 80 ? "bg-success" : "bg-primary/40")}
                       style={{ height: `${Math.max(d.percentual, 1)}%` }}
                     />
                   </div>
@@ -141,7 +141,7 @@ export default function Relatorios() {
                   <div key={c.canal} className="space-y-1">
                     <div className="flex justify-between text-sm">
                       <span className="font-medium">{rotuloCanal(c.canal)}</span>
-                      <span className="tabular-nums">{reais(c.receitaCentavos)} <span className="text-xs text-muted-foreground">· {c.reservas} res. · {c.noites} noites</span></span>
+                      <span className="num">{reais(c.receitaCentavos)} <span className="text-xs text-muted-foreground">{c.reservas} res., {c.noites} noites</span></span>
                     </div>
                     <div className="h-2 rounded bg-muted"><div className="h-2 rounded bg-primary/60" style={{ width: `${(c.receitaCentavos / maxCanal) * 100}%` }} /></div>
                   </div>
@@ -155,15 +155,15 @@ export default function Relatorios() {
                   <ul className="divide-y divide-border text-sm">
                     {rel.recebidoPorForma.map((f) => (
                       <li key={f.forma} className="flex justify-between py-1.5">
-                        <span>{rotuloForma(f.forma)} <span className="text-xs text-muted-foreground">· {f.lancamentos} lançamento(s)</span></span>
-                        <span className="tabular-nums font-medium">{reais(f.centavos)}</span>
+                        <span>{rotuloForma(f.forma)} <span className="text-xs text-muted-foreground">{f.lancamentos} lançamento(s)</span></span>
+                        <span className="num font-medium">{reais(f.centavos)}</span>
                       </li>
                     ))}
                   </ul>
                 )}
                 {(rel.cancelamentos.canceladas > 0 || rel.cancelamentos.no_show > 0) && (
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Chegadas no período: {rel.cancelamentos.total} · canceladas {rel.cancelamentos.canceladas} · não compareceram {rel.cancelamentos.no_show}
+                    Chegadas no período: {rel.cancelamentos.total}, canceladas {rel.cancelamentos.canceladas}, não compareceram {rel.cancelamentos.no_show}
                   </p>
                 )}
               </CardContent>
@@ -179,9 +179,9 @@ export default function Relatorios() {
                     <li key={r.id} className="flex items-center justify-between gap-3 py-1.5">
                       <Link href={`/reservas/${r.id}`} className="min-w-0 hover:underline">
                         <span className="font-medium">{r.nome}</span>
-                        <span className="text-xs text-muted-foreground"> · quarto {r.quarto} · {formatarData(r.data_entrada)} a {formatarData(r.data_saida)} · {getStatusLabel(r.status)}</span>
+                        <span className="text-xs text-muted-foreground">, quarto {r.quarto}, {formatarData(r.data_entrada)} a {formatarData(r.data_saida)}, {getStatusLabel(r.status)}</span>
                       </Link>
-                      <span className="tabular-nums font-medium text-amber-700">{reais(r.saldo_centavos)}</span>
+                      <span className="num font-medium text-warning">{reais(r.saldo_centavos)}</span>
                     </li>
                   ))}
                 </ul>

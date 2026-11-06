@@ -55,8 +55,8 @@ export default function ListaDeReservas() {
       </div>
 
       {r.error && (
-        <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-800">{r.error}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">{r.error}</p>
           <Button variant="outline" size="sm" onClick={() => { r.clearError(); void r.carregarReservas() }}>Tentar novamente</Button>
         </div>
       )}

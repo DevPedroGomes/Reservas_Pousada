@@ -3,26 +3,79 @@
 @tailwind utilities;
 
 :root {
-  --background: 35 30% 98%;
-  --foreground: 20 25% 12%;
-  --card: 36 25% 99%;
-  --card-foreground: 20 25% 12%;
-  --popover: 36 25% 99%;
-  --popover-foreground: 20 25% 12%;
-  --primary: 25 75% 47%;
-  --primary-foreground: 40 100% 97%;
-  --secondary: 35 18% 93%;
-  --secondary-foreground: 20 18% 22%;
-  --muted: 33 14% 93%;
-  --muted-foreground: 20 10% 44%;
-  --accent: 162 45% 40%;
-  --accent-foreground: 160 100% 97%;
-  --destructive: 2 60% 52%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 30 18% 86%;
-  --input: 30 18% 86%;
-  --ring: 25 75% 47%;
-  --radius: 0.5rem;
+  /* Tokens Gomio: claro é o padrão, escuro segue o sistema. Componente nenhum escreve cor. */
+  color-scheme: light dark;
+  --ease-saida: cubic-bezier(0.16, 1, 0.3, 1);
+  --radius-caixa: 1.75rem;
+  --radius-nucleo: 1.375rem;
+  --radius: 0.75rem;
+  --fundo: #f4f2ed; --superficie: #fbfaf6; --superficie-2: #ebe7de;
+  --tinta: #14120e; --tinta-2: #453f35; --tinta-3: #665f52;
+  --linha: #dad4c8; --linha-forte: #c2b9a8;
+  --realce: #b24a18; --realce-forte: #8f3a12; --realce-lavado: #f6e7dc;
+  --sobre-realce: #f4f2ed;
+  --sombra: 20 18 14;
+  --brilho-bezel: rgb(255 255 255 / 0.55);
+
+  --background: 43 24% 94%;
+  --foreground: 40 18% 7%;
+  --card: 48 38% 97%;
+  --card-foreground: 40 18% 7%;
+  --popover: 48 38% 97%;
+  --popover-foreground: 40 18% 7%;
+  --primary: 19 76% 40%;
+  --primary-foreground: 43 24% 94%;
+  --secondary: 42 25% 90%;
+  --secondary-foreground: 40 18% 7%;
+  --muted: 42 25% 90%;
+  --muted-foreground: 39 11% 36%;
+  --accent: 25 59% 91%;
+  --accent-foreground: 19 78% 32%;
+  --destructive: 358 64% 37%;
+  --destructive-foreground: 43 24% 94%;
+  --success: 147 39% 30%;
+  --success-foreground: 43 24% 94%;
+  --warning: 38 86% 29%;
+  --warning-foreground: 43 24% 94%;
+  --border: 40 20% 82%;
+  --input: 39 18% 71%;
+  --ring: 19 76% 40%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --fundo: #14120e; --superficie: #1d1a14; --superficie-2: #272219;
+    --tinta: #f4f2ed; --tinta-2: #c9c2b3; --tinta-3: #9c9484;
+    --linha: #322d24; --linha-forte: #443d31;
+    --realce: #e8703a; --realce-forte: #f29063; --realce-lavado: #2b1d14;
+    --sobre-realce: #14120e;
+    --sombra: 0 0 0;
+    --brilho-bezel: rgb(255 255 255 / 0.06);
+
+    --background: 40 18% 7%;
+    --foreground: 43 24% 94%;
+    --card: 40 18% 10%;
+    --card-foreground: 43 24% 94%;
+    --popover: 40 18% 10%;
+    --popover-foreground: 43 24% 94%;
+    --primary: 19 79% 57%;
+    --primary-foreground: 40 18% 7%;
+    --secondary: 39 22% 13%;
+    --secondary-foreground: 43 24% 94%;
+    --muted: 39 22% 13%;
+    --muted-foreground: 40 11% 56%;
+    --accent: 23 37% 12%;
+    --accent-foreground: 19 85% 67%;
+    --destructive: 5 76% 72%;
+    --destructive-foreground: 40 18% 7%;
+    --success: 142 33% 62%;
+    --success-foreground: 40 18% 7%;
+    --warning: 40 68% 62%;
+    --warning-foreground: 40 18% 7%;
+    --border: 39 16% 17%;
+    --input: 38 16% 23%;
+    --ring: 19 79% 57%;
+  }
 }
 
 * {
@@ -36,18 +89,18 @@ html {
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 ::selection {
-  background: hsl(25 75% 47% / 0.15);
+  background: hsl(var(--primary) / 0.22);
 }
 
 .scroll-area {
   scrollbar-width: thin;
-  scrollbar-color: hsl(25 25% 72%) transparent;
+  scrollbar-color: var(--linha-forte) transparent;
 }
 
 .scroll-area::-webkit-scrollbar {
@@ -56,7 +109,7 @@ body {
 }
 
 .scroll-area::-webkit-scrollbar-thumb {
-  background: hsl(25 25% 72%);
+  background: var(--linha-forte);
   border-radius: 999px;
 }
 
@@ -66,20 +119,38 @@ body {
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv05";
+  }
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
   }
 }
 
 @layer components {
-  .ambient {
-    @apply fixed inset-0 -z-10;
-    background:
-      radial-gradient(ellipse 700px 500px at 10% 5%, hsl(25 60% 82% / 0.1), transparent 60%),
-      radial-gradient(ellipse 500px 400px at 90% 15%, hsl(162 40% 72% / 0.07), transparent 50%),
-      radial-gradient(ellipse 600px 400px at 45% 95%, hsl(38 50% 78% / 0.06), transparent 50%);
+  /* Número, preço, data e id. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Bezel de uma peça só: a casca é um anel em volta do núcleo, sem elemento extra. */
+  .bezel {
+    background: var(--superficie);
+    border-radius: var(--radius-nucleo);
+    box-shadow:
+      0 0 0 var(--bezel-respiro, 0.25rem) color-mix(in srgb, var(--tinta) 4%, transparent),
+      0 0 0 calc(var(--bezel-respiro, 0.25rem) + 1px) color-mix(in srgb, var(--tinta) 8%, transparent),
+      inset 0 1px 0 var(--brilho-bezel),
+      0 18px 40px -24px rgb(var(--sombra) / 0.28);
   }
 
   .data-table th {
-    @apply text-[11px] font-medium uppercase tracking-wider text-muted-foreground;
+    @apply text-xs font-medium text-muted-foreground;
   }
 
   .data-table td,
@@ -96,18 +167,26 @@ body {
   }
 
   .pill-success {
-    @apply border-emerald-200/80 bg-emerald-50/70 text-emerald-700;
+    @apply border-success/30 bg-success/10 text-success;
   }
 
   .pill-danger {
-    @apply border-rose-200/80 bg-rose-50/70 text-rose-700;
+    @apply border-destructive/30 bg-destructive/10 text-destructive;
   }
 
   .pill-warning {
-    @apply border-amber-200/80 bg-amber-50/70 text-amber-700;
+    @apply border-warning/30 bg-warning/10 text-warning;
   }
 
   .glass-card {
-    @apply rounded-lg border border-border/50 bg-white/90 p-6 shadow-md backdrop-blur-sm;
+    @apply bezel p-6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

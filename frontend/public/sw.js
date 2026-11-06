@@ -8,7 +8,7 @@
  *   muda de conteúdo — abre mais rápido e funciona com rede ruim.
  */
 const VERSAO = "diaria-v1";
-const ESTATICOS = ["/offline.html", "/icones/icone-192.png", "/logo.png"];
+const ESTATICOS = ["/offline.html", "/icones/icone-192.png"];
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil(caches.open(VERSAO).then((c) => c.addAll(ESTATICOS)).then(() => self.skipWaiting()));

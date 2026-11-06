@@ -57,14 +57,14 @@ function baseTemplate(content: string, title: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;padding:40px 20px;">
+<body style="margin:0;padding:0;background-color:#f4f2ed;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f2ed;padding:40px 20px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background-color:#fbfaf6;border-radius:22px;overflow:hidden;box-shadow:0 18px 40px -24px rgba(20,18,14,0.28);">
           <tr>
-            <td style="background:linear-gradient(135deg,#c2410c,#ea580c);padding:28px 32px;text-align:center;">
-              <span style="color:#ffffff;font-size:22px;font-weight:700;letter-spacing:-0.2px;">Diária</span>
+            <td style="background:#b24a18;padding:28px 32px;text-align:center;">
+              <span style="color:#f4f2ed;font-size:22px;font-weight:700;letter-spacing:-0.6px;">Diária</span>
             </td>
           </tr>
           <tr>
@@ -73,9 +73,9 @@ function baseTemplate(content: string, title: string): string {
             </td>
           </tr>
           <tr>
-            <td style="padding:24px 40px;border-top:1px solid #e2e8f0;text-align:center;">
-              <p style="color:#94a3b8;font-size:12px;margin:0;">Diária — gestão de reservas para pousadas</p>
-              <p style="color:#94a3b8;font-size:12px;margin:4px 0 0;">${rodape}</p>
+            <td style="padding:24px 40px;border-top:1px solid #dad4c8;text-align:center;">
+              <p style="color:#665f52;font-size:12px;margin:0;">Diária: gestão de reservas para pousadas</p>
+              <p style="color:#665f52;font-size:12px;margin:4px 0 0;">${rodape}</p>
             </td>
           </tr>
         </table>
@@ -89,20 +89,20 @@ function baseTemplate(content: string, title: string): string {
 function ctaButton(url: string, text: string): string {
   return `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
     <tr>
-      <td style="background:#ea580c;border-radius:8px;text-align:center;">
-        <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;">${text}</a>
+      <td style="background:#14120e;border-radius:999px;text-align:center;">
+        <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;padding:14px 32px;color:#f4f2ed;font-size:16px;font-weight:600;text-decoration:none;">${text}</a>
       </td>
     </tr>
   </table>
-  <p style="color:#94a3b8;font-size:12px;line-height:1.5;margin:0 0 16px;word-break:break-all;">Se o botão não funcionar, copie e cole no navegador:<br>${escapeHtml(url)}</p>`;
+  <p style="color:#665f52;font-size:12px;line-height:1.5;margin:0 0 16px;word-break:break-all;">Se o botão não funcionar, copie e cole no navegador:<br>${escapeHtml(url)}</p>`;
 }
 
 const p = (texto: string) =>
-  `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 12px;">${texto}</p>`;
+  `<p style="color:#453f35;font-size:15px;line-height:1.6;margin:0 0 12px;">${texto}</p>`;
 const pequeno = (texto: string) =>
-  `<p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0 0 8px;">${texto}</p>`;
+  `<p style="color:#665f52;font-size:13px;line-height:1.5;margin:0 0 8px;">${texto}</p>`;
 const titulo = (texto: string) =>
-  `<h2 style="color:#1e293b;font-size:22px;font-weight:700;margin:0 0 16px;">${texto}</h2>`;
+  `<h2 style="color:#14120e;font-size:22px;font-weight:700;margin:0 0 16px;">${texto}</h2>`;
 
 // ==========================================
 // E-mails
@@ -115,10 +115,10 @@ export async function sendPasswordResetEmail(email: string, name: string, resetU
     ${p('Recebemos um pedido para redefinir a senha da sua conta. Clique no botão abaixo para criar uma nova senha:')}
     ${ctaButton(resetUrl, 'Redefinir senha')}
     ${pequeno('Este link expira em <strong>1 hora</strong>.')}
-    ${pequeno('Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.')}
+    ${pequeno('Se você não pediu isso, ignore este e-mail: sua senha continua a mesma.')}
   `, 'Redefinir senha');
 
-  await enfileirarEmail(email, 'Redefinir sua senha — Diária', html, resetUrl);
+  await enfileirarEmail(email, 'Redefinir sua senha | Diária', html, resetUrl);
 }
 
 export async function sendVerificationEmail(email: string, name: string, verificationUrl: string): Promise<void> {
@@ -130,7 +130,7 @@ export async function sendVerificationEmail(email: string, name: string, verific
     ${pequeno('Se você não criou uma conta no Diária, ignore este e-mail.')}
   `, 'Confirme seu e-mail');
 
-  await enfileirarEmail(email, 'Confirme seu e-mail — Diária', html, verificationUrl);
+  await enfileirarEmail(email, 'Confirme seu e-mail | Diária', html, verificationUrl);
 }
 
 const ROTULOS_PAPEL: Record<string, string> = {
@@ -152,15 +152,15 @@ export async function sendStaffInviteEmail(
     ${titulo('Você foi convidado(a)!')}
     ${p(`<strong>${escapeHtml(inviterName)}</strong> convidou você para a equipe da <strong>${pousada}</strong>, como <strong>${papel}</strong>.`)}
     ${ctaButton(inviteUrl, 'Aceitar convite')}
-    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0 0;">
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${pousada}</p>
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Função:</strong> ${papel}</p>
-      <p style="color:#64748b;font-size:13px;margin:0;"><strong>Validade:</strong> 7 dias</p>
+    <div style="background-color:#ebe7de;border-radius:8px;padding:16px;margin:16px 0 0;">
+      <p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>Pousada:</strong> ${pousada}</p>
+      <p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>Função:</strong> ${papel}</p>
+      <p style="color:#453f35;font-size:13px;margin:0;"><strong>Validade:</strong> 7 dias</p>
     </div>
     ${pequeno('<br>Se você não reconhece este convite, ignore este e-mail.')}
   `, 'Convite para a equipe');
 
-  await enfileirarEmail(email, `Convite para a equipe da ${pousadaNome} — Diária`, html, inviteUrl);
+  await enfileirarEmail(email, `Convite para a equipe da ${pousadaNome} | Diária`, html, inviteUrl);
 }
 
 export interface DadosPedidoSite {
@@ -181,11 +181,11 @@ export interface DadosPedidoSite {
 /** Aviso à pousada: chegou pedido pelo site, confirme antes do prazo. */
 export async function enviarPedidoParaPousada(para: string[], d: DadosPedidoSite): Promise<void> {
   const linha = (rotulo: string, valor: string) =>
-    `<p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>${rotulo}:</strong> ${escapeHtml(valor)}</p>`;
+    `<p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>${rotulo}:</strong> ${escapeHtml(valor)}</p>`;
   const html = baseTemplate(`
     ${titulo('Novo pedido de reserva pelo site')}
     ${p(`<strong>${escapeHtml(d.hospede)}</strong> pediu uma reserva na <strong>${escapeHtml(d.pousada)}</strong>. Ela entrou como pré-reserva e segura o quarto até <strong>${escapeHtml(d.prazo)}</strong>.`)}
-    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0;">
+    <div style="background-color:#ebe7de;border-radius:8px;padding:16px;margin:16px 0;">
       ${linha('Quarto', d.quarto)}
       ${linha('Datas', `${d.entrada} a ${d.saida}`)}
       ${linha('Pessoas', String(d.pessoas))}
@@ -197,7 +197,7 @@ export async function enviarPedidoParaPousada(para: string[], d: DadosPedidoSite
     ${pequeno('Combine o sinal com o hóspede e confirme a reserva. Sem confirmação até o prazo, ela é cancelada e o quarto volta a ficar livre.')}
   `, 'Novo pedido de reserva');
   for (const email of para) {
-    await enfileirarEmail(email, `Pedido de reserva #${d.reservaId} — ${d.hospede}`, html);
+    await enfileirarEmail(email, `Pedido de reserva #${d.reservaId}: ${d.hospede}`, html);
   }
 }
 
@@ -206,16 +206,16 @@ export async function enviarPedidoRecebido(para: string, d: DadosPedidoSite): Pr
   const html = baseTemplate(`
     ${titulo('Recebemos seu pedido de reserva')}
     ${p(`Olá, ${escapeHtml(d.hospede.split(' ')[0])}! Seu pedido na <strong>${escapeHtml(d.pousada)}</strong> foi recebido e o quarto está reservado para você até <strong>${escapeHtml(d.prazo)}</strong>, enquanto a pousada confirma.`)}
-    <div style="background-color:#f1f5f9;border-radius:8px;padding:16px;margin:16px 0;">
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Pedido:</strong> #${d.reservaId}</p>
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Quarto:</strong> ${escapeHtml(d.quarto)}</p>
-      <p style="color:#64748b;font-size:13px;margin:0 0 4px;"><strong>Datas:</strong> ${escapeHtml(d.entrada)} a ${escapeHtml(d.saida)}</p>
-      <p style="color:#64748b;font-size:13px;margin:0;"><strong>Total:</strong> ${escapeHtml(d.total)}</p>
+    <div style="background-color:#ebe7de;border-radius:8px;padding:16px;margin:16px 0;">
+      <p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>Pedido:</strong> #${d.reservaId}</p>
+      <p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>Quarto:</strong> ${escapeHtml(d.quarto)}</p>
+      <p style="color:#453f35;font-size:13px;margin:0 0 4px;"><strong>Datas:</strong> ${escapeHtml(d.entrada)} a ${escapeHtml(d.saida)}</p>
+      <p style="color:#453f35;font-size:13px;margin:0;"><strong>Total:</strong> ${escapeHtml(d.total)}</p>
     </div>
     ${p('A pousada vai falar com você pelo WhatsApp para combinar o sinal e confirmar.')}
     ${pequeno('Você recebeu este e-mail porque fez um pedido de reserva. Se não foi você, ignore.')}
   `, 'Pedido de reserva recebido');
-  await enfileirarEmail(para, `Pedido de reserva #${d.reservaId} recebido — ${d.pousada}`, html);
+  await enfileirarEmail(para, `Pedido de reserva #${d.reservaId} recebido: ${d.pousada}`, html);
 }
 
 /** Aviso à equipe: o atendente virtual passou uma conversa do WhatsApp. */

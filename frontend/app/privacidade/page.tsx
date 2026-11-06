@@ -3,7 +3,7 @@ import { PaginaLegal } from "../../components/legal/PaginaLegal"
 import { EMPRESA, VIGENCIA_DOCUMENTOS } from "../../lib/empresa"
 
 export const metadata: Metadata = {
-  title: "Política de privacidade — Diária",
+  title: "Política de privacidade | Diária",
   description: "Como o Diária trata os dados pessoais de quem usa o sistema e dos hóspedes das pousadas.",
 }
 
@@ -18,7 +18,7 @@ export default function Privacidade() {
       <p>
         Esta política explica como o Diária, serviço de gestão de reservas para pousadas operado por{" "}
         {EMPRESA.razaoSocial} (CNPJ {EMPRESA.cnpj}), trata dados pessoais, nos termos da Lei Geral de
-        Proteção de Dados (Lei nº 13.709/2018 — LGPD).
+        Proteção de Dados (Lei nº 13.709/2018, LGPD).
       </p>
 
       <h2>1. Quem é quem</h2>
@@ -49,13 +49,13 @@ export default function Privacidade() {
 
       <h2>3. Para que usamos e com qual base legal</h2>
       <ul>
-        <li>Prestar o serviço (contas, reservas, equipe, painel) — execução de contrato (art. 7º, V).</li>
-        <li>Registro de hóspedes e de acompanhantes, inclusive crianças e adolescentes — em nome da pousada, para o cumprimento da obrigação legal de registro dos meios de hospedagem (art. 7º, II, e art. 14), com a autorização marcada por quem preenche a ficha.</li>
-        <li>Segurança, prevenção a fraude e trilha de auditoria — legítimo interesse (art. 7º, IX) e exercício regular de direitos.</li>
-        <li>Cobrança da assinatura — execução de contrato.</li>
-        <li>E-mails de serviço (confirmação de conta, redefinição de senha, convites) — execução de contrato.</li>
-        <li>Atendimento pelo WhatsApp da pousada, inclusive pelo atendente virtual (consultar vagas e preços, fazer pré-reserva, passar a conversa para a equipe) — em nome da pousada, para os procedimentos preliminares do contrato de hospedagem que o hóspede pediu (art. 7º, V). O hóspede pode pedir uma pessoa a qualquer momento escrevendo “atendente”, e parar as mensagens automáticas escrevendo “parar”.</li>
-        <li>Medição de audiência e anúncios, no navegador e na conversão enviada pelo servidor — somente com o seu consentimento (art. 7º, I), que pode ser retirado a qualquer momento. Páginas abertas por link com código de acesso (pré-check-in, convite, redefinição de senha, confirmação de e-mail) não carregam esses rastreadores.</li>
+        <li>Prestar o serviço (contas, reservas, equipe, painel), execução de contrato (art. 7º, V).</li>
+        <li>Registro de hóspedes e de acompanhantes, inclusive crianças e adolescentes, em nome da pousada, para o cumprimento da obrigação legal de registro dos meios de hospedagem (art. 7º, II, e art. 14), com a autorização marcada por quem preenche a ficha.</li>
+        <li>Segurança, prevenção a fraude e trilha de auditoria, legítimo interesse (art. 7º, IX) e exercício regular de direitos.</li>
+        <li>Cobrança da assinatura, execução de contrato.</li>
+        <li>E-mails de serviço (confirmação de conta, redefinição de senha, convites), execução de contrato.</li>
+        <li>Atendimento pelo WhatsApp da pousada, inclusive pelo atendente virtual (consultar vagas e preços, fazer pré-reserva, passar a conversa para a equipe), em nome da pousada, para os procedimentos preliminares do contrato de hospedagem que o hóspede pediu (art. 7º, V). O hóspede pode pedir uma pessoa a qualquer momento escrevendo “atendente”, e parar as mensagens automáticas escrevendo “parar”.</li>
+        <li>Medição de audiência e anúncios, no navegador e na conversão enviada pelo servidor, somente com o seu consentimento (art. 7º, I), que pode ser retirado a qualquer momento. Páginas abertas por link com código de acesso (pré-check-in, convite, redefinição de senha, confirmação de e-mail) não carregam esses rastreadores.</li>
       </ul>
 
       <h2>4. Como protegemos</h2>
@@ -69,17 +69,17 @@ export default function Privacidade() {
       <h2>5. Com quem compartilhamos</h2>
       <p>Não vendemos dados. Compartilhamos apenas com fornecedores necessários ao serviço:</p>
       <ul>
-        <li><strong>Hospedagem e banco de dados</strong> — infraestrutura em servidor contratado pelo Diária.</li>
-        <li><strong>Resend</strong> — envio de e-mails do sistema (Estados Unidos).</li>
-        <li><strong>Stripe</strong> — processamento de pagamentos da assinatura (Estados Unidos).</li>
-        <li><strong>Google</strong> — apenas se você escolher entrar com a conta Google.</li>
-        <li><strong>Meta (WhatsApp Business)</strong> — apenas para pousadas que conectam o próprio WhatsApp: entrega das mensagens entre a pousada e o hóspede (Estados Unidos).</li>
-        <li><strong>Anthropic</strong> — provedor padrão do atendente virtual, apenas quando a pousada liga o atendente: recebe o texto da conversa, o nome de perfil do WhatsApp, o que o hóspede escrever nela (como nome completo e CPF) e o resultado das consultas de vagas e reservas, para redigir a resposta (Estados Unidos). O uso desses dados pelo provedor segue os termos comerciais dele. O sistema permite trocar de provedor; se isso acontecer, esta lista será atualizada.</li>
-        <li><strong>Google Analytics</strong> — medição de audiência, somente com o seu consentimento (Estados Unidos).</li>
-        <li><strong>Meta Ads</strong> (Pixel) — medição de anúncios, somente com o seu consentimento (Estados Unidos).</li>
-        <li><strong>Conversões pelo servidor</strong> (API de Conversões da Meta e Measurement Protocol do Google Analytics) — quando uma assinatura é paga e quem criou a conta consentiu com anúncios no cadastro: enviamos o valor, a moeda, o identificador da fatura, os identificadores de clique e de navegador daquela pessoa e, à Meta, o e-mail em hash SHA-256. Dados de hóspedes não entram nesse envio.</li>
-        <li><strong>Asaas</strong> — apenas para pousadas que ligam a confirmação automática do Pix: nome e CPF de quem paga, geração e consulta da cobrança do sinal, na conta da própria pousada.</li>
-        <li><strong>Sentry</strong> — quando habilitado, recebe relatórios de erro técnico (mensagem, pilha e rota), sem corpo da requisição, cookies nem o endereço completo da página.</li>
+        <li><strong>Hospedagem e banco de dados</strong>, infraestrutura em servidor contratado pelo Diária.</li>
+        <li><strong>Resend</strong>, envio de e-mails do sistema (Estados Unidos).</li>
+        <li><strong>Stripe</strong>, processamento de pagamentos da assinatura (Estados Unidos).</li>
+        <li><strong>Google</strong>, apenas se você escolher entrar com a conta Google.</li>
+        <li><strong>Meta (WhatsApp Business)</strong>, apenas para pousadas que conectam o próprio WhatsApp: entrega das mensagens entre a pousada e o hóspede (Estados Unidos).</li>
+        <li><strong>Anthropic</strong>, provedor padrão do atendente virtual, apenas quando a pousada liga o atendente: recebe o texto da conversa, o nome de perfil do WhatsApp, o que o hóspede escrever nela (como nome completo e CPF) e o resultado das consultas de vagas e reservas, para redigir a resposta (Estados Unidos). O uso desses dados pelo provedor segue os termos comerciais dele. O sistema permite trocar de provedor; se isso acontecer, esta lista será atualizada.</li>
+        <li><strong>Google Analytics</strong>, medição de audiência, somente com o seu consentimento (Estados Unidos).</li>
+        <li><strong>Meta Ads</strong> (Pixel), medição de anúncios, somente com o seu consentimento (Estados Unidos).</li>
+        <li><strong>Conversões pelo servidor</strong> (API de Conversões da Meta e Measurement Protocol do Google Analytics), quando uma assinatura é paga e quem criou a conta consentiu com anúncios no cadastro: enviamos o valor, a moeda, o identificador da fatura, os identificadores de clique e de navegador daquela pessoa e, à Meta, o e-mail em hash SHA-256. Dados de hóspedes não entram nesse envio.</li>
+        <li><strong>Asaas</strong>, apenas para pousadas que ligam a confirmação automática do Pix: nome e CPF de quem paga, geração e consulta da cobrança do sinal, na conta da própria pousada.</li>
+        <li><strong>Sentry</strong>, quando habilitado, recebe relatórios de erro técnico (mensagem, pilha e rota), sem corpo da requisição, cookies nem o endereço completo da página.</li>
       </ul>
       <p>
         <strong>Transferência internacional de dados:</strong> os fornecedores indicados acima como Estados Unidos
@@ -114,7 +114,7 @@ export default function Privacidade() {
 
       <h2>9. Encarregado e contato</h2>
       <p>
-        Encarregado pelo tratamento de dados: {EMPRESA.encarregado} — {EMPRESA.emailPrivacidade}.
+        Encarregado pelo tratamento de dados: {EMPRESA.encarregado}, {EMPRESA.emailPrivacidade}.
         <br />
         {EMPRESA.razaoSocial}, {EMPRESA.endereco}.
       </p>

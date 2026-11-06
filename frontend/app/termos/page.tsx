@@ -4,7 +4,7 @@ import { PaginaLegal } from "../../components/legal/PaginaLegal"
 import { EMPRESA, VIGENCIA_DOCUMENTOS } from "../../lib/empresa"
 
 export const metadata: Metadata = {
-  title: "Termos de uso — Diária",
+  title: "Termos de uso | Diária",
   description: "Condições de uso do Diária, sistema de gestão de reservas para pousadas.",
 }
 
@@ -65,7 +65,7 @@ export default function Termos() {
         <li>Os dados que você insere são seus. O Diária os trata apenas para prestar o serviço, como operador (LGPD).</li>
         <li>A pousada é responsável por informar aos hóspedes sobre o tratamento dos dados deles e por ter base legal para isso.</li>
         <li>Se a assinatura terminar, os dados continuam guardados e disponíveis para exportação até que você peça a exclusão.</li>
-        <li>Ao excluir a pousada (em Configurações), os dados dela e dos hóspedes são eliminados de forma definitiva — exporte antes. Registros de cobrança da assinatura são mantidos pelo prazo exigido em lei.</li>
+        <li>Ao excluir a pousada (em Configurações), os dados dela e dos hóspedes são eliminados de forma definitiva, exporte antes. Registros de cobrança da assinatura são mantidos pelo prazo exigido em lei.</li>
         <li>A pousada pode definir em quantos meses após a estadia os dados pessoais dos hóspedes são anonimizados automaticamente.</li>
       </ul>
 
@@ -89,7 +89,7 @@ export default function Termos() {
       </p>
 
       <h2>9. Contato</h2>
-      <p>{EMPRESA.razaoSocial} — {EMPRESA.endereco} — {EMPRESA.emailContato}</p>
+      <p>{EMPRESA.razaoSocial}, {EMPRESA.endereco}, {EMPRESA.emailContato}</p>
     </PaginaLegal>
   )
 }

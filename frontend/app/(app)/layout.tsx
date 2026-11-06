@@ -12,11 +12,12 @@ import { cn } from "../../lib/utils"
 
 function Carregando() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+    <div className="mx-auto max-w-[88rem] space-y-6 px-4 pt-6 sm:px-6" role="status" aria-label="Carregando">
+      <div className="h-14 animate-pulse rounded-full bg-muted" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-nucleo bg-muted" />)}
       </div>
+      <div className="h-72 animate-pulse rounded-nucleo bg-muted" />
     </div>
   )
 }
@@ -66,7 +67,7 @@ function Moldura({ children }: { children: React.ReactNode }) {
         {message && (
           <div className={cn(
             "rounded-lg border px-4 py-3 text-sm",
-            message.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800",
+            message.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive",
           )}>
             {message.text}
           </div>

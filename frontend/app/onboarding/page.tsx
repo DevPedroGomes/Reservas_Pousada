@@ -11,6 +11,7 @@ import { useSession, handleSignOut } from '../../lib/auth-client';
 import { authenticatedFetch } from '../../lib/api';
 import { fixarPousadaDaAba } from '../../lib/tenant';
 import { rastrear } from '../../lib/medicao';
+import { SimboloPorta } from "../../components/landing/MarcaDiaria"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -121,8 +122,7 @@ export default function OnboardingPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <div className="mb-2 flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="" className="h-8 w-8 rounded-lg object-cover" />
+            <SimboloPorta className="h-8 w-8" />
             <span className="text-sm font-semibold">Diária</span>
           </div>
           <CardTitle className="text-xl">{criandoOutra ? 'Nova pousada' : 'Vamos cadastrar sua pousada'}</CardTitle>
@@ -133,7 +133,7 @@ export default function OnboardingPage() {
         <CardContent>
           <form onSubmit={criar} className="space-y-4">
             {erro && (
-              <div className={cn('rounded-lg border px-3 py-2 text-sm border-rose-200 bg-rose-50 text-rose-700')}>{erro}</div>
+              <div className={cn('rounded-lg border px-3 py-2 text-sm border-destructive/30 bg-destructive/10 text-destructive')}>{erro}</div>
             )}
             <div className="space-y-1.5">
               <Label htmlFor="nome">Nome da pousada</Label>
@@ -154,9 +154,9 @@ export default function OnboardingPage() {
                   id="estado"
                   value={estado}
                   onChange={(e) => setEstado(e.target.value)}
-                  className="flex h-10 w-full rounded-lg border border-border bg-white px-2 text-sm"
+                  className="flex h-10 w-full rounded-lg border border-border bg-card px-2 text-sm"
                 >
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {ESTADOS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
                 </select>
               </div>

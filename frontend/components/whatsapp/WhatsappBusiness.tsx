@@ -166,7 +166,7 @@ export function WhatsappBusinessCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         {msg && (
-          <div className={cn("rounded-lg border px-3 py-2 text-sm", msg.type === "success" ? "border-emerald-200/80 bg-emerald-50/80 text-emerald-800" : "border-rose-200/80 bg-rose-50/80 text-rose-800")}>
+          <div className={cn("rounded-lg border px-3 py-2 text-sm", msg.type === "success" ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive")}>
             {msg.text}
           </div>
         )}
@@ -195,8 +195,8 @@ export function WhatsappBusinessCard() {
               <div>
                 <p className="font-medium" data-testid="whatsapp-numero">{conta.numero || "Número conectado"}</p>
                 <p className="text-xs text-muted-foreground">
-                  {conta.nome ? `${conta.nome} · ` : ""}{conta.coexistencia ? "também no app do celular" : "só pela API"}
-                  {conta.modelosCriados ? "" : " · modelos de mensagem pendentes"}
+                  {conta.nome ? `${conta.nome}, ` : ""}{conta.coexistencia ? "também no app do celular" : "só pela API"}
+                  {conta.modelosCriados ? "" : ", modelos de mensagem pendentes"}
                 </p>
               </div>
               <Link href="/whatsapp" className="text-sm font-medium text-primary underline">Ver conversas</Link>
@@ -222,7 +222,7 @@ export function WhatsappBusinessCard() {
               </label>
             </div>
 
-            <button type="button" className="text-xs text-rose-700 underline" onClick={() => void desconectar()}>Desconectar WhatsApp</button>
+            <button type="button" className="text-xs text-destructive underline" onClick={() => void desconectar()}>Desconectar WhatsApp</button>
           </div>
         )}
       </CardContent>

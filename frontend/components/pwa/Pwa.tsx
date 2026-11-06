@@ -72,7 +72,7 @@ export function BotaoInstalar({ className }: { className?: string }) {
         Instalar app
       </button>
       {ajuda && (
-        <div role="dialog" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-white p-3 text-xs shadow-lg">
+        <div role="dialog" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-border bg-card p-3 text-xs shadow-lg">
           No iPhone: toque em <strong>Compartilhar</strong> (quadrado com seta) e depois em <strong>Adicionar à Tela de Início</strong>.
         </div>
       )}

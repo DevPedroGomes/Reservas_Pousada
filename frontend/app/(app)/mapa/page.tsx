@@ -58,7 +58,7 @@ export default function Mapa() {
           <h1 className="text-2xl font-semibold tracking-tight">Mapa de ocupação</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {formatarData(inicio)} a {formatarData(somarDias(inicio, dias - 1))}
-            {podeCriar && " · clique num espaço livre para reservar"}
+            {podeCriar && ", clique num espaço livre para reservar"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -79,12 +79,12 @@ export default function Mapa() {
             {rotuloStatus(l.status)}
           </span>
         ))}
-        <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" /> a pagar</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" /> a pagar</span>
       </div>
 
       {erro && (
-        <div className="rounded-lg border border-rose-200/80 bg-rose-50/80 px-4 py-3 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-800">{erro}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">{erro}</p>
           <Button variant="outline" size="sm" onClick={() => void carregar()}>Tentar novamente</Button>
         </div>
       )}

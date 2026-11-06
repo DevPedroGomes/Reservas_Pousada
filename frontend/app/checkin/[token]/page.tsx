@@ -12,7 +12,7 @@ interface Resumo {
 }
 
 const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
-const campo = "h-11 w-full rounded-lg border border-border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+const campo = "h-11 w-full rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
 const titularVazio: Titular = {
   nome: "", dataNascimento: "", genero: "nao_informar", nacionalidade: "Brasileira", tipoDocumento: "cpf", documento: "", orgaoEmissor: "",
   email: "", telefone: "", profissao: "", cidadeResidencia: "", estadoResidencia: "", paisResidencia: "Brasil",
@@ -96,26 +96,26 @@ export default function PreCheckin() {
         <header className="space-y-1">
           <p className="text-sm text-muted-foreground">Pré-check-in</p>
           <h1 className="text-2xl font-bold tracking-tight">{resumo.pousada}</h1>
-          <p className="text-sm text-muted-foreground">{resumo.quarto} · {br(resumo.entrada)} a {br(resumo.saida)}</p>
+          <p className="text-sm text-muted-foreground">{resumo.quarto}, {br(resumo.entrada)} a {br(resumo.saida)}</p>
         </header>
 
         {enviado ? (
-          <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 text-emerald-900">
+          <section className="rounded-2xl border border-success/30 bg-success/10 p-6 text-success">
             <h2 className="text-lg font-semibold">Ficha enviada. Obrigado, {resumo.primeiroNome}!</h2>
-            <p className="mt-1 text-sm">Na chegada é só se apresentar na recepção — seus dados já estão com a pousada.</p>
+            <p className="mt-1 text-sm">Na chegada é só se apresentar na recepção, seus dados já estão com a pousada.</p>
           </section>
         ) : !resumo.aberto ? (
-          <p className="rounded-xl border border-border bg-white p-5 text-sm">Este pré-check-in já foi encerrado. Qualquer dúvida, fale com a pousada.</p>
+          <p className="rounded-xl border border-border bg-card p-5 text-sm">Este pré-check-in já foi encerrado. Qualquer dúvida, fale com a pousada.</p>
         ) : (
           <form onSubmit={enviar} className="space-y-6">
-            {resumo.enviado && <p className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">Você já enviou a ficha. Se mandar de novo, ela substitui a anterior.</p>}
+            {resumo.enviado && <p className="rounded-lg border border-primary/25 bg-accent px-4 py-3 text-sm text-accent-foreground">Você já enviou a ficha. Se mandar de novo, ela substitui a anterior.</p>}
             {erros.length > 0 && (
-              <ul role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 list-disc pl-8">
+              <ul role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive list-disc pl-8">
                 {erros.map((e) => <li key={e}>{e}</li>)}
               </ul>
             )}
 
-            <section className="space-y-4 rounded-2xl border border-border bg-white p-5">
+            <section className="space-y-4 rounded-2xl border border-border bg-card p-5">
               <h2 className="font-semibold">Seus dados</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Campo id="f-nome" rotulo="Nome completo *"><input id="f-nome" required autoComplete="name" className={campo} value={t.nome} onChange={sT("nome")} /></Campo>
@@ -137,7 +137,7 @@ export default function PreCheckin() {
               </div>
             </section>
 
-            <section className="space-y-4 rounded-2xl border border-border bg-white p-5">
+            <section className="space-y-4 rounded-2xl border border-border bg-card p-5">
               <h2 className="font-semibold">Residência e viagem</h2>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Campo id="f-cid" rotulo="Cidade onde mora *"><input id="f-cid" required className={campo} value={t.cidadeResidencia} onChange={sT("cidadeResidencia")} /></Campo>
@@ -157,11 +157,11 @@ export default function PreCheckin() {
             </section>
 
             {acomp.length > 0 && (
-              <section className="space-y-4 rounded-2xl border border-border bg-white p-5">
+              <section className="space-y-4 rounded-2xl border border-border bg-card p-5">
                 <h2 className="font-semibold">Acompanhantes</h2>
                 {acomp.map((a, i) => (
                   <div key={i} className="grid gap-3 border-t border-border pt-3 first:border-0 first:pt-0 sm:grid-cols-2">
-                    <Campo id={`a-nome-${i}`} rotulo={`Acompanhante ${i + 1} — nome`}><input id={`a-nome-${i}`} className={campo} value={a.nome} onChange={sA(i, "nome")} /></Campo>
+                    <Campo id={`a-nome-${i}`} rotulo={`Acompanhante ${i + 1}: nome`}><input id={`a-nome-${i}`} className={campo} value={a.nome} onChange={sA(i, "nome")} /></Campo>
                     <Campo id={`a-nasc-${i}`} rotulo="Data de nascimento"><input id={`a-nasc-${i}`} type="date" className={campo} value={a.dataNascimento} onChange={sA(i, "dataNascimento")} /></Campo>
                     <Campo id={`a-tipo-${i}`} rotulo="Documento (opcional para crianças)">
                       <select id={`a-tipo-${i}`} className={campo} value={a.tipoDocumento} onChange={sA(i, "tipoDocumento")}>{DOCUMENTOS.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select>
