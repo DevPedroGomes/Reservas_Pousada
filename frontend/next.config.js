@@ -14,7 +14,10 @@ const DADOS_DA_EMPRESA = [
 
 function avisarDadosDaEmpresa() {
   const vazias = DADOS_DA_EMPRESA.filter((nome) => !process.env[nome]?.trim());
-  if (vazias.length === 0) return;
+  // O Next carrega este arquivo mais de uma vez por build, inclusive nos workers,
+  // que herdam o ambiente: a marca faz o aviso sair uma vez só.
+  if (vazias.length === 0 || process.env.DIARIA_AVISO_EMPRESA_DADO) return;
+  process.env.DIARIA_AVISO_EMPRESA_DADO = '1';
   const barra = '!'.repeat(72);
   console.warn(`\n${barra}`);
   console.warn('ATENÇÃO: /privacidade e /termos vão publicar "[a definir]" neste build.');
