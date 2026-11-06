@@ -177,6 +177,60 @@ describe('atendente virtual — tetos de custo', { skip: !temBanco && 'DATABASE_
     });
   });
 
+  describe('custo de IA por pousada', () => {
+    const custoIa = async () => (await pool.query(`SELECT valor_centavos, estimado, competencia FROM financeiro_lancamentos WHERE pousada_id = 1 AND categoria = 'custo_ia'`)).rows;
+
+    beforeEach(async () => {
+      await pool.query(`DELETE FROM financeiro_lancamentos`);
+      Object.assign(process.env, { AGENTE_PRECO_ENTRADA_USD_MTOK: '2', AGENTE_PRECO_SAIDA_USD_MTOK: '10', AGENTE_COTACAO_USD_BRL: '5' });
+    });
+    afterEach(() => {
+      for (const k of ['AGENTE_PRECO_ENTRADA_USD_MTOK', 'AGENTE_PRECO_SAIDA_USD_MTOK', 'AGENTE_COTACAO_USD_BRL']) delete process.env[k];
+    });
+
+    it('grava custo_ia na mesma execução, e o painel de margem reflete', async () => {
+      resposta = () => ({ texto: 'Olá!', chamadas: [], uso: { entrada: 100_000, saida: 10_000 } });
+      await entrada('5548900000020', 'oi');
+      // (100 mil x US$ 2 + 10 mil x US$ 10) / 1 milhão = US$ 0,30 = R$ 1,50.
+      const linhas = await custoIa();
+      assert.equal(linhas.length, 1);
+      assert.equal(linhas[0].valor_centavos, 150);
+      assert.equal(linhas[0].estimado, false, 'tokens reais com preço configurado');
+
+      const FinanceiroModel = (await import('../models/Financeiro.js')).default;
+      const rel = await FinanceiroModel.relatorio(linhas[0].competencia);
+      const linha = rel.linhas.find((l) => l.pousadaId === 1)!;
+      assert.equal(linha.margem.custoPorCategoria.custo_ia, 150);
+      assert.equal(linha.margem.margemCentavos, -150);
+    });
+
+    it('frações de centavo se acumulam em vez de sumir no arredondamento', async () => {
+      // Cada chamada custa 0,4 centavo: arredondar uma a uma daria zero para sempre.
+      resposta = () => ({ texto: 'Olá!', chamadas: [], uso: { entrada: 40_000 / 100, saida: 0 } });
+      for (let i = 0; i < 3; i++) await entrada(`55489000003${i}`, 'oi');
+      const { rows: [u] } = await pool.query(`SELECT custo_microcentavos FROM agente_uso_diario WHERE pousada_id = 1`);
+      assert.equal(Number(u.custo_microcentavos), 1_200_000);
+      assert.equal((await custoIa())[0].valor_centavos, 1);
+    });
+
+    it('sem preço configurado usa o padrão marcado como estimado, e o painel avisa', async () => {
+      for (const k of ['AGENTE_PRECO_ENTRADA_USD_MTOK', 'AGENTE_PRECO_SAIDA_USD_MTOK', 'AGENTE_COTACAO_USD_BRL']) delete process.env[k];
+      resposta = () => ({ texto: 'Olá!', chamadas: [], uso: { entrada: 100_000, saida: 10_000 } });
+      await entrada('5548900000021', 'oi');
+      const [l] = await custoIa();
+      assert.ok(l.valor_centavos > 0);
+      assert.equal(l.estimado, true);
+      const { avisoDePrecoLLM } = await import('../config/agente.js');
+      assert.match(avisoDePrecoLLM() ?? '', /AGENTE_PRECO/);
+    });
+
+    it('uso estimado pelo tamanho do texto marca o lançamento como estimado', async () => {
+      resposta = () => ({ texto: 'x'.repeat(400), chamadas: [] });
+      await entrada('5548900000022', 'y'.repeat(2000));
+      assert.equal((await custoIa())[0].estimado, true);
+    });
+  });
+
   describe('contabilidade de tokens', () => {
     it('modelo que não informa uso é estimado em vez de virar zero', async () => {
       resposta = () => ({ texto: 'Resposta sem contagem de tokens.', chamadas: [] });

@@ -187,7 +187,7 @@ const MAX_RODADAS = 4;
  */
 async function contabilizar(pousadaId: number, sistema: string, mensagens: MensagemLLM[], r: RespostaLLM): Promise<void> {
   try {
-    await registrarUsoLLM(pousadaId, r.uso ?? estimarUso(sistema, mensagens, FERRAMENTAS, r));
+    await registrarUsoLLM(pousadaId, r.uso ?? estimarUso(sistema, mensagens, FERRAMENTAS, r), { estimado: !r.uso });
   } catch (err) {
     console.error('[Agente] falha ao registrar consumo:', err);
     reportarErro(err, { origem: 'agente_uso', pousadaId });

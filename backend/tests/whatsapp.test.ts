@@ -103,6 +103,24 @@ describe('Atendente virtual — adaptadores de modelo', () => {
     assert.equal(c.corpo.messages[2].tool_calls[0].function.arguments, '{"a":1}');
   });
 
+  it('Anthropic devolve o usage real, somando os tokens de cache à entrada', async () => {
+    const { anthropic } = await import('../lib/llm.js');
+    const { f } = capturar({
+      content: [{ type: 'text', text: 'Oi' }],
+      usage: { input_tokens: 120, cache_creation_input_tokens: 30, cache_read_input_tokens: 50, output_tokens: 40 },
+    });
+    const r = await anthropic('k', 'm', f).responder('s', historico, ferramentas);
+    assert.deepEqual(r.uso, { entrada: 200, saida: 40 });
+  });
+
+  it('compatível com OpenAI devolve o usage real; provedor que não informa fica sem uso', async () => {
+    const { compativelOpenAI } = await import('../lib/llm.js');
+    const com = capturar({ choices: [{ message: { content: 'Oi' } }], usage: { prompt_tokens: 77, completion_tokens: 11 } });
+    assert.deepEqual((await compativelOpenAI('https://x/v1', 'k', 'm', com.f).responder('s', historico, ferramentas)).uso, { entrada: 77, saida: 11 });
+    const sem = capturar({ choices: [{ message: { content: 'Oi' } }] });
+    assert.equal((await compativelOpenAI('https://x/v1', 'k', 'm', sem.f).responder('s', historico, ferramentas)).uso, undefined);
+  });
+
   it('erro do provedor vira exceção (o atendimento passa para a equipe)', async () => {
     const { anthropic } = await import('../lib/llm.js');
     const f = (async () => new Response(JSON.stringify({ error: { message: 'overloaded' } }), { status: 529 })) as typeof fetch;

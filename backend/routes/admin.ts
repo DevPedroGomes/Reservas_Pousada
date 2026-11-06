@@ -4,6 +4,7 @@ import { requireAdmin } from '../middleware/admin.js';
 import { ehCompetencia } from '../utils/margem.js';
 import { pool } from '../db/index.js';
 import { param } from '../utils/http.js';
+import { avisoDePrecoLLM } from '../config/agente.js';
 
 const router = Router();
 
@@ -29,9 +30,12 @@ router.get('/margem', async (req: Request, res: Response) => {
       ...relatorio,
       // Sem custo de infra configurado o painel avisa, em vez de mostrar margem
       // artificialmente alta como se fosse fato.
-      avisos: relatorio.infraTotalCentavos === 0
-        ? ['CUSTO_INFRA_MENSAL_CENTAVOS não configurado — a margem não inclui rateio de infraestrutura.']
-        : [],
+      avisos: [
+        ...(relatorio.infraTotalCentavos === 0
+          ? ['CUSTO_INFRA_MENSAL_CENTAVOS não configurado — a margem não inclui rateio de infraestrutura.']
+          : []),
+        ...(avisoDePrecoLLM() ? [avisoDePrecoLLM()!] : []),
+      ],
     });
   } catch (err) {
     console.error('[Admin] falha ao montar relatório de margem:', err);
