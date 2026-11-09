@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { criarLimitador } from '../utils/limitadores.js';
+import { chaveDeRateLimit } from '../utils/rede.js';
 import ReservaModel, { ConflitoDeReserva, camposDaTransicao } from '../models/Reserva.js';
 import type { NewReserva } from '../db/schema.js';
 import { podeTransitar, ROTULO_STATUS, STATUS_RESERVA } from '../utils/status.js';
@@ -41,7 +42,7 @@ function podeVerCpfCompleto(user: NonNullable<Request['user']>): boolean {
 const exportLimiter = criarLimitador('export', {
   windowMs: 60 * 60 * 1000,
   max: 5,
-  keyGenerator: (req: any) => req.user?.id || req.ip || 'anonymous',
+  keyGenerator: (req: any) => req.user?.id || chaveDeRateLimit(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
   message: { sucesso: false, mensagem: 'Limite de exportações excedido. Tente novamente em 1 hora.' },

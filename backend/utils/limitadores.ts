@@ -21,6 +21,10 @@ export function criarLimitador(nome: string, opcoes: Partial<Options>) {
     // contador não pôde ser gravado: a requisição segue sem limite naquele
     // instante (e falha adiante, se depender do banco).
     passOnStoreError: true,
+    // A v8 avisa quando o keyGenerator usa req.ip sem o ipKeyGenerator da
+    // biblioteca. Aqui o IPv6 já é agrupado por prefixo em chaveDeRateLimit
+    // (utils/rede.ts), então o aviso seria falso e encheria o log de erro.
+    validate: { keyGeneratorIpFallback: false },
     ...(usarMemoria ? {} : { store: new StorePostgres(pool, nome) }),
     ...opcoes,
   });
