@@ -15,6 +15,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # tailwind-merge 3 só funciona com Tailwind 4; o projeto está no 3. Volta junto da migração.
+      - dependency-name: tailwind-merge
+        update-types: [version-update:semver-major]
     groups:
       menores:
         update-types: [minor, patch]
