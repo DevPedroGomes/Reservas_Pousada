@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { exportarDadosDoUsuario, excluirConta, ExclusaoRecusada } from '../models/Conta.js';
 import { criarLimitador } from '../utils/limitadores.js';
+import { pool } from '../db/index.js';
 
 const router = Router();
 
@@ -35,6 +36,27 @@ router.delete('/', async (req: Request, res: Response) => {
     }
     throw err;
   }
+});
+
+/**
+ * PUT /api/conta/consentimento — o que a pessoa decidiu no aviso de cookies.
+ *
+ * O servidor só manda conversão para a Meta de quem aceitou cookies de anúncio.
+ * A decisão fica no navegador; esta rota leva ao servidor a de quem já tem
+ * conta, para que aceitar depois do cadastro passe a valer e, principalmente,
+ * revogar pare o envio (LGPD, art. 8º, § 5º).
+ */
+router.put('/consentimento', async (req: Request, res: Response) => {
+  const anuncios = req.body?.anuncios;
+  if (typeof anuncios !== 'boolean') {
+    return res.status(400).json({ sucesso: false, mensagem: 'Informe anuncios: true ou false.' });
+  }
+  await pool.query(
+    `UPDATE "user" SET origem = jsonb_set(COALESCE(origem, '{}'::jsonb), '{consentimento_anuncios}', to_jsonb($2::boolean))
+      WHERE id = $1`,
+    [req.user!.id, anuncios],
+  );
+  res.json({ sucesso: true });
 });
 
 export default router;

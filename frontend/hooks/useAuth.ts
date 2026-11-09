@@ -215,7 +215,9 @@ export function useAuth(): UseAuthReturn {
         return false;
       }
 
-      rastrear("cadastro");
+      // Mesmo event_id do servidor (cadastro:<id do usuário>): a Meta conta uma vez.
+      const novoId = (result.data as { user?: { id?: string } } | null)?.user?.id;
+      rastrear("cadastro", {}, novoId ? `cadastro:${novoId}` : undefined);
 
       // Sem sessão até confirmar o e-mail: o link leva direto ao onboarding
       // (ou ao convite) já autenticado.

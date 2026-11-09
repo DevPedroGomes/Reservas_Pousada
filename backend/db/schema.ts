@@ -286,6 +286,8 @@ export const assinaturas = pgTable('assinaturas', {
   stripeSubscriptionId: text('stripe_subscription_id').unique(),
   // Pousada extra coberta pela assinatura de outra (plano Rede). Ver migration 012.
   cobertaPorPousadaId: integer('coberta_por_pousada_id').references(() => pousadas.id, { onDelete: 'set null' }),
+  // IP e user agent de quem abriu o checkout, para a Conversions API. Ver migration 037.
+  contextoConversao: jsonb('contexto_conversao'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

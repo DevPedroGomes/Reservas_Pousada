@@ -6,6 +6,7 @@ import * as schema from '../db/schema.js';
 import { sendPasswordResetEmail, sendVerificationEmail as sendVerifEmail } from './email.js';
 import { origensPermitidas, urlDoApp } from '../utils/origens.js';
 import { sanearOrigem } from '../utils/origem.js';
+import { contextoDosCabecalhos, registrarCadastro } from './conversoes.js';
 
 // Better Auth Secret (required)
 const secret = process.env.BETTER_AUTH_SECRET;
@@ -144,6 +145,15 @@ export const auth = betterAuth({
             } catch { /* cadastro por e-mail */ }
           }
           return { data: { ...dados, origem: sanearOrigem(bruto) } };
+        },
+        // Conversão de cadastro para a Meta (com consentimento). Pela fila e sem
+        // await: falha de medição não pode atrapalhar o cadastro.
+        after: async (usuario, ctx) => {
+          const cabecalhos = (ctx as { request?: Request; headers?: Headers } | null | undefined);
+          registrarCadastro(
+            usuario as { id: string; email: string; origem?: unknown; createdAt?: Date },
+            contextoDosCabecalhos(cabecalhos?.request?.headers ?? cabecalhos?.headers),
+          ).catch((err) => console.error('[Conversões] cadastro:', err));
         },
       },
     },

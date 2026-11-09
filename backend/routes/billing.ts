@@ -10,6 +10,7 @@ import { limitesVigentes, motivosParaNaoCaber, temAssinaturaViva } from '../util
 import { aplicarAssinaturaAgora } from './stripe-webhook.js';
 import { urlDoApp } from '../utils/origens.js';
 import { chaveDeRateLimit } from '../utils/rede.js';
+import { contextoDaRequisicao, guardarContextoDoCheckout } from '../lib/conversoes.js';
 
 const router = Router();
 
@@ -234,6 +235,10 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
     }, {
       idempotencyKey: chave,
     });
+
+    // IP e user agent para o evento de assinatura, que sai do webhook sem navegador.
+    guardarContextoDoCheckout(pousadaId, contextoDaRequisicao(req))
+      .catch((e) => console.error('[Conversões] contexto do checkout:', e.message));
 
     AuditoriaModel.log(req.user!.id, 'checkout_iniciado', 'pousada', pousadaId, { plano, ciclo }, req.ip || null)
       .catch((e) => console.error('[Auditoria] checkout:', e.message));

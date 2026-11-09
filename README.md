@@ -154,7 +154,8 @@ Frontend (`frontend/package.json`):
 - Public pages rendered on the server: `/` (landing), `/cadastro`, `/entrar`, `/privacidade`, `/termos`, plus `sitemap.xml`, `robots.txt` and a generated Open Graph image
 - Logged-in area under `app/(app)`: `/painel`, `/mapa`, `/reservas`, `/reservas/nova`, `/reservas/[id]` (with the account panel), `/reservas/importar`, `/hospedes`, `/hospedes/[id]`, `/quartos` (rooms, rates, iCal), `/relatorios`, `/configuracoes` (shared session context, auth/onboarding guards, auto-refresh on focus and every 60s)
 - Tailwind 3.4, shadcn/ui primitives, `better-auth` 1.7 client
-- GA4 / Meta Pixel loaded only after cookie consent; first-touch UTM attribution sent on sign-up
+- GA4 / Meta Pixel loaded only after cookie consent (revocable from the footer and the privacy page); first-touch UTM attribution sent on sign-up
+- Ad conversions also sent server-side (Meta Conversions API): CompleteRegistration, StartTrial and Subscribe, deduplicated with the Pixel by `event_id` (`docs/funil-pago.md`)
 
 Infra:
 
@@ -508,6 +509,7 @@ POST   /api/webhooks/stripe                   signed webhook; event record and e
 ```
 GET    /api/conta/exportar                    the user's own data as JSON
 DELETE /api/conta                             anonymize own account (body {confirmacao: "EXCLUIR"})
+PUT    /api/conta/consentimento               cookie-banner decision for ads ({anuncios: boolean}); revoking stops server-side conversions
 POST   /api/telemetria/erro                   browser error reports (public, rate-limited)
 GET    /api/admin/margem                      margin per tenant (ADMIN_EMAILS + verified e-mail)
 GET    /api/admin/aquisicao?dias=             sign-ups → pousadas → paying, per acquisition channel

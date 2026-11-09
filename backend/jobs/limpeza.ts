@@ -38,5 +38,12 @@ export async function limpeza(): Promise<{ sessoes: number; rateLimits: number; 
        SELECT id FROM auditoria WHERE created_at < now() - make_interval(months => $1) ORDER BY id LIMIT $2)`,
     [mesesDeAuditoria(), LOTE_AUDITORIA],
   )).rowCount ?? 0;
+  // Contexto do checkout para a Conversions API: a conversão sai no mesmo dia;
+  // depois de uma semana o IP guardado não serve para mais nada.
+  await pool.query(
+    `UPDATE assinaturas SET contexto_conversao = NULL
+      WHERE contexto_conversao IS NOT NULL
+        AND COALESCE((contexto_conversao->>'em')::timestamptz, 'epoch') < now() - interval '7 days'`,
+  );
   return { sessoes, rateLimits, mensagensWhatsapp, auditoria };
 }

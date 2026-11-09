@@ -2,9 +2,10 @@
  * GA4 e Meta Pixel — carregados SÓ depois do consentimento do visitante.
  *
  * Eventos de funil do produto (nomes próprios, mapeados para os padrões de
- * cada plataforma): cadastro, pousada_criada, reserva_criada,
- * inicio_checkout, assinatura. A conversão de pagamento também sai pelo
- * servidor (backend/lib/conversoes.ts), que não depende do navegador.
+ * cada plataforma): cadastro, pousada_criada, reserva_criada, inicio_checkout.
+ * Cadastro e pousada_criada também saem do servidor (backend/lib/conversoes.ts)
+ * com o mesmo event_id, e a Meta fica com um só. A assinatura sai só do
+ * servidor, quando o Stripe confirma o pagamento.
  *
  * Nada carrega em página cujo endereço, ou o da página anterior, carregue
  * credencial (lib/urlSensivel.ts): GA e Pixel registram a URL inteira.
@@ -82,26 +83,28 @@ const PARA_GA: Record<string, string> = {
   pousada_criada: "pousada_criada",
   reserva_criada: "reserva_criada",
   inicio_checkout: "begin_checkout",
-  assinatura: "purchase",
 }
 const PARA_META: Record<string, [string, boolean]> = {
   cadastro: ["CompleteRegistration", false],
   pousada_criada: ["StartTrial", false],
   reserva_criada: ["ReservaCriada", true],
   inicio_checkout: ["InitiateCheckout", false],
-  assinatura: ["Subscribe", false],
 }
 
 export type EventoDeFunil = keyof typeof PARA_GA
 
-/** Registra um evento de funil nos rastreadores carregados. Sem consentimento, não faz nada. */
-export function rastrear(evento: EventoDeFunil, params: Record<string, unknown> = {}): void {
+/**
+ * Registra um evento de funil nos rastreadores carregados. Sem consentimento,
+ * não faz nada. `eventId` é o mesmo que o servidor manda à Conversions API.
+ */
+export function rastrear(evento: EventoDeFunil, params: Record<string, unknown> = {}, eventId?: string): void {
   if (typeof window === "undefined" || paginaSensivel()) return
   const w = window as Janela
   try {
     w.gtag?.("event", PARA_GA[evento], params)
     const [nome, custom] = PARA_META[evento]
-    w.fbq?.(custom ? "trackCustom" : "track", nome, params)
+    if (eventId) w.fbq?.(custom ? "trackCustom" : "track", nome, params, { eventID: eventId })
+    else w.fbq?.(custom ? "trackCustom" : "track", nome, params)
   } catch {
     /* medição nunca quebra a tela */
   }
