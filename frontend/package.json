@@ -20,12 +20,12 @@
     "tailwind-merge": "^2.6.1"
   },
   "devDependencies": {
-    "@types/node": "^20.12.12",
+    "@types/node": "^20.19.43",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.6.2",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^15.5.27",
+    "eslint-config-next": "^15.5.29",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
