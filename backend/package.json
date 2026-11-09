@@ -29,7 +29,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@sentry/node": "^10.76.0",
+    "@sentry/node": "^11.11.0",
     "better-auth": "^1.7.15",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
