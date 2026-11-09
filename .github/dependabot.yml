@@ -1,5 +1,7 @@
-# Atualizações agrupadas por semana. Correção de segurança abre PR à parte, sem
-# esperar o ciclo. O CI roda em todo PR: nada entra sem testes, lint e build.
+# Atualizações semanais só de versões menores e correções, agrupadas. Salto de
+# versão maior (Node, Next, Tailwind, TypeScript...) é decisão de produto e entra
+# com teste próprio. Correções de segurança não seguem essas regras: chegam pelos
+# alertas do Dependabot, ligados no repositório. O CI roda em todo PR.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -10,19 +12,21 @@ updates:
     groups:
       menores:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    ignore:
-      # tailwind-merge 3 só funciona com Tailwind 4; o projeto está no 3. Volta junto da migração.
-      - dependency-name: tailwind-merge
-        update-types: [version-update:semver-major]
     groups:
       menores:
         update-types: [minor, patch]
   # As actions estão fixadas por SHA; é daqui que vem a atualização delas.
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -30,9 +34,15 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   - package-ecosystem: docker
     directories:
       - /backend
       - /frontend
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
