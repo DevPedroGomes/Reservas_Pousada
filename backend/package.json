@@ -40,7 +40,7 @@
     "pg-boss": "^12.38.0",
     "qrcode": "^1.5.4",
     "resend": "^6.37.0",
-    "stripe": "^22.4.0"
+    "stripe": "^23.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
