@@ -6,16 +6,15 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { AuthCard } from "./AuthCard"
 import { useAuth } from "../../hooks/useAuth"
 import { API_URL } from "../../lib/api"
+import { caminhoInterno } from "../../lib/destino"
 import { SimboloPorta } from "../landing/MarcaDiaria"
 
 /** Destino depois do login: convite pendente, a página que pediu login, ou o painel. */
 function destino(params: URLSearchParams): string {
   const convite = params.get("convite")
   if (convite) return `/convite/${encodeURIComponent(convite)}`
-  const proximo = params.get("proximo")
-  // Só caminho interno: "//dominio" ou URL absoluta viraria redirecionamento aberto.
-  if (proximo && proximo.startsWith("/") && !proximo.startsWith("//")) return proximo
-  return "/painel"
+  // Só caminho da mesma origem: o resto viraria redirecionamento aberto.
+  return caminhoInterno(params.get("proximo"), window.location.origin) ?? "/painel"
 }
 
 /** Código de erro que o retorno do Google traz em ?error= (better-auth) → texto para a pessoa. */

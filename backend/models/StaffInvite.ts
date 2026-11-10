@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, staffInvites, pousadas, user, userPousadas } from '../db/index.js';
+import { db, staffInvites, pousadas, user, userPousadas, type Executor } from '../db/index.js';
 
 export class StaffInviteModel {
   /**
@@ -128,6 +128,24 @@ export class StaffInviteModel {
         throw new Error('Este convite já foi utilizado ou revogado');
       }
 
+      // Quem convidou precisa continuar na equipe. Um convite pendente de quem
+      // foi removido (ou de antes da revogação automática) não pode trazer
+      // ninguém de volta — inclusive o próprio removido, que convidara o
+      // próprio e-mail. O dono é sempre membro, então passa por aqui.
+      // Lido dentro da transação para não aceitar se a remoção correr junto.
+      const [convidante] = await tx
+        .select({ role: userPousadas.role, isOwner: userPousadas.isOwner })
+        .from(userPousadas)
+        .where(and(eq(userPousadas.userId, invite.invitedBy), eq(userPousadas.pousadaId, invite.pousadaId)))
+        .limit(1);
+
+      // Convite de admin só vale se veio do dono (mesma regra da criação).
+      const convidanteValido = convidante
+        && (convidante.isOwner || (convidante.role === 'admin' && invite.role !== 'admin'));
+      if (!convidanteValido) {
+        throw new Error('Este convite não é mais válido: quem convidou não faz mais parte da equipe');
+      }
+
       const [existing] = await tx
         .select({ id: userPousadas.id })
         .from(userPousadas)
@@ -157,6 +175,24 @@ export class StaffInviteModel {
     });
 
     return { pousadaId: invite.pousadaId, role: invite.role };
+  }
+
+  /**
+   * Revoga os convites pendentes que um membro criou numa pousada. Chamado ao
+   * remover o membro ou tirar dele o papel de admin: o convite não pode
+   * sobreviver ao poder de quem o fez.
+   */
+  static async revogarPendentesDe(pousadaId: number, invitedBy: string, executor: Executor = db): Promise<number> {
+    const revogados = await executor
+      .update(staffInvites)
+      .set({ status: 'revoked', updatedAt: new Date() })
+      .where(and(
+        eq(staffInvites.pousadaId, pousadaId),
+        eq(staffInvites.invitedBy, invitedBy),
+        eq(staffInvites.status, 'pending'),
+      ))
+      .returning({ id: staffInvites.id });
+    return revogados.length;
   }
 
   /**
