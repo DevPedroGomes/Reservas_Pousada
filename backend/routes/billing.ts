@@ -10,6 +10,7 @@ import { limitesVigentes, motivosParaNaoCaber, temAssinaturaViva } from '../util
 import { aplicarAssinaturaAgora } from './stripe-webhook.js';
 import { urlDoApp } from '../utils/origens.js';
 import { chaveDeRateLimit } from '../utils/rede.js';
+import { contextoDaRequisicao, guardarContextoDoCheckout } from '../lib/conversoes.js';
 
 const router = Router();
 
@@ -235,6 +236,10 @@ router.post('/checkout', requireOwner, limiteDeSessao, async (req: Request, res:
       idempotencyKey: chave,
     });
 
+    // IP e user agent para o evento de assinatura, que sai do webhook sem navegador.
+    guardarContextoDoCheckout(pousadaId, contextoDaRequisicao(req))
+      .catch((e) => console.error('[Conversões] contexto do checkout:', e.message));
+
     AuditoriaModel.log(req.user!.id, 'checkout_iniciado', 'pousada', pousadaId, { plano, ciclo }, req.ip || null)
       .catch((e) => console.error('[Auditoria] checkout:', e.message));
 
@@ -344,9 +349,14 @@ router.post('/portal', requireOwner, limiteDeSessao, async (req: Request, res: R
   }
 
   try {
+    // A conta Stripe é compartilhada com outros produtos, e a configuração
+    // padrão do portal é a de outro deles. STRIPE_PORTAL_CONFIGURATION (bpc_…)
+    // aponta a do Diária: os seis preços, cartão, faturas e cancelamento.
+    const configuracao = process.env.STRIPE_PORTAL_CONFIGURATION?.trim();
     const sessao = await stripe().billingPortal.sessions.create({
       customer: assinatura.stripeCustomerId,
       return_url: `${urlDoApp()}/assinatura`,
+      ...(configuracao ? { configuration: configuracao } : {}),
     });
     res.json({ sucesso: true, url: sessao.url });
   } catch (err) {

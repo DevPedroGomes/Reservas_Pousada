@@ -9,7 +9,7 @@ import type { StatusAssinatura } from '../utils/assinatura.js';
 import FinanceiroModel from '../models/Financeiro.js';
 import { competenciaDe } from '../utils/margem.js';
 import { TIMEZONE } from '../utils/datas.js';
-import { registrarConversaoDePagamento } from '../lib/conversoes.js';
+import { registrarAssinatura } from '../lib/conversoes.js';
 import { reportarErro } from '../lib/observabilidade.js';
 
 const router = Router();
@@ -476,18 +476,20 @@ router.post('/', express.raw({ type: 'application/json' }), async (req: Request,
     }
     const resultado = await processarEvento(evento);
 
-    // Pagamento confirmado = conversão para as plataformas de anúncio. Depois
-    // do commit e pela fila: falha aqui não pode desfazer o processamento.
+    // Primeira fatura paga de uma assinatura = conversão para as plataformas de
+    // anúncio. Renovação e troca de plano não são conversão. Depois do commit e
+    // pela fila: falha aqui não pode desfazer o processamento.
     if (resultado === 'processado' && evento.type === 'invoice.paid') {
       const fatura = evento.data.object as Stripe.Invoice;
       const customerId = idDe(fatura.customer as string | { id: string } | null);
+      const subId = assinaturaDaFatura(fatura);
       const assinatura = customerId ? await AssinaturaModel.buscarPorCustomer(customerId) : null;
-      if (assinatura && (fatura.amount_paid ?? 0) > 0 && fatura.id) {
-        registrarConversaoDePagamento({
+      if (assinatura && subId && fatura.billing_reason === 'subscription_create' && (fatura.amount_paid ?? 0) > 0) {
+        registrarAssinatura({
           pousadaId: assinatura.pousadaId,
+          subscriptionId: subId,
           valorCentavos: fatura.amount_paid,
           moeda: fatura.currency ?? 'brl',
-          referencia: fatura.id,
         }).catch((err) => console.error('[Conversões] falha ao enfileirar:', err));
       }
     }

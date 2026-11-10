@@ -17,6 +17,7 @@ import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
 import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios, requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { param } from '../utils/http.js';
+import { contextoDaRequisicao, registrarInicioDoTrial } from '../lib/conversoes.js';
 
 const router = Router();
 
@@ -90,6 +91,10 @@ router.post('/', async (req: Request, res: Response) => {
       descricao: dadosSanitizados.descricao,
       configuracoes: dadosSanitizados.configuracoes,
     }, req.user!.id, { aplicarLimites: billingHabilitado() });
+
+    // Início do trial para a Meta (com consentimento). Falha não afeta a criação.
+    registrarInicioDoTrial(req.user!.id, pousada.id, contextoDaRequisicao(req))
+      .catch((err) => console.error('[Conversões] trial:', err));
 
     res.status(201).json({
       sucesso: true,

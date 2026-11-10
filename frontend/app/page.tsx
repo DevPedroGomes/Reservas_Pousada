@@ -5,6 +5,7 @@ import "./landing.css"
 import { AcessoNoTopo } from "../components/landing/AcessoNoTopo"
 import { CenaDaPorta } from "../components/landing/CenaDaPorta"
 import { MarcaDiaria } from "../components/landing/MarcaDiaria"
+import { PreferenciasDeCookies } from "../components/legal/PreferenciasDeCookies"
 import { DIAS_DE_TRIAL, PLANOS_PUBLICOS } from "../lib/planos-publicos"
 
 /**
@@ -189,6 +190,7 @@ export default function Home() {
             <Link href="/privacidade">Privacidade</Link>
             <Link href="/termos">Termos de uso</Link>
             {CONTATO && <a href={`mailto:${CONTATO}`}>Contato</a>}
+            <PreferenciasDeCookies className="" />
           </nav>
         </div>
       </footer>

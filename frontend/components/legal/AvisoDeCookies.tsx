@@ -2,13 +2,17 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { gravarConsentimento, lerConsentimento, temRastreadores } from "../../lib/consentimento"
+import { EVENTO_ABRIR_AVISO, gravarConsentimento, lerConsentimento, temRastreadores } from "../../lib/consentimento"
 
 export function AvisoDeCookies() {
   const [visivel, setVisivel] = useState(false)
 
   useEffect(() => {
     setVisivel(temRastreadores() && lerConsentimento() === null)
+    // "Preferências de cookies" reabre o aviso para mudar a escolha.
+    const abrir = () => setVisivel(temRastreadores())
+    window.addEventListener(EVENTO_ABRIR_AVISO, abrir)
+    return () => window.removeEventListener(EVENTO_ABRIR_AVISO, abrir)
   }, [])
 
   if (!visivel) return null

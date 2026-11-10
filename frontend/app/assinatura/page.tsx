@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { rastrear } from "../../lib/medicao"
 import { Button } from "../../components/ui/button"
 import { Badge } from "../../components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card"
@@ -66,10 +65,10 @@ function ConteudoAssinatura() {
 
   useEffect(() => {
     if (confirmando && a.situacao?.status === "ativa") {
+      // A conversão de assinatura sai do servidor, no webhook do Stripe.
       setConfirmando(false)
-      rastrear("assinatura", { plano: a.situacao.plano })
     }
-  }, [confirmando, a.situacao?.status, a.situacao?.plano])
+  }, [confirmando, a.situacao?.status])
 
   if (authLoading || !isAuthenticated) {
     return (

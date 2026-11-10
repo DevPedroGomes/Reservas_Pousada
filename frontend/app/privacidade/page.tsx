@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { PaginaLegal } from "../../components/legal/PaginaLegal"
 import { EMPRESA, VIGENCIA_DOCUMENTOS } from "../../lib/empresa"
+import { PreferenciasDeCookies } from "../../components/legal/PreferenciasDeCookies"
 
 export const metadata: Metadata = {
   title: "Política de privacidade | Diária",
@@ -110,6 +111,9 @@ export default function Privacidade() {
         Usamos cookies essenciais para manter você conectado com segurança. Cookies de medição (Google Analytics)
         ou de anúncios (Meta Ads) só são ativados se você consentir no aviso exibido na primeira visita, e podem
         ser recusados sem prejuízo ao uso do sistema.
+      </p>
+      <p>
+        <PreferenciasDeCookies />
       </p>
 
       <h2>9. Encarregado e contato</h2>

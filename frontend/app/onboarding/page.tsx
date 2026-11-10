@@ -86,7 +86,8 @@ export default function OnboardingPage() {
       if (d.sucesso) {
         // A aba passa a operar a pousada recém-criada.
         fixarPousadaDaAba(d.pousada?.id ?? null);
-        rastrear('pousada_criada');
+        // Mesmo event_id do servidor (trial:<id da pousada>).
+        rastrear('pousada_criada', {}, d.pousada?.id ? `trial:${d.pousada.id}` : undefined);
         window.location.replace('/painel');
         return;
       }
