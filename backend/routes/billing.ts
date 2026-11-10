@@ -349,9 +349,14 @@ router.post('/portal', requireOwner, limiteDeSessao, async (req: Request, res: R
   }
 
   try {
+    // A conta Stripe é compartilhada com outros produtos, e a configuração
+    // padrão do portal é a de outro deles. STRIPE_PORTAL_CONFIGURATION (bpc_…)
+    // aponta a do Diária: os seis preços, cartão, faturas e cancelamento.
+    const configuracao = process.env.STRIPE_PORTAL_CONFIGURATION?.trim();
     const sessao = await stripe().billingPortal.sessions.create({
       customer: assinatura.stripeCustomerId,
       return_url: `${urlDoApp()}/assinatura`,
+      ...(configuracao ? { configuration: configuracao } : {}),
     });
     res.json({ sucesso: true, url: sessao.url });
   } catch (err) {

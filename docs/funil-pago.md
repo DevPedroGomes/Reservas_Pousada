@@ -58,6 +58,14 @@ inteiro antes de pôr dinheiro em mídia.
    cartão, ver faturas, cancelar no fim do período e trocar entre os seis
    preços. Links de termos e privacidade: `https://diaria.gomio.com.br/termos`
    e `/privacidade`.
+
+   A conta Stripe é compartilhada com outros produtos, e a configuração padrão
+   do portal é a de um deles, com outro nome e outras regras (prazo mínimo,
+   outros preços). Por isso o Diária tem uma configuração própria, criada como
+   configuração adicional do portal, com retorno para
+   `https://diaria.gomio.com.br/assinatura`. O id dela (`bpc_…`) vai em
+   `STRIPE_PORTAL_CONFIGURATION`, e o backend o passa em cada sessão do portal.
+   Sem a variável, a sessão usa a configuração padrão da conta.
 5. **Recuperação de receita.** Billing → Recuperação de receita: Smart Retries
    ligado e e-mail de pagamento falho. O app dá 7 dias de tolerância a partir
    da primeira falha (`DIAS_DE_TOLERANCIA`) antes de bloquear.
@@ -86,6 +94,7 @@ No `.env` da VPS (backend, lido em tempo de execução):
 BILLING_ENABLED=true
 STRIPE_SECRET_KEY=rk_live_…
 STRIPE_WEBHOOK_SECRET=whsec_…
+STRIPE_PORTAL_CONFIGURATION=bpc_…
 STRIPE_PRICE_ESSENCIAL_MENSAL=price_…   (e as outras cinco)
 META_PIXEL_ID=…
 META_CAPI_TOKEN=…

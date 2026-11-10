@@ -102,6 +102,7 @@ services:
       BILLING_ENABLED: ${BILLING_ENABLED:-false}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PORTAL_CONFIGURATION: ${STRIPE_PORTAL_CONFIGURATION:-}
       # Ids de Price do Stripe. Diferentes entre teste e producao, por isso vem
       # do ambiente. Plano sem Price nao aparece na tela de planos.
       STRIPE_PRICE_ESSENCIAL_MENSAL: ${STRIPE_PRICE_ESSENCIAL_MENSAL:-}

@@ -38,6 +38,7 @@ describe('funil pago: cadastro → trial → assinatura, com conversões', { ski
     items: { data: [{ price: { id: 'price_pousada_m' }, current_period_end: Math.floor(Date.now() / 1000) + 30 * 864e2 }] },
   } as unknown as Stripe.Subscription);
   let statusNoStripe: Stripe.Subscription.Status = 'incomplete';
+  const portais: Record<string, any>[] = [];
 
   const assinador = new Stripe('sk_test_assinador');
   async function webhook(tipo: string, objeto: Record<string, unknown>) {
@@ -78,6 +79,15 @@ describe('funil pago: cadastro → trial → assinatura, com conversões', { ski
       META_CAPI_TOKEN: 'token-de-teste',
       APP_URL: 'http://localhost:3000',
       FILA_HABILITADA: 'false',
+      // Vazias de propósito: o app carrega o .env local (dotenv não sobrescreve
+      // o que já existe), e um .env de desenvolvimento não pode mudar o teste.
+      STRIPE_PRICE_ESSENCIAL_MENSAL: '',
+      STRIPE_PRICE_ESSENCIAL_ANUAL: '',
+      STRIPE_PRICE_POUSADA_ANUAL: '',
+      STRIPE_PRICE_REDE_MENSAL: '',
+      STRIPE_PRICE_REDE_ANUAL: '',
+      STRIPE_PORTAL_CONFIGURATION: '',
+      META_TEST_EVENT_CODE: '',
     });
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url instanceof Request ? url.url : url);
@@ -106,6 +116,9 @@ describe('funil pago: cadastro → trial → assinatura, com conversões', { ski
         create: async (p: Record<string, any>) => ({ id: 'cs_funil', url: 'https://checkout.stripe.com/c/pay/cs_funil', metadata: p.metadata }),
       } },
       invoicePayments: { list: async () => ({ data: [] }) },
+      billingPortal: { sessions: {
+        create: async (p: Record<string, any>) => { portais.push(p); return { url: 'https://billing.stripe.com/p/session/teste' }; },
+      } },
     } as never);
 
     const { app } = await import('../app.js');
@@ -212,6 +225,20 @@ describe('funil pago: cadastro → trial → assinatura, com conversões', { ski
 
     const { rows } = await pool.query(`SELECT categoria, valor_centavos FROM financeiro_lancamentos WHERE pousada_id = $1 AND categoria = 'receita_assinatura'`, [pousadaId]);
     assert.equal(rows[0]?.valor_centavos, 14900);
+  });
+
+  it('portal usa a configuração própria do Diária quando definida, e a padrão sem ela', async () => {
+    process.env.STRIPE_PORTAL_CONFIGURATION = 'bpc_diaria_teste';
+    const com = await dona.req('POST', '/api/billing/portal');
+    assert.equal(com.status, 200, JSON.stringify(com.json));
+    assert.equal(portais.at(-1)?.configuration, 'bpc_diaria_teste');
+    assert.equal(portais.at(-1)?.customer, customerId);
+    assert.equal(portais.at(-1)?.return_url, 'http://localhost:3000/assinatura');
+
+    delete process.env.STRIPE_PORTAL_CONFIGURATION;
+    const sem = await dona.req('POST', '/api/billing/portal');
+    assert.equal(sem.status, 200, JSON.stringify(sem.json));
+    assert.equal('configuration' in portais.at(-1)!, false);
   });
 
   it('renovação não é conversão de anúncio', async () => {
