@@ -17,6 +17,7 @@ import AuditoriaModel from '../models/Auditoria.js';
 import { urlDoApp } from '../utils/origens.js';
 import { excedeLimiteDeQuartos, excedeLimiteDeUsuarios, requerAssinaturaAtiva } from '../middleware/assinatura.js';
 import { param } from '../utils/http.js';
+import { MENSAGEM_SO_DONO_ADMIN, podeAtribuirPapel } from '../utils/papeis.js';
 import { contextoDaRequisicao, registrarInicioDoTrial } from '../lib/conversoes.js';
 
 const router = Router();
@@ -528,8 +529,8 @@ router.patch('/:id/usuarios/:userId', requirePousadaOwner, async (req: Request, 
   if (vinculo.isOwner) {
     return res.status(403).json({ sucesso: false, mensagem: 'O papel do proprietário não pode ser alterado.' });
   }
-  if (!req.user!.isOwner && (role === 'admin' || vinculo.role === 'admin')) {
-    return res.status(403).json({ sucesso: false, mensagem: 'Só o proprietário concede ou retira o papel de administrador.' });
+  if (!podeAtribuirPapel(req.user!, role, vinculo.role)) {
+    return res.status(403).json({ sucesso: false, mensagem: MENSAGEM_SO_DONO_ADMIN });
   }
 
   await PousadaModel.alterarPapel(pousadaId, alvoId, role);
@@ -723,6 +724,12 @@ router.post('/:id/convites', requirePousadaOwner, async (req: Request, res: Resp
         sucesso: false,
         mensagem: `Papel inválido. Use: ${PAPEIS_ATRIBUIVEIS.join(', ')}`,
       });
+    }
+
+    // Mesma regra da troca de papel: admin não cria admin. Sem isto, um admin
+    // convidava outro admin (ou o próprio e-mail) e contornava o PATCH.
+    if (!podeAtribuirPapel(req.user!, role || 'recepcao')) {
+      return res.status(403).json({ sucesso: false, mensagem: MENSAGEM_SO_DONO_ADMIN });
     }
 
     const estouro = await excedeLimiteDeUsuarios(pousadaId);

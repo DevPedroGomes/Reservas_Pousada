@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { prepararBanco, temBanco } from './helpers/banco.js';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import type { MensagemLLM, RespostaLLM } from '../lib/llm.js';
 import { VERSAO_POLITICA } from '../utils/politica.js';
 
@@ -279,6 +279,88 @@ describe('API — autorização e isolamento', { skip: !temBanco && 'DATABASE_UR
       const r = await aud.req('GET', '/api/reservas');
       assert.equal(r.status, 403);
       assert.equal(r.json.pousadaInvalida, true);
+    });
+  });
+
+  // Um admin removido voltava à equipe: deixava um convite pendente para o
+  // próprio e-mail (e podia convidar como admin, porque o POST de convite não
+  // tinha a regra do PATCH), era removido e aceitava o convite, que seguia válido.
+  describe('convites e saída da equipe', () => {
+    const idDe = async (email: string): Promise<string> =>
+      (await pool.query(`SELECT id FROM "user" WHERE email = $1`, [email])).rows[0].id;
+    const statusDoConvite = async (email: string): Promise<string[]> =>
+      (await pool.query(`SELECT status FROM staff_invites WHERE email = $1 ORDER BY id`, [email])).rows.map((r) => r.status);
+    const membro = async (email: string, pousadaId: number): Promise<boolean> =>
+      ((await pool.query(
+        `SELECT 1 FROM user_pousadas up JOIN "user" u ON u.id = up.user_id WHERE u.email = $1 AND up.pousada_id = $2`,
+        [email, pousadaId],
+      )).rowCount ?? 0) > 0;
+
+    let adm: Cliente;
+
+    it('admin não convida admin (403, mesma mensagem da troca de papel); recepção pode', async () => {
+      adm = await convidarEAceitar(donoA, pousadaA, 'adm.conv@teste.com', 'Admin Convidante', 'admin');
+
+      for (const email of ['adm.conv@teste.com', 'outro.adm@teste.com']) {
+        const r = await adm.req('POST', `/api/pousadas/${pousadaA}/convites`, { email, role: 'admin' });
+        assert.equal(r.status, 403, JSON.stringify(r.json));
+        assert.equal(r.json.mensagem, 'Só o proprietário concede ou retira o papel de administrador.');
+      }
+      assert.deepEqual(await statusDoConvite('outro.adm@teste.com'), []);
+
+      // Convite de recepção feito por admin ativo continua funcionando.
+      const conv = await adm.req('POST', `/api/pousadas/${pousadaA}/convites`, { email: 'recep.do.adm@teste.com', role: 'recepcao' });
+      assert.equal(conv.status, 201, JSON.stringify(conv.json));
+      const { rows } = await pool.query(`SELECT token FROM staff_invites WHERE email = 'recep.do.adm@teste.com'`);
+      const novo = await novoUsuario('recep.do.adm@teste.com', 'Recepção do Admin');
+      const aceite = await novo.req('POST', `/api/convites/${rows[0].token}/aceitar`);
+      assert.equal(aceite.status, 200, JSON.stringify(aceite.json));
+    });
+
+    it('remover o admin revoga os convites pendentes dele; o removido não volta', async () => {
+      // Convite pendente para o próprio e-mail e outro para terceiro.
+      assert.equal((await adm.req('POST', `/api/pousadas/${pousadaA}/convites`, { email: 'adm.conv@teste.com', role: 'recepcao' })).status, 201);
+      assert.equal((await adm.req('POST', `/api/pousadas/${pousadaA}/convites`, { email: 'pendente.adm@teste.com', role: 'auditoria' })).status, 201);
+      const { rows } = await pool.query(`SELECT token FROM staff_invites WHERE email = 'adm.conv@teste.com' AND status = 'pending'`);
+
+      assert.equal((await donoA.req('DELETE', `/api/pousadas/${pousadaA}/usuarios/${await idDe('adm.conv@teste.com')}`)).status, 200);
+      assert.deepEqual(await statusDoConvite('pendente.adm@teste.com'), ['revoked']);
+      assert.ok((await statusDoConvite('adm.conv@teste.com')).every((s) => s !== 'pending'));
+
+      adm.pousada = null;
+      const volta = await adm.req('POST', `/api/convites/${rows[0].token}/aceitar`);
+      assert.equal(volta.status, 400, JSON.stringify(volta.json));
+      assert.equal(await membro('adm.conv@teste.com', pousadaA), false);
+    });
+
+    it('aceite recusa convite pendente de quem não é mais membro', async () => {
+      // Convite que escapou da revogação (criado antes dela, por exemplo).
+      const token = randomBytes(32).toString('hex'); // mesmo formato de StaffInvite.generateToken
+      await pool.query(
+        `INSERT INTO staff_invites (pousada_id, email, role, token, status, invited_by, expires_at)
+         VALUES ($1, 'orfao@teste.com', 'recepcao', $2, 'pending', $3, now() + interval '7 days')`,
+        [pousadaA, token, await idDe('adm.conv@teste.com')],
+      );
+      const c = await novoUsuario('orfao@teste.com', 'Convite Órfão');
+      const r = await c.req('POST', `/api/convites/${token}/aceitar`);
+      assert.equal(r.status, 400, JSON.stringify(r.json));
+      assert.match(r.json.mensagem, /quem convidou não faz mais parte da equipe/);
+      assert.equal(await membro('orfao@teste.com', pousadaA), false);
+      // A transação desfez a marcação: o convite não ficou como aceito.
+      assert.deepEqual(await statusDoConvite('orfao@teste.com'), ['pending']);
+    });
+
+    it('rebaixar o admin revoga os convites pendentes dele', async () => {
+      const adm2 = await convidarEAceitar(donoA, pousadaA, 'adm2.conv@teste.com', 'Admin Dois', 'admin');
+      assert.equal((await adm2.req('POST', `/api/pousadas/${pousadaA}/convites`, { email: 'pendente.adm2@teste.com', role: 'recepcao' })).status, 201);
+      const { rows } = await pool.query(`SELECT token FROM staff_invites WHERE email = 'pendente.adm2@teste.com'`);
+
+      assert.equal((await donoA.req('PATCH', `/api/pousadas/${pousadaA}/usuarios/${await idDe('adm2.conv@teste.com')}`, { role: 'recepcao' })).status, 200);
+      assert.deepEqual(await statusDoConvite('pendente.adm2@teste.com'), ['revoked']);
+
+      const c = await novoUsuario('pendente.adm2@teste.com', 'Convidado do Admin Dois');
+      assert.equal((await c.req('POST', `/api/convites/${rows[0].token}/aceitar`)).status, 400);
+      assert.equal(await membro('pendente.adm2@teste.com', pousadaA), false);
     });
   });
 

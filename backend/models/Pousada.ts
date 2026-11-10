@@ -3,6 +3,7 @@ import { db, pousadas, user, reservas, userPousadas } from '../db/index.js';
 import type { Pousada, NewPousada, User } from '../db/schema.js';
 import { hojeLocal } from '../utils/datas.js';
 import AssinaturaModel from './Assinatura.js';
+import StaffInviteModel from './StaffInvite.js';
 import { decidirNovaPousada, limitesVigentes } from '../utils/assinatura.js';
 
 /** Criação recusada pelo plano. A rota responde 402 com a mensagem. */
@@ -301,85 +302,109 @@ export class PousadaModel {
     return rows;
   }
 
-  /** Troca o papel do vínculo (o papel vale por pousada). */
+  /**
+   * Troca o papel do vínculo (o papel vale por pousada). Quem deixa de ser
+   * admin perde junto os convites pendentes que criou: senão o convite
+   * continuaria trazendo gente com o poder que ele já não tem.
+   */
   static async alterarPapel(pousadaId: number, userId: string, role: string): Promise<void> {
-    await db
-      .update(userPousadas)
-      .set({ role })
-      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
-    // Mantém a cópia legada na linha do usuário coerente quando esta é a
-    // pousada padrão dele (o authMiddleware já lê do vínculo).
-    await db
-      .update(user)
-      .set({ role, updatedAt: new Date() })
-      .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)));
+    await db.transaction(async (tx) => {
+      const [anterior] = await tx
+        .select({ role: userPousadas.role })
+        .from(userPousadas)
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
+        .limit(1)
+        .for('update');
+
+      await tx
+        .update(userPousadas)
+        .set({ role })
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
+      // Mantém a cópia legada na linha do usuário coerente quando esta é a
+      // pousada padrão dele (o authMiddleware já lê do vínculo).
+      await tx
+        .update(user)
+        .set({ role, updatedAt: new Date() })
+        .where(and(eq(user.id, userId), eq(user.pousadaId, pousadaId)));
+
+      if (anterior?.role === 'admin' && role !== 'admin') {
+        await StaffInviteModel.revogarPendentesDe(pousadaId, userId, tx);
+      }
+    });
   }
 
   /**
-   * Remove user from pousada (junction table + auto-switch active)
+   * Remove user from pousada (junction table + auto-switch active).
+   * Revoga na mesma transação os convites pendentes que ele criou: um admin
+   * removido não pode voltar aceitando um convite que fez para si mesmo.
    */
   static async removerUsuario(pousadaId: number, userId: string): Promise<{ success: boolean }> {
-    const [membership] = await db
-      .select({ isOwner: userPousadas.isOwner })
-      .from(userPousadas)
-      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
-      .limit(1);
-
-    if (!membership) {
-      throw new Error('Usuário não é membro desta pousada');
-    }
-
-    if (membership.isOwner) {
-      throw new Error('Não é possível remover o proprietário da pousada');
-    }
-
-    // Remove from junction table
-    await db
-      .delete(userPousadas)
-      .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
-
-    // If this was the active pousada, switch to another or clear
-    const [userData] = await db
-      .select({ pousadaId: user.pousadaId })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
-
-    if (userData?.pousadaId === pousadaId) {
-      const [nextMembership] = await db
-        .select({
-          pousadaId: userPousadas.pousadaId,
-          role: userPousadas.role,
-          isOwner: userPousadas.isOwner,
-        })
+    return db.transaction(async (tx) => {
+      const [membership] = await tx
+        .select({ isOwner: userPousadas.isOwner })
         .from(userPousadas)
-        .where(eq(userPousadas.userId, userId))
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)))
+        .limit(1)
+        .for('update');
+
+      if (!membership) {
+        throw new Error('Usuário não é membro desta pousada');
+      }
+
+      if (membership.isOwner) {
+        throw new Error('Não é possível remover o proprietário da pousada');
+      }
+
+      // Remove from junction table
+      await tx
+        .delete(userPousadas)
+        .where(and(eq(userPousadas.userId, userId), eq(userPousadas.pousadaId, pousadaId)));
+
+      await StaffInviteModel.revogarPendentesDe(pousadaId, userId, tx);
+
+      // If this was the active pousada, switch to another or clear
+      const [userData] = await tx
+        .select({ pousadaId: user.pousadaId })
+        .from(user)
+        .where(eq(user.id, userId))
         .limit(1);
 
-      if (nextMembership) {
-        await db
-          .update(user)
-          .set({
-            pousadaId: nextMembership.pousadaId,
-            role: nextMembership.role,
-            isOwner: nextMembership.isOwner || false,
-            updatedAt: new Date(),
+      if (userData?.pousadaId === pousadaId) {
+        const [nextMembership] = await tx
+          .select({
+            pousadaId: userPousadas.pousadaId,
+            role: userPousadas.role,
+            isOwner: userPousadas.isOwner,
           })
-          .where(eq(user.id, userId));
-      } else {
-        await db
-          .update(user)
-          .set({
-            pousadaId: null,
-            role: 'recepcao',
-            isOwner: false,
-            updatedAt: new Date(),
-          })
-          .where(eq(user.id, userId));
-      }
-    }
+          .from(userPousadas)
+          .where(eq(userPousadas.userId, userId))
+          .limit(1);
 
-    return { success: true };
+        if (nextMembership) {
+          await tx
+            .update(user)
+            .set({
+              pousadaId: nextMembership.pousadaId,
+              role: nextMembership.role,
+              isOwner: nextMembership.isOwner || false,
+              updatedAt: new Date(),
+            })
+            .where(eq(user.id, userId));
+        } else {
+          await tx
+            .update(user)
+            .set({
+              pousadaId: null,
+              role: 'recepcao',
+              isOwner: false,
+              updatedAt: new Date(),
+            })
+            .where(eq(user.id, userId));
+        }
+      }
+
+      return { success: true };
+    });
   }
 
   /**
