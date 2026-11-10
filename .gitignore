@@ -52,7 +52,10 @@ backend/**/*.js
 
 # Volumes data
 postgres_data/
-.claude/
+# .claude/ local; só a skill de conteúdo (/pulse) é versionada
+!.claude/
+.claude/*
+!.claude/skills/
 PLAN_IMPROVEMENTS.md
 
 # deploy control (VPS-local)

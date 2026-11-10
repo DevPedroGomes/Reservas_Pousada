@@ -4,6 +4,7 @@ Multi-tenant SaaS for managing room reservations in Brazilian inns (pousadas). O
 
 - Frontend: https://diaria.gomio.com.br
 - API: https://api.diaria.gomio.com.br
+- Content (Instagram/TikTok): run `/pulse` (`.claude/skills/pulse/SKILL.md`). What a post may claim, with the source of each claim, is in [`marketing/brand-brain.md`](marketing/brand-brain.md); the image kit is `marketing/kit/`.
 
 | The door opens on scroll | The real occupancy map behind it | A day at the front desk |
 |---|---|---|

@@ -1,0 +1,222 @@
+/* Sistema visual das peças do Diária.
+   Tokens copiados de frontend/app/globals.css (claro = papel, escuro = café), os mesmos do
+   diaria.gomio.com.br. O tema porta é a porta pintada da landing (frontend/app/landing.css,
+   .vao e .folha-face) e a imagem de prévia (frontend/app/opengraph-image.tsx).
+   Fontes de frontend/app/fontes. Nenhuma peça escreve hex: só token. Um tema por peça. */
+
+@font-face { font-family: "Space Grotesk"; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; src: url(fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; src: url(fonts/ibm-plex-sans-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; src: url(fonts/ibm-plex-sans-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url(fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
+
+/* Papel (padrão): o tema claro do site */
+:root {
+  --fundo: #f4f2ed; --superficie: #fbfaf6; --superficie-2: #ebe7de;
+  --tinta: #14120e; --tinta-2: #453f35; --tinta-3: #665f52;
+  --linha: #dad4c8; --linha-forte: #c2b9a8;
+  --realce: #b24a18; --realce-forte: #8f3a12; --realce-lavado: #f6e7dc;
+  --sobre-realce: #f4f2ed;
+  --sombra: 20 18 14;
+  --super: #e9e3d8;              /* batente da porta quase sumindo no papel */
+  /* Símbolo: quadrado terracota, porta tinta, vão claro (MarcaDiaria.tsx) */
+  --s-fundo: #b24a18; --s-porta: #14120e; --s-vao: #f4f2ed;
+  /* Botão: pílula tinta com o círculo da seta (landing, .botao-tinta) */
+  --botao: var(--tinta); --botao-texto: var(--fundo); --botao-seta: var(--realce); --botao-seta-icone: var(--sobre-realce);
+  --margem: 88px;
+}
+
+/* Café: o tema escuro do site */
+.tema-cafe {
+  --fundo: #14120e; --superficie: #1d1a14; --superficie-2: #272219;
+  --tinta: #f4f2ed; --tinta-2: #c9c2b3; --tinta-3: #9c9484;
+  --linha: #322d24; --linha-forte: #443d31;
+  --realce: #e8703a; --realce-forte: #f29063; --realce-lavado: #2b1d14;
+  --sobre-realce: #14120e;
+  --sombra: 0 0 0;
+  --super: #221e18;
+  --botao-seta-icone: #14120e;
+}
+
+/* Porta: a porta pintada da landing ("Tem vaga?"). Terracota com texto claro.
+   O símbolo inverte: quadrado claro, vão terracota. */
+.tema-porta {
+  --fundo: #b24a18; --superficie: #fbfaf6; --superficie-2: #9e4115;
+  --tinta: #f4f2ed; --tinta-2: #f6e7dc; --tinta-3: #f0d6c4;
+  --linha: #c8693c; --linha-forte: #d4805a;
+  --realce: #f4f2ed; --realce-forte: #f4f2ed; --realce-lavado: #9e4115;
+  --sobre-realce: #b24a18;
+  --sombra: 20 18 14;
+  --s-fundo: #f4f2ed; --s-porta: #14120e; --s-vao: #b24a18;
+  /* landing, .botao-sobre-realce */
+  --botao: #f4f2ed; --botao-texto: #8f3a12; --botao-seta: #b24a18; --botao-seta-icone: #f4f2ed;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #000; }
+body {
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.peca {
+  position: relative; overflow: hidden;
+  width: 1080px; height: 1350px;
+  background: var(--fundo); color: var(--tinta);
+  padding: 104px var(--margem) 0;
+  display: flex; flex-direction: column;
+}
+.peca.vertical { height: 1920px; }
+.peca.quadrada { height: 1080px; }
+
+/* Supergráfico: o batente da porta, recortado pela borda. Só em capa. */
+.super { position: absolute; fill: var(--super); pointer-events: none; z-index: 0; }
+.super.canto { height: 1300px; right: -380px; bottom: -260px; }
+.super.alto { height: 1900px; right: -520px; bottom: -120px; }
+.peca > *:not(.super) { position: relative; z-index: 1; }
+
+/* Almofadas da porta pintada (tema porta): os quatro painéis e a junta das folhas */
+.super.almofadas {
+  inset: 36px 36px 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 30px;
+}
+.super.almofadas i {
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 1.5px rgb(255 255 255 / .1),
+    inset 6px 6px 0 rgb(var(--sombra) / .12),
+    inset -3px -3px 0 rgb(255 255 255 / .06);
+}
+.super.almofadas::after {
+  content: ""; position: absolute; top: -36px; bottom: 0; left: 50%; width: 2px; margin-left: -1px;
+  background: rgb(var(--sombra) / .4);
+}
+
+/* Capa no tema porta: composição da porta da landing, centrada, pergunta em cima e frase embaixo */
+.tema-porta.m-capa, .tema-porta.m-vertical .zona { align-items: center; text-align: center; }
+.tema-porta.m-capa .manchete.gigante { font-size: 250px; margin-top: 30px; }
+.tema-porta.m-capa .sub { margin-top: auto; margin-bottom: 200px; color: var(--tinta); max-width: 19em; text-wrap: balance; }
+
+/* Tipografia */
+.manchete {
+  font-family: "Space Grotesk", sans-serif; font-weight: 700;
+  font-size: 116px; line-height: .94; letter-spacing: -.045em;
+  text-wrap: balance; max-width: 9.6em;
+}
+.manchete.media { font-size: 96px; }
+.manchete.menor { font-size: 82px; }
+.manchete.gigante { font-size: 200px; line-height: .88; letter-spacing: -.05em; }
+.titulo {
+  font-family: "Space Grotesk", sans-serif; font-weight: 600;
+  font-size: 82px; line-height: .98; letter-spacing: -.034em;
+  text-wrap: balance; max-width: 14em;
+}
+.sub {
+  font-size: 42px; line-height: 1.34; color: var(--tinta-2);
+  max-width: 22em; text-wrap: pretty;
+}
+.corpo {
+  font-size: 41px; line-height: 1.42; color: var(--tinta-2);
+  max-width: 22em; text-wrap: pretty;
+}
+.corpo strong, .sub strong { color: var(--tinta); font-weight: 600; }
+.num { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-weight: 500; }
+.serie {
+  font-size: 32px; font-weight: 500; color: var(--tinta-3);
+  display: flex; align-items: center; gap: 14px; margin-bottom: 40px;
+}
+
+/* Lista com régua: um fio por item, só em cima */
+.lista { list-style: none; margin-top: 60px; }
+.lista li {
+  border-top: 2px solid var(--linha); padding: 30px 0 34px;
+  display: grid; grid-template-columns: 1fr; gap: 6px;
+}
+.lista .lead { font-size: 45px; font-weight: 600; color: var(--tinta); line-height: 1.2; letter-spacing: -.01em; }
+.lista .mais { font-size: 36px; line-height: 1.38; color: var(--tinta-2); }
+
+/* Número grande */
+.valor { font-size: 210px; line-height: .9; letter-spacing: -.04em; color: var(--realce); }
+.valor.medio { font-size: 150px; }
+.rotulo-valor { font-size: 40px; line-height: 1.3; color: var(--tinta); max-width: 20em; margin-top: 40px; font-weight: 500; }
+.fonte { font-size: 28px; color: var(--tinta-3); margin-top: 28px; }
+
+/* Bezel: casca + núcleo, como a moldura do mapa na landing. Recorte real de tela, nunca UI montada. */
+.bezel {
+  background: color-mix(in srgb, var(--tinta) 4%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--tinta) 8%, transparent);
+  border-radius: 34px; padding: 9px;
+}
+.bezel-nucleo {
+  border-radius: 26px; overflow: hidden; background: var(--superficie);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .55),
+              0 2px 6px rgb(var(--sombra) / .06), 0 24px 60px -18px rgb(var(--sombra) / .22);
+}
+.bezel-nucleo img { display: block; width: 100%; }
+.legenda { font-size: 27px; color: var(--tinta-3); margin-top: 22px; }
+
+/* Citação */
+.aspas { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 86px; line-height: 1.04; letter-spacing: -.03em; text-wrap: balance; max-width: 12.5em; }
+.autor { margin-top: 48px; font-size: 30px; color: var(--tinta-2); }
+.autor strong { color: var(--tinta); font-weight: 600; }
+
+/* Comparativo em duas colunas */
+.duas { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 56px; }
+.coluna { border-radius: 26px; padding: 40px 36px; background: var(--superficie-2); }
+.coluna.forte { background: var(--tinta); color: var(--fundo); }
+.coluna h3 { font-family: "Space Grotesk", sans-serif; font-size: 46px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 22px; }
+.coluna ul { list-style: none; }
+.coluna li { font-size: 35px; line-height: 1.3; padding: 18px 0; border-top: 1.5px solid color-mix(in srgb, currentColor 14%, transparent); }
+
+/* Chamada final: pílula com o círculo da seta, como o botão do site */
+.acao {
+  display: inline-flex; align-items: center; gap: 22px; margin-top: 64px;
+  background: var(--botao); color: var(--botao-texto);
+  font-size: 36px; font-weight: 600; padding: 22px 26px 22px 40px; border-radius: 999px;
+  align-self: flex-start;
+}
+.acao .seta { width: 62px; height: 62px; border-radius: 50%; background: var(--botao-seta); display: grid; place-items: center; color: var(--botao-seta-icone); }
+.acao .seta svg { width: 32px; height: 32px; stroke-width: 2.5; }
+.detalhe { font-size: 34px; color: var(--tinta-2); margin-top: 26px; }
+
+/* Rodapé fixo: símbolo, nome e crédito em toda peça de feed */
+.rodape {
+  position: absolute !important; left: var(--margem); right: var(--margem); bottom: 68px;
+  display: flex; justify-content: space-between; align-items: center; z-index: 2;
+}
+.simbolo { height: 44px; width: 44px; display: block; }
+.s-fundo { fill: var(--s-fundo); } .s-porta { fill: var(--s-porta); } .s-vao { fill: var(--s-vao); }
+.rodape .logo { display: flex; align-items: center; gap: 14px; color: var(--tinta); }
+.rodape .logo-nome { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 34px; letter-spacing: -.03em; }
+.rodape .logo-credito { font-size: 27px; color: var(--tinta-3); margin-left: -10px; align-self: flex-end; padding-bottom: 3px; }
+.rodape .contador { font-family: "IBM Plex Mono", monospace; font-size: 27px; color: var(--tinta-3); letter-spacing: .02em; }
+.rodape .site { font-size: 27px; color: var(--tinta-3); }
+
+.empurra { flex: 1; }
+.espaco-s { height: 32px; } .espaco-m { height: 56px; } .espaco-g { height: 96px; }
+
+/* Formato vertical (capa de reel, story): zona segura para o recorte 3:4 da grade e para a UI do app */
+.vertical .zona { position: absolute; left: var(--margem); right: var(--margem); top: 300px; bottom: 380px; display: flex; flex-direction: column; justify-content: center; }
+.vertical .rodape { bottom: 300px; }
+
+/* Destaque: o Instagram recorta um círculo no centro */
+.destaque { display: grid; place-items: center; padding: 0; }
+.destaque .disco { width: 760px; height: 760px; border-radius: 50%; display: grid; place-items: center; background: var(--superficie-2); }
+.destaque .disco svg { width: 300px; height: 300px; color: var(--tinta); stroke-width: 1.6; }
+
+/* Avatar: o símbolo da porta, centrado */
+.simbolo-avatar { display: block; aspect-ratio: 1; }
+
+/* Pergunta de carrossel: número em cima, pergunta ancorada embaixo */
+.pergunta-n { font-family: "IBM Plex Mono", monospace; font-size: 34px; color: var(--realce); }
+.pergunta-t { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 112px; line-height: .95; letter-spacing: -.038em; text-wrap: balance; max-width: 8.6em; }
+
+/* Prova lado a lado: texto à esquerda, recorte alto à direita */
+.lado { display: grid; grid-template-columns: 1fr 400px; gap: 52px; align-items: end; margin-top: 56px; }
+.lado .corpo { font-size: 38px; }
+.lado .legenda { margin-top: 26px; }
+.corpo.grande { font-size: 48px; line-height: 1.36; color: var(--tinta-2); }
+.bezel-nucleo.chat { padding: 22px 26px 18px; }
