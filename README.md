@@ -617,4 +617,4 @@ conversation that produced it:
 
 ## License
 
-ISC. See [`LICENSE`](LICENSE).
+All rights reserved. The source is public to be read and evaluated, not reused: see [`LICENSE`](LICENSE).

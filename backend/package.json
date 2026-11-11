@@ -27,7 +27,7 @@
     "better-auth"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "dependencies": {
     "@sentry/node": "^10.76.0",
     "better-auth": "^1.7.18",
