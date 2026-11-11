@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
+import { SimboloPorta } from '../../components/landing/MarcaDiaria';
 
 function VerifyEmailContent() {
   const searchParams = useSearchParams();
@@ -19,14 +20,14 @@ function VerifyEmailContent() {
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setMessage('Link de verificacao invalido.');
+      setMessage('Link de verificação inválido.');
       return;
     }
 
     // Better Auth handles verification server-side via the GET /api/auth/verify-email endpoint
     // This page is shown after the redirect, so we just show success
     setStatus('success');
-    setMessage('Email verificado com sucesso!');
+    setMessage('E-mail verificado com sucesso!');
   }, [token]);
 
   return (
@@ -34,12 +35,12 @@ function VerifyEmailContent() {
       <CardHeader>
         <CardTitle className="text-2xl font-bold">
           {status === 'loading' && 'Verificando...'}
-          {status === 'success' && 'Email verificado!'}
-          {status === 'error' && 'Erro na verificacao'}
+          {status === 'success' && 'E-mail verificado!'}
+          {status === 'error' && 'Erro na verificação'}
         </CardTitle>
         <CardDescription className="text-base">
-          {status === 'success' && 'Seu email foi verificado com sucesso. Voce ja pode acessar todas as funcionalidades.'}
-          {status === 'error' && message}
+          {status === 'success' && 'Seu e-mail foi verificado. Você já pode usar todas as funcionalidades.'}
+          {status === 'error' && 'Para receber um novo link, entre com seu e-mail e senha.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -57,7 +58,7 @@ function VerifyEmailContent() {
 
         <Link href="/painel">
           <Button className="w-full h-11 font-semibold">
-            {status === 'success' ? 'Ir para o Dashboard' : 'Voltar ao inicio'}
+            {status === 'success' ? 'Ir para o painel' : 'Voltar ao início'}
           </Button>
         </Link>
       </CardContent>
@@ -70,13 +71,12 @@ export default function VerifyEmailPage() {
     <main className="min-h-screen bg-background px-4 py-16 flex items-center justify-center">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">
-              RP
-            </div>
-          </div>
+          <Link href="/" className="flex items-center justify-center gap-2.5">
+            <SimboloPorta className="h-9 w-9" />
+            <span className="text-lg font-semibold">Diária</span>
+          </Link>
           <Badge variant="outline" className="text-xs">
-            Verificacao de email
+            Verificação de e-mail
           </Badge>
         </div>
 

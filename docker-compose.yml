@@ -255,11 +255,12 @@ services:
       - "traefik.http.middlewares.pousada-frontend-security.headers.browserXssFilter=true"
       - "traefik.http.middlewares.pousada-frontend-security.headers.referrerPolicy=strict-origin-when-cross-origin"
       - "traefik.http.middlewares.pousada-frontend-security.headers.frameDeny=true"
-      # Hosts externos: só GA (googletagmanager, google-analytics) e Pixel/SDK da
-      # Meta (facebook). A fonte é servida pelo próprio app (next/font), então
+      # Hosts externos: GA (googletagmanager, google-analytics), Pixel/SDK da
+      # Meta (facebook) e o Turnstile da Cloudflare (challenges.cloudflare.com:
+      # script e iframe do widget anti-robô da página pública de reservas). A fonte é servida pelo próprio app (next/font), então
       # fonts.googleapis.com e fonts.gstatic.com não entram. O login com Google é
       # redirecionamento de página inteira: não passa por connect-src nem form-action.
-      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.diaria.gomio.com.br https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com; frame-ancestors 'none'"
+      - "traefik.http.middlewares.pousada-frontend-security.headers.contentSecurityPolicy=default-src 'self'; base-uri 'self'; form-action 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://connect.facebook.net https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://api.diaria.gomio.com.br https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com https://www.facebook.com https://connect.facebook.net https://graph.facebook.com; frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com https://challenges.cloudflare.com; frame-ancestors 'none'"
       # O app usa a área de transferência (copiar Pix e links), que fica de fora de propósito.
       - "traefik.http.middlewares.pousada-frontend-security.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     healthcheck:

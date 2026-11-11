@@ -45,7 +45,7 @@ function dobrar(linha: string): string {
 
 const dataIcal = (d: string) => d.replace(/-/g, '');
 
-export function gerarIcal(nomeCalendario: string, eventos: { id: number; inicio: string; fim: string }[], dominio = 'diaria.app'): string {
+export function gerarIcal(nomeCalendario: string, eventos: { id: number; inicio: string; fim: string }[], dominio = 'diaria.gomio.com.br'): string {
   const agora = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const linhas = [
     'BEGIN:VCALENDAR',

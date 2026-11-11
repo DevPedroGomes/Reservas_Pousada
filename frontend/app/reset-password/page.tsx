@@ -8,6 +8,8 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
+import Link from 'next/link';
+import { SimboloPorta } from '../../components/landing/MarcaDiaria';
 import { resetPassword } from '../../lib/auth-client';
 
 function ResetPasswordForm() {
@@ -31,12 +33,12 @@ function ResetPasswordForm() {
     }
 
     if (newPassword !== confirmPassword) {
-      setMessage({ type: 'error', text: 'As senhas nao coincidem.' });
+      setMessage({ type: 'error', text: 'As senhas não coincidem.' });
       return;
     }
 
     if (!token) {
-      setMessage({ type: 'error', text: 'Token invalido.' });
+      setMessage({ type: 'error', text: 'Link inválido. Peça um novo.' });
       return;
     }
 
@@ -63,9 +65,9 @@ function ResetPasswordForm() {
     return (
       <Card className="shadow-lg border-border">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Link invalido</CardTitle>
+          <CardTitle className="text-2xl font-bold">Link inválido</CardTitle>
           <CardDescription className="text-base">
-            Este link de recuperacao e invalido ou expirou.
+            Este link de recuperação é inválido ou expirou.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -87,7 +89,7 @@ function ResetPasswordForm() {
         </CardTitle>
         <CardDescription className="text-base">
           {success
-            ? 'Voce sera redirecionado para o login...'
+            ? 'Você será levado para o login...'
             : 'Crie uma nova senha para sua conta.'}
         </CardDescription>
       </CardHeader>
@@ -112,7 +114,7 @@ function ResetPasswordForm() {
                 type="password"
                 name="new-password"
                 autoComplete="new-password"
-                placeholder="Minimo 8 caracteres"
+                placeholder="Mínimo de 8 caracteres"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
@@ -150,11 +152,10 @@ export default function ResetPasswordPage() {
     <main className="min-h-screen bg-background px-4 py-16 flex items-center justify-center">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">
-              RP
-            </div>
-          </div>
+          <Link href="/" className="flex items-center justify-center gap-2.5">
+            <SimboloPorta className="h-9 w-9" />
+            <span className="text-lg font-semibold">Diária</span>
+          </Link>
           <Badge variant="outline" className="text-xs">
             Redefinir senha
           </Badge>

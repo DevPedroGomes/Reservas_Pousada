@@ -729,7 +729,7 @@ router.put('/:id', authorize(['admin', 'recepcao']), async (req: Request, res: R
       return res.status(409).json({
         sucesso: false,
         codigo: 'RES_009',
-        mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
+        mensagem: 'Esta reserva foi alterada por outro usuário. Recarregue e tente novamente.'
       });
     }
     if (error instanceof ConflitoDeReserva) {
@@ -803,7 +803,7 @@ router.patch('/:id/status', authorize(['admin', 'recepcao']), async (req: Reques
       return res.status(409).json({
         sucesso: false,
         codigo: 'RES_009',
-        mensagem: 'Esta reserva foi alterada por outro usuario. Recarregue e tente novamente.'
+        mensagem: 'Esta reserva foi alterada por outro usuário. Recarregue e tente novamente.'
       });
     }
     if (error instanceof ConflitoDeReserva) {

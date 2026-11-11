@@ -53,7 +53,7 @@ export function AuthCard({
     <Card className="w-full max-w-md">
       <CardHeader className="pb-4">
         <CardTitle className="text-xl">
-          {isSignup ? "Criar Conta" : "Entrar"}
+          {isSignup ? "Criar conta" : "Entrar"}
         </CardTitle>
         <CardDescription>
           {isSignup
@@ -120,7 +120,7 @@ export function AuthCard({
         {!isSignup && (
           <form onSubmit={handleLoginSubmit} className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="login-email" className="text-sm">Email</Label>
+              <Label htmlFor="login-email" className="text-sm">E-mail</Label>
               <Input
                 id="login-email"
                 type="email"
@@ -159,7 +159,7 @@ export function AuthCard({
         {isSignup && (
           <form onSubmit={handleSignupSubmit} className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="signup-nome" className="text-sm">Nome Completo</Label>
+              <Label htmlFor="signup-nome" className="text-sm">Nome completo</Label>
               <Input
                 id="signup-nome"
                 type="text"
@@ -172,7 +172,7 @@ export function AuthCard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="signup-email" className="text-sm">Email</Label>
+              <Label htmlFor="signup-email" className="text-sm">E-mail</Label>
               <Input
                 id="signup-email"
                 type="email"
@@ -199,7 +199,7 @@ export function AuthCard({
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading.signup}>
-              {loading.signup ? "Criando conta..." : "Criar Conta"}
+              {loading.signup ? "Criando conta..." : "Criar conta"}
             </Button>
           </form>
         )}
@@ -210,7 +210,7 @@ export function AuthCard({
             onClick={onToggleMode}
             className="text-xs text-muted-foreground hover:text-primary transition-colors"
           >
-            {isSignup ? "Ja tem uma conta? Entre aqui" : "Nao tem conta? Crie agora"}
+            {isSignup ? "Já tem uma conta? Entre aqui" : "Não tem conta? Crie agora"}
           </button>
         </div>
       </CardContent>

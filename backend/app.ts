@@ -284,7 +284,7 @@ const icalLimiter = criarLimitador('ical', { windowMs: 60 * 1000, max: 30, keyGe
 app.get('/ical/:arquivo', icalLimiter, async (req, res, next) => {
   try {
     const token = String(req.params.arquivo).replace(/\.ics$/, '');
-    const conteudo = await calendarioExportado(token, new URL(process.env.APP_URL || process.env.FRONTEND_URL || 'https://diaria.app').hostname);
+    const conteudo = await calendarioExportado(token, new URL(process.env.APP_URL || process.env.FRONTEND_URL || 'https://diaria.gomio.com.br').hostname);
     if (!conteudo) return res.status(404).type('text/plain').send('Calendário não encontrado');
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Cache-Control', 'private, max-age=300');

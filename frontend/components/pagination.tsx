@@ -17,14 +17,14 @@ export function Pagination({ page, totalPages, onPageChange }: PaginationProps) 
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-xs text-muted-foreground">
-        Pagina {page} de {totalPages || 1}
+        Página {page} de {totalPages || 1}
       </span>
       <div className="flex gap-1">
         <Button variant="ghost" size="sm" onClick={() => canPrev && onPageChange(page - 1)} disabled={!canPrev}>
           Anterior
         </Button>
         <Button variant="ghost" size="sm" onClick={() => canNext && onPageChange(page + 1)} disabled={!canNext}>
-          Proxima
+          Próxima
         </Button>
       </div>
     </div>

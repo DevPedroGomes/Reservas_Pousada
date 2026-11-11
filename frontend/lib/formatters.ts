@@ -116,7 +116,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   }
 
   if (log.details?.antes && log.details?.depois) {
-    return "Alteracao de dados da reserva."
+    return "Alteração de dados da reserva."
   }
 
   if (log.action === "criar") return "Reserva criada."
@@ -136,7 +136,7 @@ export function renderResumoAuditoria(log: Auditoria): string {
   if (log.action === "finalizacao_automatica") return "Estadia finalizada automaticamente (saída vencida)."
   if (log.action === "pre_reserva_expirada") return "Pré-reserva cancelada automaticamente (prazo vencido)."
 
-  return "Atualizacao registrada."
+  return "Atualização registrada."
 }
 
 /**

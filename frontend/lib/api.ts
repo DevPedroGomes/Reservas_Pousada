@@ -39,7 +39,7 @@ export class ApiError extends Error {
  * Erro de rede (servidor offline, sem conexao)
  */
 export class NetworkError extends Error {
-  constructor(message: string = "Nao foi possivel conectar ao servidor.") {
+  constructor(message: string = "Não foi possível conectar ao servidor.") {
     super(message)
     this.name = "NetworkError"
   }
