@@ -37,10 +37,10 @@ describe('iCal — leitura', () => {
 
 describe('iCal — exportação', () => {
   it('gera calendário válido, sem dado de hóspede, com CRLF e linhas dobradas', () => {
-    const ics = gerarIcal('Pousada Sol, Suíte; Mar', [{ id: 7, inicio: '2026-11-20', fim: '2026-11-23' }], 'diaria.app');
+    const ics = gerarIcal('Pousada Sol, Suíte; Mar', [{ id: 7, inicio: '2026-11-20', fim: '2026-11-23' }], 'diaria.gomio.com.br');
     assert.ok(ics.startsWith('BEGIN:VCALENDAR\r\n'));
     assert.ok(ics.includes('X-WR-CALNAME:Pousada Sol\\, Suíte\\; Mar'));
-    assert.ok(ics.includes('UID:reserva-7@diaria.app'));
+    assert.ok(ics.includes('UID:reserva-7@diaria.gomio.com.br'));
     assert.ok(ics.includes('DTSTART;VALUE=DATE:20261120\r\nDTEND;VALUE=DATE:20261123'));
     assert.ok(ics.includes('SUMMARY:Reservado'));
     assert.ok(ics.split('\r\n').every((l) => Buffer.byteLength(l) <= 75));
