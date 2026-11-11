@@ -45,7 +45,7 @@ export default function ConvitePage() {
         }
       } catch {
         setState('error');
-        setErrorMsg('Erro de conexao. Tente novamente.');
+        setErrorMsg('Erro de conexão. Tente novamente.');
       }
     }
 
@@ -79,14 +79,14 @@ export default function ConvitePage() {
       }
     } catch {
       setState('valid');
-      setErrorMsg('Erro de conexao. Tente novamente.');
+      setErrorMsg('Erro de conexão. Tente novamente.');
     }
   }
 
   const roleLabel = (role: string) => {
     const map: Record<string, string> = {
       admin: 'Administrador',
-      recepcao: 'Recepcao',
+      recepcao: 'Recepção',
       auditoria: 'Auditoria',
     };
     return map[role] || role;
@@ -112,20 +112,20 @@ export default function ConvitePage() {
               </svg>
             </div>
             <CardTitle>
-              {state === 'expired' && 'Convite Expirado'}
-              {state === 'used' && 'Convite Utilizado'}
-              {state === 'not_found' && 'Convite Nao Encontrado'}
+              {state === 'expired' && 'Convite expirado'}
+              {state === 'used' && 'Convite já utilizado'}
+              {state === 'not_found' && 'Convite não encontrado'}
               {state === 'error' && 'Erro'}
             </CardTitle>
             <CardDescription>
-              {state === 'expired' && 'Este convite expirou. Peca ao administrador para enviar um novo.'}
-              {state === 'used' && 'Este convite ja foi utilizado ou revogado.'}
-              {state === 'not_found' && 'O link do convite e invalido ou nao existe.'}
+              {state === 'expired' && 'Este convite expirou. Peça ao administrador para enviar um novo.'}
+              {state === 'used' && 'Este convite já foi utilizado ou revogado.'}
+              {state === 'not_found' && 'O link do convite é inválido ou não existe.'}
               {state === 'error' && (errorMsg || 'Ocorreu um erro inesperado.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center">
-            <Button onClick={() => router.push('/')}>Ir para o inicio</Button>
+            <Button onClick={() => router.push('/')}>Ir para o início</Button>
           </CardContent>
         </Card>
       </main>
@@ -143,9 +143,9 @@ export default function ConvitePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <CardTitle>Convite Aceito!</CardTitle>
+            <CardTitle>Convite aceito!</CardTitle>
             <CardDescription>
-              Voce agora faz parte da equipe de <strong>{invite?.pousadaNome}</strong>. Redirecionando...
+              Você agora faz parte da equipe de <strong>{invite?.pousadaNome}</strong>. Redirecionando...
             </CardDescription>
           </CardHeader>
         </Card>
@@ -161,9 +161,9 @@ export default function ConvitePage() {
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-lg font-bold text-primary-foreground">
             {invite?.pousadaNome?.substring(0, 2).toUpperCase()}
           </div>
-          <CardTitle>Convite para Equipe</CardTitle>
+          <CardTitle>Convite para a equipe</CardTitle>
           <CardDescription>
-            Voce foi convidado para fazer parte da equipe da pousada.
+            Você foi convidado para fazer parte da equipe da pousada.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -173,11 +173,11 @@ export default function ConvitePage() {
               <span className="font-medium">{invite?.pousadaNome}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Funcao</span>
+              <span className="text-muted-foreground">Função</span>
               <span className="font-medium">{roleLabel(invite?.role || '')}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Email</span>
+              <span className="text-muted-foreground">E-mail</span>
               <span className="font-medium">{invite?.email}</span>
             </div>
             {invite?.expiresAt && (
@@ -197,7 +197,7 @@ export default function ConvitePage() {
           {!session?.user ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground text-center">
-                Voce precisa estar autenticado para aceitar o convite.
+                Você precisa entrar na sua conta para aceitar o convite.
               </p>
               <Button className="w-full" onClick={() => router.push(`/cadastro?convite=${encodeURIComponent(token)}`)}>
                 Criar minha conta
@@ -216,7 +216,7 @@ export default function ConvitePage() {
                 onClick={handleAccept}
                 disabled={state === 'accepting'}
               >
-                {state === 'accepting' ? 'Aceitando...' : 'Aceitar Convite'}
+                {state === 'accepting' ? 'Aceitando...' : 'Aceitar convite'}
               </Button>
             </div>
           )}

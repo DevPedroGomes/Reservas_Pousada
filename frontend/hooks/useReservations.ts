@@ -137,7 +137,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       }
     } catch (err) {
       if (err instanceof NetworkError) {
-        setError("Nao foi possivel conectar ao servidor. Verifique sua conexao.")
+        setError("Não foi possível conectar ao servidor. Verifique sua conexão.")
       } else {
         console.error("Erro ao carregar dashboard", err)
       }
@@ -171,7 +171,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
       }
     } catch (err) {
       if (err instanceof NetworkError) {
-        setError("Nao foi possivel conectar ao servidor. Verifique sua conexao.")
+        setError("Não foi possível conectar ao servidor. Verifique sua conexão.")
       } else {
         console.error("Erro ao carregar reservas", err)
       }
@@ -251,7 +251,7 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     form: Reserva,
     formId: number | null
   ): Promise<{ sucesso: boolean; mensagem: string }> => {
-    if (!isAuthenticated) return { sucesso: false, mensagem: "Nao autenticado" }
+    if (!isAuthenticated) return { sucesso: false, mensagem: "Não autenticado" }
 
     const erros: string[] = []
     const tipo = form.tipo_documento ?? "cpf"
@@ -271,21 +271,21 @@ export function useReservations(isAuthenticated: boolean = false, pousadaId?: nu
     }
 
     if (!form.data_entrada || !form.data_saida) {
-      erros.push("Datas de entrada e saida sao obrigatorias.")
+      erros.push("Datas de entrada e saída são obrigatórias.")
     } else {
       // Only validate past dates for NEW reservations, not edits
       if (!formId) {
         if (isDataNoPassado(form.data_entrada)) {
-          erros.push("Data de entrada nao pode estar no passado.")
+          erros.push("Data de entrada não pode estar no passado.")
         }
         if (isDataNoPassado(form.data_saida)) {
-          erros.push("Data de saida nao pode estar no passado.")
+          erros.push("Data de saída não pode estar no passado.")
         }
       }
       const entrada = new Date(`${form.data_entrada}T00:00:00`)
       const saida = new Date(`${form.data_saida}T00:00:00`)
       if (entrada >= saida) {
-        erros.push("Data de entrada deve ser anterior a data de saida.")
+        erros.push("Data de entrada deve ser anterior à data de saída.")
       }
     }
 

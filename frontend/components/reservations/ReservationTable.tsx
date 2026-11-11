@@ -44,15 +44,15 @@ export function ReservationTable({
           <TableHeader>
             <TableRow className="bg-muted/30">
               <TableHead>ID</TableHead>
-              <TableHead>Hospede</TableHead>
+              <TableHead>Hóspede</TableHead>
               <TableHead>Documento</TableHead>
               <TableHead>Quarto</TableHead>
               <TableHead>Entrada</TableHead>
-              <TableHead>Saida</TableHead>
+              <TableHead>Saída</TableHead>
               <TableHead>Valor (R$)</TableHead>
               <TableHead>Pago</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Acoes</TableHead>
+              <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

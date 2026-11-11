@@ -58,7 +58,7 @@ export function ReservationFilters({
               <Input
                 id="search"
                 type="text"
-                placeholder="Nome ou CPF do hospede"
+                placeholder="Nome ou CPF do hóspede"
                 value={filters.search}
                 onChange={handleChange("search")}
               />
@@ -82,11 +82,11 @@ export function ReservationFilters({
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
-              <Label htmlFor="data_inicio" className="text-xs">Data Inicio</Label>
+              <Label htmlFor="data_inicio" className="text-xs">Data início</Label>
               <Input id="data_inicio" type="date" value={filters.data_inicio} onChange={handleChange("data_inicio")} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="data_fim" className="text-xs">Data Fim</Label>
+              <Label htmlFor="data_fim" className="text-xs">Data fim</Label>
               <Input id="data_fim" type="date" value={filters.data_fim} onChange={handleChange("data_fim")} />
             </div>
             <div className="flex items-end gap-2 lg:col-span-2">

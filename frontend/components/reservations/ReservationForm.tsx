@@ -202,7 +202,7 @@ export function ReservationForm({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="data-saida" className="text-xs">
-                  Data de Saida *
+                  Data de saída *
                 </Label>
                 <Input
                   id="data-saida"
@@ -452,8 +452,8 @@ export function AuditHistory({ logs }: AuditHistoryProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Historico de Alteracoes</CardTitle>
-        <CardDescription>Registro de modificacoes desta reserva</CardDescription>
+        <CardTitle>Histórico de alterações</CardTitle>
+        <CardDescription>Registro de modificações desta reserva</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-2">

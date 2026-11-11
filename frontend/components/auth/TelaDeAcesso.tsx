@@ -88,7 +88,6 @@ export function TelaDeAcesso({ modo }: { modo: "entrar" | "cadastro" }) {
       />
 
       <div className="mt-6 flex flex-col items-center gap-2 text-sm text-muted-foreground">
-        {modo === "entrar" && <Link href="/forgot-password" className="hover:text-primary">Esqueci minha senha</Link>}
         <p className="text-xs">
           Ao continuar você concorda com os <Link href="/termos" className="underline">Termos de uso</Link> e a{" "}
           <Link href="/privacidade" className="underline">Política de privacidade</Link>.
