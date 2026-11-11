@@ -52,10 +52,10 @@ backend/**/*.js
 
 # Volumes data
 postgres_data/
-# .claude/ local; só a skill de conteúdo (/pulse) é versionada
-!.claude/
-.claude/*
-!.claude/skills/
+# Local: config do Claude Code (inclui a skill /pulse) e o conteúdo de
+# marketing, que é um repo privado próprio clonado em marketing/
+.claude/
+/marketing
 PLAN_IMPROVEMENTS.md
 
 # deploy control (VPS-local)
