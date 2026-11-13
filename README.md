@@ -387,7 +387,7 @@ A clean run of every migration against an empty database is exercised on every C
 Every push to `main` that passes CI publishes both images tagged with the first
 12 characters of the commit SHA (immutable), and moves `latest` (what the VPS
 auto-pull consumes) only if that commit is still the tip of `main`. The backend image carries that SHA, served as `version` by
-`/health/live`. The `verificar-producao` job waits up to 15 minutes and fails if
+`/health/live`. The `verificar-producao` job waits up to 25 minutes and fails if
 production does not serve the SHA just published (unless a newer commit has
 already replaced it), so a stalled auto-pull shows up as a red run. Recovery steps are in `docs/deploy-producao.md`.
 

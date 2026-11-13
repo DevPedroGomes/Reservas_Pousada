@@ -203,14 +203,14 @@ jobs:
     needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     concurrency:
       group: ${{ needs.build.outputs.moveu_latest == 'true' && format('verificar-producao-{0}', github.repository) || format('verificar-producao-{0}-{1}', github.repository, github.sha) }}
       cancel-in-progress: true
     permissions:
       contents: read
     steps:
-      - name: Esperar a API servir o commit publicado (ate 15 min)
+      - name: Esperar a API servir o commit publicado (ate 25 min)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -223,7 +223,9 @@ jobs:
           fi
           esperado="${GITHUB_SHA::12}"
           url="https://api.diaria.gomio.com.br/health/live"
-          prazo=$((SECONDS + 900))
+          # O timer da VPS roda a cada 10 min, com até 2 min de atraso, e o pull do
+          # backend já levou 7 min: 15 min de prazo dava vermelho com o deploy a caminho.
+          prazo=$((SECONDS + 1500))
           servindo="sem resposta"
           while [ "$SECONDS" -lt "$prazo" ]; do
             servindo="$(curl -fsS --max-time 10 "$url" | jq -r '.version // "sem o campo version"')" || servindo="sem resposta"
@@ -234,6 +236,6 @@ jobs:
             echo "Producao em '${servindo}', esperando '${esperado}'"
             sleep 30
           done
-          echo "::error title=Producao atrasada::${url} serve '${servindo}' depois de 15 min; publicado: '${esperado}'. Ver docs/deploy-producao.md, secao Recuperacao."
+          echo "::error title=Producao atrasada::${url} serve '${servindo}' depois de 25 min; publicado: '${esperado}'. Ver docs/deploy-producao.md, secao Recuperacao."
           echo "Producao atrasada: serve '${servindo}', publicado '${esperado}'" >> "$GITHUB_STEP_SUMMARY"
           exit 1
