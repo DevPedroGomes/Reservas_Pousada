@@ -18,7 +18,7 @@ push na main ──> GitHub Actions: testes ──> build das imagens ──> GH
                                                                   │
 VPS: auto-pull do latest ──> docker compose (Traefik + backend + frontend) ──> central-db (Postgres)
                                                                   │
-GitHub Actions: verificar-producao ──> /health/live serve o sha publicado? (até 15 min; senão, run vermelho)
+GitHub Actions: verificar-producao ──> /health/live serve o sha publicado? (até 25 min; senão, run vermelho)
 ```
 
 - Domínios: `https://diaria.gomio.com.br` (app) e `https://api.diaria.gomio.com.br` (API).

@@ -27,15 +27,18 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
+# Install production dependencies only. O chown fica no mesmo RUN: num RUN
+# separado ele regravava o node_modules inteiro numa camada nova, e a VPS
+# baixava uns 230 MB a mais a cada deploy.
 RUN npm ci --only=production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    chown -R nodejs:nodejs /app
 
 # Copy built files from builder
-COPY --from=builder /app/dist ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 
 # Migrations aplicadas no boot pelo runner (dist/db/migrate.js).
-COPY --from=builder /app/migrations ./migrations
+COPY --from=builder --chown=nodejs:nodejs /app/migrations ./migrations
 
 # Path absoluto de proposito: em producao o codigo roda de /app/dist/db/, entao
 # um path relativo ao modulo cairia em /app/dist/migrations (inexistente).
@@ -45,9 +48,6 @@ ENV MIGRATIONS_DIR=/app/migrations
 # heap pela memória do HOST e o kernel mata o processo (OOM) antes de o GC
 # reagir — reinício sem nenhuma mensagem útil no log.
 ENV NODE_OPTIONS=--max-old-space-size=192
-
-# Set ownership
-RUN chown -R nodejs:nodejs /app
 
 # Switch to non-root user
 USER nodejs
